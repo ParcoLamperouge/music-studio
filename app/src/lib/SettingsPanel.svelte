@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { paths, prefetchNow, readBytes, run, writeBytes } from "./engine";
+  import { enqueue, paths, prefetchNow, readBytes, run, settingsPath, writeBytes, writeJson } from "./engine";
   import { settings } from "./settings.svelte";
   import { refresh, store } from "./store.svelte";
 
@@ -31,6 +31,29 @@
       msg = "Prefetch en marcha (en segundo plano; la cola de aquí espera a la GPU si hace falta)";
     } catch (e) {
       msg = `No arranca el timer: ${e}`;
+    }
+  }
+  let remoteMsg = $state("");
+  async function remoteSongs() {
+    await writeJson(settingsPath(), $state.snapshot(settings)); // el motor lee la dirección de ahí
+    return (await run<{ songs: Record<string, unknown> }>("remote_list", [])).songs;
+  }
+  async function test() {
+    remoteMsg = "Probando…";
+    try {
+      const n = Object.keys(await remoteSongs()).length;
+      remoteMsg = `Conectado · ${n} canci${n === 1 ? "ón" : "ones"} allí`;
+    } catch (e) {
+      remoteMsg = `${e}`;
+    }
+  }
+  async function syncAll() {
+    try {
+      const keys = [...new Set([...store.tracks.map((t) => t.key), ...Object.keys(await remoteSongs())])];
+      await enqueue("remote", keys);
+      remoteMsg = `En la cola: ${keys.length} canciones`;
+    } catch (e) {
+      remoteMsg = `${e}`;
     }
   }
   const failed = $derived(store.tracks.filter((t) => t.failed));
@@ -70,6 +93,22 @@
         <a href="https://huggingface.co/MuScriptor/muscriptor-medium" target="_blank">Hugging Face</a> y, una vez, en una terminal:
         <code>~/Projects/estudio/engine/.venv/bin/hf auth login</code>
       </p>
+    </section>
+
+    <section>
+      <h3>Servidor</h3>
+      <p class="hint">
+        Lo ya procesado (audio, pistas, Whisper, acordes, notas, letra y edits) se guarda allí, y en otro ordenador se baja
+        en vez de volver a sacarlo. Si las dos copias cambiaron, gana la más nueva. Se arranca con
+        <code>python3 server/server.py</code> desde el repo (variables PORT y ESTUDIO_TOKEN).
+      </p>
+      <input type="url" placeholder="http://127.0.0.1:8765" bind:value={settings.remote} spellcheck="false" />
+      <input type="password" placeholder="Token (si el servidor lo pide)" bind:value={settings.remoteToken} />
+      <div class="actions">
+        <button class="ghost" disabled={!settings.remote} onclick={test}>Probar</button>
+        <button class="primary" disabled={!settings.remote} onclick={syncAll}>Sincronizar todo</button>
+        {#if remoteMsg}<span class="muted">{remoteMsg}</span>{/if}
+      </div>
     </section>
 
     <section>
@@ -114,6 +153,7 @@
   .hint { margin: 0; color: var(--text-3); font-size: 12.5px; }
   .hint a { color: var(--accent); }
   code { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); word-break: break-all; }
+  input[type="url"], input[type="password"] { width: 100%; font-family: var(--mono); font-size: 12px; }
   textarea { width: 100%; resize: vertical; font-family: var(--mono); font-size: 12px; }
   .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .actions .muted { font-size: 12px; }

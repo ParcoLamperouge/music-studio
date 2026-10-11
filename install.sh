@@ -46,7 +46,7 @@ if [[ "$GPU" != rocm ]]; then
   index="https://download.pytorch.org/whl/$([[ $GPU == cuda ]] && echo cu128 || echo cpu)"
   uv pip install --python "$REPO/engine/.venv/bin/python" --reinstall torch torchaudio torchvision --index-url "$index"
 fi
-for t in test_hub test_letras test_stemlab; do
+for t in test_hub test_letras test_stemlab test_remote; do
   "$REPO/engine/.venv/bin/python" "$REPO/engine/$t.py" >/dev/null || die "el motor no pasa sus tests (engine/$t.py)"
 done
 

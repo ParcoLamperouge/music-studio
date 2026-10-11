@@ -188,6 +188,7 @@
           <button onclick={() => bulk("align-audio")} title="Whisper comprueba que el audio es la versión de los tiempos de la letra (un videoclip con intro no lo es) y, si no, lo pone a la par">Comprobar la versión del audio</button>
           <button onclick={() => bulk("letra-force")}>Buscar la letra otra vez</button>
           <button onclick={() => bulk("beats")}>Sacar pulsos</button>
+          <button onclick={() => bulk("remote")} title="Sube lo que solo está aquí y baja lo que solo está en el servidor (Ajustes → Servidor)">Sincronizar con el servidor</button>
           <hr />
           <button onclick={() => bulk("delete-audio")}>Borrar audio en caché</button>
           <button onclick={() => bulk("delete-stems")}>Borrar pistas y partituras</button>

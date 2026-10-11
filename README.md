@@ -74,6 +74,22 @@ escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
 - **Playlists** (Ajustes): las canciones de tus playlists públicas se sincronizan cada 6 h en segundo plano
   (`estudio-prefetch.timer`, con un juego abierto espera); «Procesar ahora» y reintentar las fallidas.
 - **Escritorio**: oculta en el escritorio, instrumental y nota, en la pestaña Letra.
+- **Servidor** (Ajustes → Servidor; en bloque, «Sincronizar con el servidor»): lo ya procesado de cada canción (audio,
+  voz, pistas, Whisper, alineado, pulsos, acordes, notas, letra con su historial y edits con sus fondos) se guarda en
+  `server/server.py`, y otro ordenador lo baja en vez de volver a sacarlo. Sincronizar es en los dos sentidos: lo que
+  falta en un lado sale del otro, y si los dos cambiaron un fichero gana el más nuevo. El audio y las pistas van en
+  bloque con todo lo que sale de ellos: si un lado tiene otro audio (otra versión, o recortado al alinearlo), gana
+  entero el bloque más nuevo y no se mezcla, por ejemplo, Whisper de un audio con el otro. Una separación a medias no
+  se sube. Los ficheros van por contenido (sha256): un audio enlazado en dos sitios se sube una vez, y al bajar se
+  vuelve a enlazar.
+
+  ```sh
+  python3 server/server.py                       # localhost:8765, datos en ./store (PORT, HOST, STORE)
+  ```
+
+  Fuera de localhost pide `ESTUDIO_TOKEN` (en la app: Ajustes → Servidor → Token). No lleva TLS: en la nube, detrás
+  de un proxy con HTTPS (Caddy, Traefik…). Sin la app: `ESTUDIO_REMOTE=host:puerto engine/.venv/bin/python
+  engine/hub.py remote_sync <clave>`.
 
 De StemLab no se trajeron las carpetas de la biblioteca (hay filtros y búsqueda).
 
@@ -88,6 +104,6 @@ cd engine && uv sync
 cd ../app && npm install && npm run tauri dev     # puerto 1440
 ```
 
-Tests: `cd engine && .venv/bin/python test_hub.py` (y `test_letras.py`, `test_stemlab.py`), `cd app && npm test && npm run check`,
+Tests: `cd engine && .venv/bin/python test_hub.py` (y `test_letras.py`, `test_stemlab.py`, `test_remote.py`), `cd app && npm test && npm run check`,
 `cd app/src-tauri && cargo test`. Con datos reales: `ESTUDIO_TEST="todo <clave>" cargo test real_job -- --ignored --nocapture`.
 Instalar en el lanzador: `./install.sh`.

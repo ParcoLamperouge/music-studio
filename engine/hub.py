@@ -18,6 +18,7 @@ recurso corren (gpu / cpu / net); la app los programa: una cosa a la vez en la G
 
 import fcntl
 import gc
+import hashlib
 import json
 import os
 import re
@@ -27,8 +28,11 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 HOME = Path.home()
 XDG = Path(os.environ.get("XDG_DATA_HOME") or HOME / ".local/share")
@@ -1134,6 +1138,195 @@ def paths():
     emit("done", letras=str(L.DATA), stemlab=str(S.DATA), data=str(DATA), edits=str(EDITS), lock=str(L.GPU_LOCK))
 
 
+# ---------------------------------------------------------------- servidor: lo procesado, en otros ordenadores
+
+
+def remote_cfg():
+    cfg = read_json(DATA / "settings.json", {})
+    url = (os.environ.get("ESTUDIO_REMOTE") or cfg.get("remote") or "").strip().rstrip("/")
+    if not url:
+        raise RuntimeError("pon la dirección del servidor en Ajustes")
+    return url if "://" in url else f"http://{url}", os.environ.get("ESTUDIO_REMOTE_TOKEN") or cfg.get("remoteToken") or ""
+
+
+def http(method, path, data=None, length=None):
+    """Respuesta del servidor, o None si es un 404."""
+    url, token = remote_cfg()
+    h = {"Authorization": f"Bearer {token}"} if token else {}
+    if isinstance(data, (dict, list)):
+        data, h["Content-Type"] = json.dumps(data, ensure_ascii=False).encode(), "application/json"
+    if length is not None:
+        h["Content-Length"] = str(length)
+    try:
+        return urllib.request.urlopen(urllib.request.Request(url + path, data=data, method=method, headers=h), timeout=60)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise RuntimeError(f"el servidor dice {e.code}: {e.read().decode(errors='replace')[:200]}") from None
+    except OSError as e:
+        raise RuntimeError(f"no llego al servidor ({url}): {getattr(e, 'reason', e)}") from None
+
+
+def http_json(method, path, data=None):
+    r = http(method, path, data)
+    return json.load(r) if r else None
+
+
+def song_files(s):
+    """{ruta: fichero} de lo procesado de una canción. Las rutas valen en cualquier ordenador: allí las carpetas de
+    datos y el id de StemLab pueden ser otros."""
+    key, out = s["key"], {}
+    if not key.startswith("stem:"):
+        out["lyrics.json"] = L.doc_path(key)
+        out.update({f"history/{p.name}": p for p in L.history(key)})
+        out.update({f"audio/{p.name[len(key):]}": p for p in L.AUDIO.glob(f"{key}.*") if not p.name.endswith((".part", ".tmp"))})
+    if stem_state(s["stem"]) == "complete":  # una separación a medias no se comparte (es lo que daba errores al reutilizar)
+        d = S.SONGS / s["stem"]
+        out.update({f"stems/{p.relative_to(d).as_posix()}": p for p in d.rglob("*") if p.is_file() and not any(x.startswith(".") for x in p.relative_to(d).parts)})
+    for p in (EDITS / "projects").glob("*.json"):
+        text = p.read_text()
+        if (read_json(p) or {}).get("key") == key:
+            out[f"edits/projects/{p.name}"] = p
+            for m in re.findall(r"/file/data/media/([^\"/?#]+)", text):  # fondos subidos al editor
+                out[f"edits/media/{unquote(m)}"] = EDITS / "media" / unquote(m)
+    return {r: p for r, p in out.items() if p.is_file()}
+
+
+def local_path(key, sid, rel):
+    head, _, rest = rel.partition("/")
+    if any(x in ("", ".", "..") for x in rel.split("/")) or (head in ("history", "audio") and "/" in rest) or (head == "edits" and not re.fullmatch(r"(projects|media)/[^/]+", rest)):
+        raise ValueError(f"ruta rara del servidor: {rel}")
+    if rel == "lyrics.json":
+        return L.doc_path(key)
+    if head == "history":
+        return L.LYRICS / ".history" / key / rest
+    if head == "audio":
+        return L.AUDIO / f"{key}{rest}"
+    if head == "stems" and sid:
+        return S.SONGS / sid / rest
+    if head == "edits":
+        return EDITS / rest
+    raise ValueError(f"ruta rara del servidor: {rel}")
+
+
+def manifest_of(files):
+    seen, out = {}, {}
+    for r, p in files.items():
+        st = p.stat()
+        k = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)  # enlaces duros: se lee una vez
+        if k not in seen:
+            with open(p, "rb") as f:
+                seen[k] = hashlib.file_digest(f, "sha256").hexdigest()
+        out[r] = {"sha": seen[k], "size": st.st_size, "mtime": st.st_mtime_ns}
+    return out
+
+
+GROUPS = {"audio/": "audio/.wav", "stems/": "stems/mix.wav"}  # bloque -> el audio del que sale todo lo demás
+
+
+def newer(x, y):
+    return (x["mtime"], x["sha"]) >= (y["mtime"], y["sha"])
+
+
+def merge(a, b):
+    """Lo de los dos lados; por fichero gana el más nuevo. El audio y las pistas van en bloque: si un lado tiene otro
+    audio (otra versión, o recortado al alinearlo con la letra), lo que salió del audio del otro ya no vale, y gana
+    entero el bloque del audio más nuevo (sin mezclar Whisper o acordes de un audio con el otro)."""
+    whole = {g: (a if newer(a[base], b[base]) else b) for g, base in GROUPS.items() if base in a and base in b and a[base]["sha"] != b[base]["sha"]}
+    out = {}
+    for r in a.keys() | b.keys():
+        g = next((g for g in GROUPS if r.startswith(g)), None)
+        if g in whole:
+            if r in whole[g]:
+                out[r] = whole[g][r]
+        else:
+            x, y = a.get(r), b.get(r)
+            out[r] = x if x and (not y or newer(x, y)) else y
+    return out
+
+
+def remote_list():
+    emit("done", songs=http_json("GET", "/songs") or {})
+
+
+def remote_sync(key):
+    """Deja la canción igual aquí y en el servidor: lo que falta en un lado sale del otro, y si los dos cambiaron algo
+    gana lo más nuevo (merge). Lo que ya está no se vuelve a subir ni a bajar."""
+    url = f"/songs/{quote(key, safe='')}"
+    remote = http_json("GET", url) or {"meta": {}, "files": {}}
+    rmeta = remote["meta"]
+    try:
+        s = resolve(key)
+    except ValueError:  # solo está en el servidor
+        if not remote["files"]:
+            raise
+        s = {"key": key, "stem": None, "doc": None, "artist": rmeta.get("artist", ""), "title": rmeta.get("title", ""), "duration": rmeta.get("duration") or 0}
+    sid = s["stem"] or (key[5:] if key.startswith("stem:") else None)
+    if not sid and any(r.startswith("stems/") for r in remote["files"]):
+        sid = rmeta.get("stem") or key
+        if (S.SONGS / sid).exists():  # aquí ese id es de otra canción
+            sid = key
+    files = song_files(s)
+    local = manifest_of(files)
+    target = merge(local, remote["files"])
+    get = {r: f for r, f in target.items() if local.get(r, {}).get("sha") != f["sha"]}
+    drop = [r for r in local if r not in target]
+    have = {f["sha"]: files[r] for r, f in local.items()}  # para enlazar en vez de bajar
+    total, done = sum(f["size"] for f in get.values() if f["sha"] not in have) or 1, 0
+    if get:
+        emit("progress", label=f"Bajando {len(get)} fichero{'s' * (len(get) != 1)}", step=1, total=2)
+    for r, f in sorted(get.items()):
+        dst = local_path(key, sid, r)
+        if f["sha"] in have:
+            link(have[f["sha"]], dst)
+        else:
+            res = http("GET", f"/blobs/{f['sha']}")
+            if not res:
+                raise RuntimeError(f"al servidor le falta {r}")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            tmp, h = dst.with_name(f".{dst.name}.{os.getpid()}.part"), hashlib.sha256()
+            with res, open(tmp, "wb") as out:
+                while chunk := res.read(1 << 20):
+                    h.update(chunk)
+                    out.write(chunk)
+                    done += len(chunk)
+                    emit("pct", value=round(100 * done / total))
+            if h.hexdigest() != f["sha"]:
+                tmp.unlink()
+                raise RuntimeError(f"{r} ha llegado roto")
+            tmp.replace(dst)
+        os.utime(dst, ns=(f["mtime"], f["mtime"]))
+        have[f["sha"]] = files[r] = dst
+    for r in drop:  # salía de un audio que ya no es el de la canción
+        files.pop(r).unlink(missing_ok=True)
+    if sid and get.get("stems/meta.json"):
+        m = files["stems/meta.json"]
+        meta = read_json(m)
+        if meta and meta.get("id") != sid:  # en el otro ordenador la carpeta se llamaba distinto
+            mt = m.stat().st_mtime_ns
+            write_json(m, {**meta, "id": sid})
+            os.utime(m, ns=(mt, mt))
+    if get and not key.startswith("stem:"):
+        with registry() as reg:
+            e = reg.get(key, {})
+            reg[key] = {**{k: rmeta[k] for k in ("artist", "title", "duration") if rmeta.get(k)}, **e,
+                        **({"stem": sid} if sid and stem_state(sid) == "complete" else {})}
+    # subir lo que solo está aquí
+    up = {target[r]["sha"]: p for r, p in files.items() if r in target}
+    missing = http_json("POST", "/missing", sorted(up)) or []
+    total, done = sum(up[m].stat().st_size for m in missing) or 1, 0
+    for i, sha in enumerate(missing, 1):
+        emit("progress", label=f"Subiendo {i}/{len(missing)}", step=2, total=2)
+        with open(up[sha], "rb") as f:
+            http("PUT", f"/blobs/{sha}", f, up[sha].stat().st_size)
+        done += up[sha].stat().st_size
+        emit("pct", value=round(100 * done / total))
+    meta = {"artist": s["artist"], "title": s["title"], "duration": s["duration"], "stem": sid}
+    if target != remote["files"] or meta != rmeta:
+        http_json("PUT", url, {"meta": meta, "files": target})
+    emit("done", key=key, down=len(get), up=len(missing), removed=len(drop))
+
+
 # ---------------------------------------------------------------- plan
 
 
@@ -1174,6 +1367,12 @@ def separate_steps(s):
 
 def plan(action, key, *args):
     """Pasos que faltan para `action` con lo que hay ahora. La app los ejecuta en orden; cada paso vuelve a mirar."""
+    if action == "remote":  # también para canciones que aún solo están en el servidor
+        try:
+            title = display(resolve(key))
+        except ValueError:
+            title = key
+        return emit("done", title=title, steps=[step("remote_sync", "net", "Servidor", key)])
     s = resolve(key)
     if action == "letra":  # buscar (o buscar otra vez) y dejarla palabra a palabra
         need_letras(s)
@@ -1222,6 +1421,7 @@ COMMANDS = {
     "catalog": catalog, "song": song, "plan": plan, "paths": paths, "search": search, "add": add, "assign": assign, "import": import_,
     "restore": restore, "delete": delete, "ensemble": ensemble, "beats": beats, "audio": audio, "vocals": vocals, "whisper": whisper,
     "ctc": ctc, "find": find, "align": align, "separate": separate, "notes": notes, "chords": chords, "prefetch": prefetch, "unfail": unfail, "rebalance": rebalance, "audio_align": audio_align,
+    "remote_list": remote_list, "remote_sync": remote_sync,
 }
 
 

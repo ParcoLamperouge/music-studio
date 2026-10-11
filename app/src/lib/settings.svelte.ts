@@ -8,6 +8,8 @@ export const settings = $state({
   scoreFollow: true,
   spotify: true, // sincronizar sola lo que suena en Spotify
   notes: "fast" as "fast" | "precise", // basic-pitch o MuScriptor
+  remote: "", // servidor de Estudio (server/server.py): lo procesado, compartido entre ordenadores
+  remoteToken: "",
 });
 
 let loaded = false;
