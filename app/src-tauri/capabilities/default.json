@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-fullscreen",
+    "dialog:default",
+    "opener:default",
+    { "identifier": "opener:allow-open-path", "allow": [{ "path": "/data/**" }, { "path": "$HOME/.local/share/**" }, { "path": "$DATA/**" }] },
+    { "identifier": "opener:allow-reveal-item-in-dir", "allow": [{ "path": "/data/**" }, { "path": "$HOME/.local/share/**" }, { "path": "$DATA/**" }] }
+  ]
+}

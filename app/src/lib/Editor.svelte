@@ -1,0 +1,383 @@
+<script lang="ts">
+  import { doubtful, fmtTime, parseTime, type Line, type Lyrics, type Word } from "./engine";
+
+  let {
+    doc,
+    now,
+    job,
+    otherSong,
+    history,
+    onsave,
+    onai,
+    onfast,
+    onrestore,
+    onseek,
+    onclose,
+  }: {
+    doc: Lyrics;
+    now: number;
+    job: { label: string; step?: number; total?: number } | null;
+    otherSong: string; // la IA está ocupada con otra canción
+    history: number; // versiones anteriores guardadas
+    onsave: (d: Lyrics) => void;
+    onai: (d: Lyrics) => void;
+    onfast: (d: Lyrics) => void;
+    onrestore: () => void;
+    onseek: (t: number) => void;
+    onclose: () => void;
+  } = $props();
+
+  // copia propia: nada se toca hasta Guardar (el padre recrea el editor con {#key} si cambia doc)
+  // svelte-ignore state_referenced_locally
+  let lines = $state<Line[]>(structuredClone($state.snapshot(doc.lines)));
+  let dirty = $state(false);
+  let tap = $state(-1); // línea que marcará el próximo Espacio; -1 = modo tap apagado
+  let paste = $state<string | null>(null);
+  let open = $state(-1); // línea con sus palabras desplegadas
+  let rows: HTMLDivElement;
+
+  const busy = $derived(!!job);
+  const doubts = $derived(lines.filter((l) => doubtful(l).length).length);
+  const touch = () => (dirty = true);
+  function setText(l: Line, text: string) {
+    l.text = text;
+    delete l.words; // los tiempos por palabra ya no valen
+    touch();
+  }
+  const r3 = (x: number) => Math.round(x * 1000) / 1000;
+  /** Mover la línea mueve sus palabras con ella; quitarle el tiempo las quita. */
+  function setT(l: Line, t: number | null) {
+    const d = t != null && l.t != null ? t - l.t : null;
+    l.t = t;
+    if (d == null) {
+      delete l.end;
+      delete l.words;
+    } else {
+      if (l.end != null) l.end = r3(Math.max(0, l.end + d));
+      for (const w of l.words ?? []) {
+        w.t = r3(Math.max(0, w.t + d));
+        if (w.end != null) w.end = r3(Math.max(w.t, w.end + d));
+      }
+    }
+    touch();
+  }
+  /** Tiempo de una palabra (su fin se mueve igual). La primera manda en el inicio de la línea. */
+  function setWordT(l: Line, w: Word, t: number | null) {
+    if (t == null) return;
+    t = r3(Math.max(0, t));
+    if (w.end != null) w.end = r3(Math.max(t, w.end + t - w.t));
+    w.t = t;
+    if (l.words![0] === w) l.t = t;
+    touch();
+  }
+  function insert(k: number) {
+    lines.splice(k + 1, 0, { t: null, text: "" });
+    touch();
+  }
+  function remove(k: number) {
+    lines.splice(k, 1);
+    touch();
+  }
+  function shift(by: number) {
+    for (const l of lines) {
+      if (l.t != null) l.t = Math.max(0, Math.round((l.t + by) * 1000) / 1000);
+      if (l.end != null) l.end = Math.max(0, l.end + by);
+      for (const w of l.words ?? []) {
+        w.t = Math.max(0, w.t + by);
+        if (w.end != null) w.end = Math.max(0, w.end + by);
+      }
+    }
+    touch();
+  }
+  /** Texto pegado: una línea por renglón. Si el número de líneas no cambia, conserva los tiempos. */
+  function applyPaste() {
+    const texts = paste!.split("\n").map((t) => t.trim());
+    const keep = texts.length === lines.length;
+    lines = texts.map((text, k) => (keep && lines[k].text === text ? lines[k] : { t: keep ? lines[k].t : null, text }));
+    paste = null;
+    touch();
+  }
+  function result(): Lyrics {
+    const out = $state.snapshot(lines) as Line[];
+    const synced = out.some((l) => l.t != null);
+    if (out.every((l) => l.t != null)) out.sort((a, b) => a.t! - b.t!);
+    return { ...$state.snapshot(doc), lines: out, synced, edited: true, source: doc.source || "manual" };
+  }
+  function save() {
+    onsave(result());
+    dirty = false;
+  }
+
+  function onkey(e: KeyboardEvent) {
+    if (tap < 0 || (e.target as HTMLElement).closest("input, textarea")) return;
+    if (e.code === "Space") {
+      e.preventDefault();
+      e.stopPropagation();
+      setT(lines[tap], Math.round(now * 100) / 100);
+      tap = Math.min(tap + 1, lines.length - 1);
+    } else if (e.code === "Backspace") {
+      e.preventDefault();
+      tap = Math.max(0, tap - 1);
+    }
+  }
+  $effect(() => {
+    if (tap >= 0) (rows?.children[tap] as HTMLElement)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+</script>
+
+<svelte:window onkeydowncapture={onkey} />
+
+<aside>
+  <header>
+    <h2>Editar letra</h2>
+    <button class="ghost" onclick={onclose} title="Cerrar (E)">✕</button>
+  </header>
+
+  <div class="tools">
+    <button class="primary" disabled={!dirty} onclick={save}>Guardar</button>
+    <button onclick={() => (paste = lines.map((l) => l.text).join("\n"))}>Pegar / editar texto</button>
+    <button class:on={tap >= 0} onclick={() => (tap = tap >= 0 ? -1 : Math.max(0, lines.findIndex((l) => l.t == null)))}>
+      {tap >= 0 ? "Parar tap" : "Sincronizar a mano"}
+    </button>
+    <button disabled={busy || !lines.some((l) => l.text)} onclick={() => { const d = result(); dirty = false; onai(d); }}
+      title="Guarda y alinea tu texto escuchando el audio (Whisper), sin usar los tiempos por línea.">
+      {busy ? "Sincronizando…" : "Desde el audio"}
+    </button>
+    <button disabled={busy || !lines.some((l) => l.t != null && l.text)} onclick={() => { const d = result(); dirty = false; onfast(d); }}
+      title="Guarda y coloca las palabras con el audio sin tocar el inicio de ninguna línea (los que ves aquí).">
+      Dentro de cada línea
+    </button>
+    <button disabled={busy || !history} onclick={onrestore}
+      title="Deshace la última sincronización con IA ({history} guardadas).">
+      Volver a la anterior{history > 1 ? ` (${history})` : ""}
+    </button>
+    <span class="nudge">
+      Todo
+      <button onclick={() => shift(-0.1)}>−0.1 s</button>
+      <button onclick={() => shift(0.1)}>+0.1 s</button>
+    </span>
+  </div>
+
+  {#if job}
+    <p class="hint busy">
+      {otherSong ? `La IA está con «${otherSong}»; cuando acabe sigue con esta.` : `IA: ${job.label}${job.total ? ` (${job.step}/${job.total})` : ""}…`}
+    </p>
+  {/if}
+
+  {#if doc.source === "ia" && !doc.edited}
+    <p class="hint warn">
+      Transcrita por IA: revísala.{doubts ? ` ${doubts} líneas con palabras dudosas marcadas en amarillo (▶ para oírlas).` : ""}
+    </p>
+  {/if}
+
+  {#if tap >= 0}
+    <p class="hint">Reproduce la canción y pulsa <kbd>Espacio</kbd> justo cuando empiece cada línea resaltada. <kbd>⌫</kbd> vuelve una atrás.</p>
+  {/if}
+
+  {#if paste != null}
+    <div class="paste">
+      <textarea bind:value={paste} rows="16" placeholder="Una línea de la letra por renglón. Renglón vacío = pausa."></textarea>
+      <div class="tools">
+        <button class="primary" onclick={applyPaste}>Aplicar</button>
+        <button onclick={() => (paste = null)}>Cancelar</button>
+      </div>
+    </div>
+  {/if}
+
+  <div class="rows" bind:this={rows}>
+    {#each lines as l, k (k)}
+      <div class="row" class:doubt={doubtful(l).length} title={doubtful(l).length ? `La IA no tiene claro: ${doubtful(l).join(", ")}` : undefined} class:tapnext={k === tap} class:playing={l.t != null && l.t <= now && (lines[k + 1]?.t ?? Infinity) > now}>
+        <input class="time" value={fmtTime(l.t)} placeholder="--:--" onchange={(e) => setT(l, parseTime(e.currentTarget.value))} />
+        <button class="ghost" title="Poner el tiempo actual" onclick={() => setT(l, Math.round(now * 100) / 100)}>⏱</button>
+        <button class="ghost" title="Ir aquí" disabled={l.t == null} onclick={() => onseek(l.t!)}>▶</button>
+        <input class="text" value={l.text} oninput={(e) => setText(l, e.currentTarget.value)} />
+        <button class="ghost" class:on={open === k} disabled={!l.words?.length} title="Tiempo de cada palabra" onclick={() => (open = open === k ? -1 : k)}>⋯</button>
+        <button class="ghost" title="Línea debajo" onclick={() => insert(k)}>＋</button>
+        <button class="ghost" title="Borrar" onclick={() => remove(k)}>✕</button>
+      </div>
+      {#if open === k && l.words?.length}
+        <div class="words">
+          {#each l.words as w, j (j)}
+            <div class="word" class:now={w.t <= now && (w.end ?? l.words[j + 1]?.t ?? Infinity) > now} class:doubt={w.p != null && w.p < 0.5}>
+              <b>{w.w}</b>
+              <button class="ghost" title="−0.05 s" onclick={() => setWordT(l, w, w.t - 0.05)}>−</button>
+              <input class="wt" value={fmtTime(w.t)} onchange={(e) => setWordT(l, w, parseTime(e.currentTarget.value))} />
+              <button class="ghost" title="+0.05 s" onclick={() => setWordT(l, w, w.t + 0.05)}>+</button>
+              <button class="ghost" title="Poner el tiempo actual" disabled={!now} onclick={() => setWordT(l, w, now)}>⏱</button>
+              <button class="ghost" title="Ir aquí" onclick={() => onseek(w.t)}>▶</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {:else}
+      <p class="hint">Sin letra. Pega el texto o añade líneas.</p>
+      <button onclick={() => insert(-1)}>＋ Añadir línea</button>
+    {/each}
+  </div>
+</aside>
+
+<style>
+  aside {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(560px, 100vw);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    background: var(--sidebar);
+    border-left: 1px solid var(--line-hi);
+    box-shadow: -30px 0 60px -20px #000c;
+    z-index: 30;
+    animation: slide 0.35s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes slide {
+    from { transform: translateX(40px); opacity: 0; }
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  h2 {
+    margin: 0;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 28px;
+  }
+  button {
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text-2);
+    font-size: 12.5px;
+  }
+  button:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--line-hi);
+  }
+  button:disabled {
+    opacity: 0.4;
+  }
+  button.on {
+    color: var(--text);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  button.ghost {
+    border-color: transparent;
+    background: transparent;
+    padding: 3px 7px;
+  }
+  button.primary {
+    border: 0;
+    color: #1c0f05;
+  }
+  input {
+    padding: 5px 8px;
+  }
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .nudge {
+    margin-left: auto;
+    font-size: 12px;
+    opacity: 0.8;
+  }
+  .rows {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .row {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding: 2px 4px;
+    border-radius: 8px;
+  }
+  .row.playing {
+    background: var(--panel-hi);
+  }
+  .row.doubt {
+    box-shadow: inset 3px 0 #ffc23d;
+  }
+  .row.doubt .text {
+    border-color: rgba(255, 194, 61, 0.5);
+  }
+  .hint.busy {
+    color: var(--accent);
+    opacity: 1;
+  }
+  .hint.warn {
+    color: #ffc23d;
+    opacity: 1;
+  }
+  .row.tapnext {
+    background: var(--accent-soft);
+    outline: 1px solid var(--accent);
+  }
+  .words {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 4px 8px 78px;
+  }
+  .word {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 2px 4px 2px 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 12px;
+  }
+  .word b {
+    margin-right: 2px;
+  }
+  .word button {
+    padding: 2px 5px;
+  }
+  .word.now {
+    outline: 1px solid var(--accent);
+  }
+  .word.doubt b {
+    color: #ffc23d;
+  }
+  .wt {
+    width: 62px;
+    font-variant-numeric: tabular-nums;
+  }
+  .time {
+    width: 76px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .text {
+    flex: 1;
+  }
+  .paste textarea {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+  .hint {
+    font-size: 13px;
+    opacity: 0.75;
+    margin: 0;
+  }
+  kbd {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.15);
+  }
+</style>

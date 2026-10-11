@@ -1,0 +1,43 @@
+{
+  "name": "estudio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.edit.json",
+    "test": "node src/lib/harmony.test.ts && node src/edit/remotion/timing.test.ts && node src/edit/editor/auto.test.ts",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5",
+    "@fontsource-variable/onest": "^5",
+    "@fontsource/instrument-serif": "^5",
+    "@remotion/bundler": "4.0.534",
+    "@remotion/google-fonts": "4.0.534",
+    "@remotion/player": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "jspdf": "^4.2.1",
+    "opensheetmusicdisplay": "^2.1.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.534",
+    "svg2pdf.js": "^2.8.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tauri-apps/cli": "^2",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "svelte": "^5.56.3",
+    "svelte-check": "^4.6.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16"
+  }
+}
