@@ -2,11 +2,13 @@
   import { invoke } from "@tauri-apps/api/core";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
-  import { listDir, paths, readBytes, readJson, removeFile } from "./engine";
+  import { listDir, paths, readBytes, readJson, removeFile, writeJson } from "./engine";
   import { stamps } from "./live";
   import { Player, synth } from "./player";
   import Roll from "./Roll.svelte";
   import { settings } from "./settings.svelte";
+  import SongPlayer from "./SongPlayer.svelte";
+  import { store } from "./store.svelte";
   import Transport from "./Transport.svelte";
 
   /** Lo que guarda el modo Tocar (live.ts, snapshot). */
@@ -20,7 +22,7 @@
   };
   type Item = { name: string; base: string; s: Session | null };
 
-  let { onback }: { onback: () => void } = $props();
+  let { onback, onsong }: { onback: () => void; onsong: (key: string) => void } = $props();
 
   const dir = `${paths.data}/sesiones`;
   let items = $state<Item[]>([]);
@@ -33,6 +35,60 @@
   let analysis = $state("");
   let analyzing = $state(false);
   let error = $state("");
+
+  // ---- canciones separadas para tocar encima (claves de la biblioteca, en sesiones/canciones.json)
+  const songsPath = `${dir}/canciones.json`;
+  let tab = $state<"sesiones" | "canciones">((() => {
+    try {
+      return localStorage.getItem("estudio.sesiones.tab") === "canciones" ? "canciones" : "sesiones";
+    } catch {
+      return "sesiones";
+    }
+  })());
+  $effect(() => {
+    try {
+      localStorage.setItem("estudio.sesiones.tab", tab);
+    } catch {}
+  });
+  let songs = $state<string[]>([]);
+  let song = $state<string | null>(null);
+  let songPlayer = $state<SongPlayer>();
+  let songTime = $state(0);
+  let songChords = $state<{ t: number; end: number; name: string; deg?: string }[]>([]);
+  let songKey = $state("");
+  let adding = $state(false);
+  let query = $state("");
+  let picked = $state<string[]>([]);
+  const trackOf = (key: string) => store.tracks.find((t) => t.key === key);
+  /** Las separadas que aún no están en la lista. */
+  const available = $derived(
+    store.tracks
+      .filter((t) => t.stems && t.present.length && !songs.includes(t.key))
+      .filter((t) => `${t.title} ${t.artist}`.toLowerCase().includes(query.trim().toLowerCase()))
+      .sort((a, b) => a.title.localeCompare(b.title)),
+  );
+
+  function openSong(key: string) {
+    player.stop();
+    playing = false;
+    sel = null;
+    song = key;
+  }
+
+  async function addSongs() {
+    songs = [...picked, ...songs];
+    await writeJson(songsPath, songs);
+    adding = false;
+    if (picked[0]) openSong(picked[0]);
+    picked = [];
+  }
+
+  async function removeSong() {
+    if (!song) return;
+    songs = songs.filter((k) => k !== song);
+    song = null;
+    await writeJson(songsPath, songs);
+  }
 
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
   /** «2026-10-14_11-48-47» → «14 oct 2026 · 11:48». */
@@ -47,7 +103,8 @@
     const files = await listDir(dir).catch(() => []);
     const names = files.filter((f) => f.name.endsWith(".json")).map((f) => f.name.slice(0, -5)).sort().reverse();
     items = await Promise.all(names.map(async (name) => ({ name, base: `${dir}/${name}`, s: await readJson<Session | null>(`${dir}/${name}.json`, null) })));
-    if (!sel && items[0]) void open(items[0]);
+    songs = await readJson<string[]>(songsPath, []);
+    if (!sel && !song && tab === "sesiones" && items[0]) void open(items[0]);
   }
 
   async function open(it: Item) {
@@ -57,6 +114,7 @@
     player.duration = 0;
     playing = false;
     time = 0;
+    song = null;
     sel = it;
     analysis = "";
     error = "";
@@ -127,10 +185,11 @@
       }),
   );
 
-  // acordes que más suenan
+  // acordes que más suenan (de la sesión o de la canción)
+  const shownChords = $derived(song ? songChords : (sel?.s?.chords ?? []));
   const top = $derived.by(() => {
     const dur = new Map<string, number>();
-    for (const c of sel?.s?.chords ?? []) dur.set(c.name, (dur.get(c.name) ?? 0) + c.end - c.t);
+    for (const c of shownChords) dur.set(c.name, (dur.get(c.name) ?? 0) + c.end - c.t);
     return [...dur].sort((a, b) => b[1] - a[1]).slice(0, 6);
   });
 
@@ -155,7 +214,7 @@
   });
 
   function onkey(e: KeyboardEvent) {
-    if ((e.target as HTMLElement).closest("input, textarea, select, button") || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!sel || adding || (e.target as HTMLElement).closest("input, textarea, select, button") || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.code === "Space" && sel && !loading) (e.preventDefault(), toggle());
     else if (e.key === "ArrowLeft") seek(Math.max(0, time - 5));
     else if (e.key === "ArrowRight") seek(Math.min(duration, time + 5));
@@ -176,9 +235,24 @@
   <aside>
     <header>
       <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
-      <strong>Sesiones</strong>
+      <div class="seg">
+        <button class:on={tab === "sesiones"} onclick={() => (tab = "sesiones")}>Sesiones</button>
+        <button class:on={tab === "canciones"} onclick={() => (tab = "canciones")}>Canciones</button>
+      </div>
     </header>
     <div class="list">
+      {#if tab === "canciones"}
+        <button class="add" onclick={() => (adding = true)}>＋ Añadir canción</button>
+        {#each songs as k (k)}
+          {@const t = trackOf(k)}
+          <button class="item" class:on={song === k} onclick={() => openSong(k)}>
+            <span>{t?.title ?? k}</span>
+            <small class="mono">{t ? `${t.artist} · ${t.present.length} pistas` : "ya no está en la biblioteca"}</small>
+          </button>
+        {:else}
+          <p class="muted empty">Añade canciones con las pistas separadas para escucharlas por instrumentos aquí.</p>
+        {/each}
+      {:else}
       {#each items as it (it.name)}
         <button class="item" class:on={sel?.name === it.name} onclick={() => open(it)} disabled={!it.s}>
           <span>{when(it.name)}</span>
@@ -189,11 +263,14 @@
       {:else}
         <p class="muted empty">Aún no hay sesiones: se guardan solas al tocar en «Tocar».</p>
       {/each}
+      {/if}
     </div>
   </aside>
 
   <main>
-    {#if sel?.s}
+    {#if song}
+      {#key song}<SongPlayer bind:this={songPlayer} key={song} bind:time={songTime} bind:chords={songChords} bind:keyLabel={songKey} />{/key}
+    {:else if sel?.s}
       {#key sel.base}
         <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} chords={sel.s.chords} keyLabel={sel.s.key ?? ""}
           tracks={[{ stem: "piano", name: sel.s.device || "Teclado", color: "#f29d38", path: `${sel.base}.json`, hidden: false }]} />
@@ -205,7 +282,32 @@
   </main>
 
   <section class="panel">
-    {#if sel?.s}
+    {#if song}
+      {@const t = trackOf(song)}
+      <span class="kicker">Canción</span>
+      <h2>{t?.title ?? song}</h2>
+      <dl class="mono">
+        <dt>Artista</dt><dd>{t?.artist ?? "—"}</dd>
+        <dt>Tonalidad</dt><dd>{songKey || "—"}</dd>
+        {#if t?.bpm}<dt>Tempo</dt><dd>{Math.round(t.bpm)} bpm</dd>{/if}
+      </dl>
+      {#if top.length}
+        <span class="kicker">Acordes que más suenan</span>
+        <div class="chips">{#each top as [name, d] (name)}<span>{name} <small>{fmt(d)}</small></span>{/each}</div>
+        <span class="kicker">Progresión <small>(clic para ir)</small></span>
+        <div class="prog">
+          {#each songChords as c, i (i)}
+            <button class:now={c.t <= songTime && songTime < c.end} onclick={() => songPlayer?.seek(c.t)} title="{fmt(c.t)}{c.deg ? ` · ${c.deg}` : ''}">{c.name}</button>
+          {/each}
+        </div>
+      {:else}
+        <p class="muted">Sin acordes todavía: sácalos en Analizar (pestaña Acordes).</p>
+      {/if}
+      <div class="actions">
+        <button class="ghost" onclick={() => song && onsong(song)} title="Letra, partitura, acordes…">Abrir en Analizar</button>
+        <button class="ghost" onclick={removeSong} title="Solo la quita de esta lista; la canción sigue en la biblioteca">Quitar</button>
+      </div>
+    {:else if sel?.s}
       <span class="kicker">Sesión</span>
       <h2>{when(sel.name)}</h2>
       <dl class="mono">
@@ -243,11 +345,55 @@
   </section>
 </div>
 
+{#if adding}
+  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (adding = false)}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Añadir canciones">
+      <h3>Añadir canciones</h3>
+      <p class="muted">Las que tienen las pistas separadas.</p>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input type="search" placeholder="Buscar…" bind:value={query} autofocus onkeydown={(e) => e.key === "Escape" && (adding = false)} />
+      <div class="pick">
+        {#each available as t (t.key)}
+          <label class:on={picked.includes(t.key)}>
+            <input type="checkbox" bind:group={picked} value={t.key} />
+            <span>{t.title}</span><small>{t.artist} · {t.present.length} pistas</small>
+          </label>
+        {:else}
+          <p class="muted">{query ? "Ninguna coincide." : "No quedan canciones separadas sin añadir (sepáralas en Analizar)."}</p>
+        {/each}
+      </div>
+      <div class="actions">
+        <button class="ghost" onclick={() => ((adding = false), (picked = []))}>Cancelar</button>
+        <button class="primary" disabled={!picked.length} onclick={addSongs}>Añadir{picked.length ? ` (${picked.length})` : ""}</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .sessions { height: 100vh; display: grid; grid-template-columns: 280px 1fr 380px; }
   aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   aside header { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
-  aside strong { font-family: var(--serif); font-weight: 400; font-size: 24px; }
+  .seg { display: flex; flex: 1; padding: 3px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+  .seg button { flex: 1; padding: 5px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12.5px; }
+  .seg button.on { background: var(--panel-hi); color: var(--text); }
+  .add { margin-bottom: 6px; padding: 9px 12px; border-radius: 10px; border: 1px dashed var(--line-hi); background: none; color: var(--text-2); text-align: left; }
+  .add:hover { color: var(--text); border-color: var(--accent); }
+
+  .backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: #0008; backdrop-filter: blur(4px); }
+  .dialog {
+    width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 60px); display: flex; flex-direction: column; gap: 10px; padding: 20px 22px;
+    background: var(--sidebar); border: 1px solid var(--line-hi); border-radius: 18px; box-shadow: 0 40px 100px -20px #000; animation: rise 0.3s var(--ease);
+  }
+  .dialog h3 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 30px; }
+  .dialog p { margin: 0; font-size: 13px; }
+  .pick { overflow-y: auto; min-height: 120px; max-height: 50vh; display: flex; flex-direction: column; gap: 2px; }
+  .pick label { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: center; padding: 7px 10px; border-radius: 9px; cursor: pointer; }
+  .pick label:hover { background: var(--panel); }
+  .pick label.on { background: var(--accent-soft); }
+  .pick input { grid-row: span 2; }
+  .pick small { color: var(--text-3); font-size: 11.5px; }
+  .dialog .actions { justify-content: flex-end; }
   .list { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border-radius: 10px; border: 0; background: none; color: var(--text); text-align: left; }
   .item:hover:not(:disabled) { background: var(--panel); }

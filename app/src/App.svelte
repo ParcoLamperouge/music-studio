@@ -145,7 +145,7 @@
 {:else if mode === "tocar"}
   <main class="solo"><PlayView onback={() => go(null)} onsessions={() => go("sesiones")} /></main>
 {:else if mode === "sesiones"}
-  <SessionsView onback={() => go(null)} />
+  <SessionsView onback={() => go(null)} onsong={(k) => (go("analizar"), select(k))} />
 {:else}
   <div class="app">
     <aside class="side">
