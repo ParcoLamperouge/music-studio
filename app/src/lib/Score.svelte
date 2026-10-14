@@ -6,13 +6,16 @@
   import { setWindowFullscreen } from "./fullscreen";
   import type { Player } from "./player";
 
-  let { song, stems, path, player, controls, follow = $bindable(true) }: {
+  let { song, stems, path, player, controls, follow = $bindable(true), title, beatAt, pdfName }: {
     song: Song;
     stems: Stem[]; // instrumentos visibles, un pentagrama cada uno
     path: string; // MusicXML de conjunto que monta el motor
     player: Player;
     controls: Snippet; // transporte, para la pantalla completa
     follow?: boolean; // desplazar la partitura con la reproducción
+    title?: string; // en vez de los instrumentos (un arreglo)
+    beatAt?: (t: number) => number; // segundo → negras desde el principio de la partitura, si no va a tempo fijo
+    pdfName?: string;
   } = $props();
 
   let container: HTMLDivElement;
@@ -93,7 +96,7 @@
     let raf = 0;
     const tick = () => {
       const o = osmd!;
-      const beat = (player.time() * bpm) / 240 + 1e-6; // en redondas, como los timestamps de OSMD
+      const beat = (beatAt ? beatAt(player.time()) / 4 : (player.time() * bpm) / 240) + 1e-6; // en redondas, como los timestamps de OSMD
       if (beat < lastBeat) {
         for (const el of painted) el.style.fill = el.style.stroke = "";
         painted = [];
@@ -171,7 +174,7 @@
         if (i) pdf.addPage();
         await pdf.svg(pages[i], { x: 0, y: 0, width: w, height: h });
       }
-      const out = `${song.dir}/scores/${stems.map((s) => s.name).join("+")}.pdf`;
+      const out = `${song.dir}/scores/${pdfName ?? stems.map((s) => s.name).join("+")}.pdf`;
       await writeBytes(out, new Uint8Array(pdf.output("arraybuffer")));
       await openPath(out);
     } catch (e) {
@@ -189,8 +192,8 @@
   <header>
     <div class="title">
       {#each stems as s (s.name)}<span class="dot" style:--c={STEM_INFO[s.name].color}></span>{/each}
-      <strong>{labels}</strong>
-      <small>{total} notas · {bpm} BPM</small>
+      <strong>{title ?? labels}</strong>
+      {#if !title}<small>{total} notas · {bpm} BPM</small>{/if}
     </div>
     <div class="tools">
       <label title="Desplazar la partitura para seguir la reproducción">

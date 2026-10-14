@@ -165,6 +165,26 @@ export function synth(notes: [number, number, number, number][], duration: numbe
   return ctx.startRendering();
 }
 
+/** Una nota en el momento (practicar con el teclado del ordenador sin piano): devuelve con qué soltarla. */
+export function voice(ctx: AudioContext, p: number, v = 0.7) {
+  const now = ctx.currentTime;
+  const o = ctx.createOscillator();
+  o.type = "triangle";
+  o.frequency.value = 440 * 2 ** ((p - 69) / 12);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(0.25 * v, now + 0.005);
+  g.gain.setTargetAtTime(0, now + 0.005, 0.3 + 2.2 * Math.max(0, (108 - p) / 87));
+  o.connect(g).connect(ctx.destination);
+  o.start(now);
+  return () => {
+    const t = ctx.currentTime;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setTargetAtTime(0, t, 0.05);
+    o.stop(t + 0.4);
+  };
+}
+
 /** Picos por columna para dibujar la forma de onda. */
 export function peaks(buf: AudioBuffer, columns: number): Float32Array {
   const out = new Float32Array(columns);

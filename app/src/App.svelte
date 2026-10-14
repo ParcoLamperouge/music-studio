@@ -6,6 +6,7 @@
   import Library from "./lib/Library.svelte";
   import PlayView from "./lib/PlayView.svelte";
   import SessionsView from "./lib/SessionsView.svelte";
+  import LearnView from "./lib/LearnView.svelte";
   import Queue from "./lib/Queue.svelte";
   import SettingsPanel from "./lib/SettingsPanel.svelte";
   import { loadSettings, saveSettings, settings } from "./lib/settings.svelte";
@@ -17,7 +18,7 @@
   let fatal = $state("");
   let selected = $state<string | null>(params.get("song"));
   // qué se va a hacer: analizar canciones o tocar el teclado; sin elegir, el menú
-  type Mode = "analizar" | "tocar" | "sesiones";
+  type Mode = "analizar" | "tocar" | "sesiones" | "aprender";
   let mode = $state<Mode | null>(params.get("song") ? "analizar" : (params.get("mode") as Mode | null));
   let initialTab = $state(params.get("tab") ?? undefined);
   let picked = $state<string[]>([]);
@@ -102,7 +103,7 @@
   function onkey(e: KeyboardEvent) {
     const typing = (e.target as HTMLElement).closest("input, textarea, select, [contenteditable]");
     if (typing || e.ctrlKey || e.metaKey || e.altKey || adding) return;
-    const pick = ({ "1": "analizar", "2": "tocar", "3": "sesiones" } as const)[e.key as "1"];
+    const pick = ({ "1": "analizar", "2": "tocar", "3": "sesiones", "4": "aprender" } as const)[e.key as "1"];
     if (!mode && pick) return go(pick);
     if (mode !== "analizar") return;
     if (e.key === "q" || e.key === "Q") ((queueOpen = !queueOpen), e.preventDefault());
@@ -140,10 +141,17 @@
         <strong>Sesiones</strong>
         <span>Lo que tocaste: volver a oírlo con su piano roll y sus acordes, y analizarlo con Claude.</span>
       </button>
+      <button onclick={() => go("aprender")}>
+        <kbd>4</kbd>
+        <strong>Aprender</strong>
+        <span>Una canción para piano, del nivel 1 al 5: melodía y acompañamiento, sobre sus pistas, con partitura.</span>
+      </button>
     </div>
   </div>
 {:else if mode === "tocar"}
   <main class="solo"><PlayView onback={() => go(null)} onsessions={() => go("sesiones")} /></main>
+{:else if mode === "aprender"}
+  <LearnView onback={() => go(null)} />
 {:else if mode === "sesiones"}
   <SessionsView onback={() => go(null)} onsong={(k) => (go("analizar"), select(k))} />
 {:else}
@@ -274,7 +282,7 @@
   .menu { height: 100vh; display: flex; flex-direction: column; justify-content: center; max-width: 1080px; margin: 0 auto; padding: 32px; animation: rise 0.6s var(--ease); }
   .menu h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(48px, 6vw, 80px); line-height: 0.95; margin: 14px 0 32px; }
   .menu em { color: var(--accent); }
-  .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
   .choices button {
     display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 22px; border-radius: var(--radius); text-align: left;
     border: 1px solid var(--line); background: var(--panel); color: var(--text-2); transition: border-color 0.15s, background 0.15s, transform 0.15s var(--ease);

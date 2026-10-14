@@ -973,7 +973,7 @@ fn write_file(request: tauri::ipc::Request) -> Result<(), String> {
     let path = PathBuf::from(percent_decode(raw));
     let name = path.file_name().and_then(|n| n.to_str()).ok_or("sin nombre")?.to_string();
     let media = path.parent().is_some_and(|p| p.ends_with("media"));
-    if !(name.ends_with(".json") || name.ends_with(".pdf") || name.ends_with(".mid") || name.ends_with(".toon") || name == "playlists.txt" || media) || name.starts_with('.') {
+    if !(name.ends_with(".json") || name.ends_with(".pdf") || name.ends_with(".mid") || name.ends_with(".toon") || name.ends_with(".musicxml") || name == "playlists.txt" || media) || name.starts_with('.') {
         return Err(format!("no se escribe ese tipo de fichero: {name}"));
     }
     let dir = path.parent().ok_or("sin carpeta")?;

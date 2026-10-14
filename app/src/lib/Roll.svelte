@@ -75,9 +75,9 @@
   import type { Player } from "./player";
 
   type Note = [start: number, end: number, pitch: number, velocity: number];
-  type Track = { stem: string; name: string; color: string; path: string; hidden: boolean };
+  type Track = { stem: string; name: string; color: string; path: string; hidden: boolean; notes?: Note[] }; // notes: ya en memoria
 
-  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality }: {
+  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality, lit, title = "Piano roll" }: {
     player: Player;
     tracks: Track[];
     controls: Snippet; // transporte, para la pantalla completa
@@ -86,6 +86,8 @@
     chords?: { t: number; end: number; name: string; deg?: string }[]; // cambios de acorde y su grado (de harmony.ts)
     keyLabel?: string; // tonalidad
     tonality?: Key; // para escribir las notas como en su tonalidad (Sib en Fa mayor, no La#)
+    lit?: () => Map<number, string>; // teclas que se iluminan además de lo que suena (lo que toca quien practica)
+    title?: string;
   } = $props();
 
   const KEYS_H = 90;
@@ -107,7 +109,7 @@
   // notas de cada pista (cacheadas por ruta)
   $effect(() => {
     for (const t of tracks) {
-      if (notes[t.path]) continue;
+      if (t.notes || notes[t.path]) continue;
       readBytes(t.path).then((buf) => {
         const data = JSON.parse(new TextDecoder().decode(buf));
         notes = { ...notes, [t.path]: Array.isArray(data) ? data : data.notes }; // o una sesión del teclado
@@ -117,7 +119,7 @@
 
   // teclado: de la nota más grave a la más aguda de todas las pistas, en octavas completas
   const range = $derived.by(() => {
-    const all = Object.values(notes).flat();
+    const all = [...Object.values(notes), ...tracks.map((t) => t.notes ?? [])].flat();
     if (!all.length) return { lo: 48, hi: 83 };
     let lo = Math.min(...all.map((n) => n[2]));
     let hi = Math.max(...all.map((n) => n[2]));
@@ -159,7 +161,7 @@
       for (const track of tracks) {
         if (track.hidden) continue;
         // ponytail: recorre todas las notas cada frame; con decenas de miles, búsqueda binaria por inicio
-        for (const [start, end, pitch, vel] of notes[track.path] ?? []) {
+        for (const [start, end, pitch, vel] of track.notes ?? notes[track.path] ?? []) {
           if (end < t || start > t + windowSec) continue;
           const k = keys.get(pitch);
           if (!k) continue;
@@ -237,6 +239,7 @@
       g.fillStyle = "#ffffff55";
       g.fillRect(0, rollH - 2, width, 2);
 
+      if (lit) for (const [p, c] of lit()) active.set(p, c);
       drawKeys(g, keys, rollH, KEYS_H, active, name);
       raf = requestAnimationFrame(draw);
     };
@@ -250,7 +253,7 @@
 <section class="roll" class:fs={fullscreen}>
   <header>
     <div class="legend">
-      <strong>Piano roll</strong>
+      <strong>{title}</strong>
       {#each tracks as t (t.stem)}
         <button class="chip" class:off={t.hidden} onclick={() => ontoggle(t.stem)} title={t.hidden ? "Mostrar" : "Ocultar"}>
           <i style:background={t.color}></i>{t.name}

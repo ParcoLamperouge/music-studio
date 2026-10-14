@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { Channel, invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { loadNotation } from "./ChordsTab.svelte";
   import { paths, writeBytes } from "./engine";
   import { chordName, degree, keyName, noteName } from "./harmony";
+  import InputBar from "./InputBar.svelte";
+  import { input, pcKey, pcRelease, send, useInput } from "./keys.svelte";
   import { Live } from "./live";
   import { drawBarLabel, drawKeys, keyLayout } from "./Roll.svelte";
   import { settings } from "./settings.svelte";
@@ -21,39 +22,13 @@
     }
   };
 
-  let ports = $state<string[]>([]);
-  let port = $state("");
-  let connected = $state("");
-  let hasOut = $state(false);
-  let error = $state("");
-  let failed = ""; // no reintentar solo uno que no abre
+  let error = $state(""); // al guardar
   let volume = $state(+(store("estudio.midi.volume") ?? 100));
   let live = new Live();
   let started: Date | null = null;
   let dirty = false;
   let saved = $state("");
   let count = $state(0); // notas tocadas, para la cabecera
-
-  async function scan() {
-    try {
-      ports = await invoke<string[]>("midi_ports");
-    } catch (e) {
-      error = String(e);
-      return;
-    }
-    if (connected && !ports.includes(connected)) {
-      connected = "";
-      error = "Se desconectó el teclado";
-      void invoke("midi_close");
-    }
-    // al enchufarlo (o al abrir): el último usado, o el único que hay
-    if (!connected) {
-      const last = store("estudio.midi");
-      const pick = ports.find((p) => p === last) ?? (ports.length === 1 ? ports[0] : "");
-      if (pick && pick !== failed) void connect(pick);
-      else if (!port) port = ports[0] ?? "";
-    }
-  }
 
   function feed(msg: number[]) {
     if (!live.midi(msg, performance.now() / 1000)) return;
@@ -62,73 +37,11 @@
     count = live.notes.length + live.sounding.size;
   }
 
-  // ---------------------------------------------------------------- el teclado del ordenador como piano (para probar)
-  // por posición (e.code), no por letra: igual en QWERTY español o inglés. Fila A-Ñ blancas, la de arriba negras.
-  const PC_KEYS: Record<string, number> = {
-    KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11,
-    KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16, Quote: 17,
-  };
-  let octave = $state(60); // Do de la tecla A
-  const pressed = new Map<string, number>(); // tecla → nota, por si cambia la octava con ella abajo
-
-  /** Como si llegara del teclado MIDI; si hay piano conectado, además suena en él. */
-  function pcNote(msg: number[]) {
-    feed(msg);
-    if (hasOut) void invoke("midi_send", { msg }).catch(() => {});
-  }
-
-  function pcKey(e: KeyboardEvent) {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const down = e.type === "keydown";
-    const ch = live.channel;
-    if (e.code in PC_KEYS) {
-      e.preventDefault();
-      if (down && !e.repeat && !pressed.has(e.code)) {
-        const p = octave + PC_KEYS[e.code];
-        pressed.set(e.code, p);
-        pcNote([0x90 | ch, p, 90]);
-      } else if (!down && pressed.has(e.code)) {
-        pcNote([0x80 | ch, pressed.get(e.code)!, 0]);
-        pressed.delete(e.code);
-      }
-    } else if (e.code === "Space") {
-      e.preventDefault();
-      if (!e.repeat) pcNote([0xb0 | ch, 64, down ? 127 : 0]);
-    } else if (down && (e.code === "KeyZ" || e.code === "KeyX")) {
-      e.preventDefault();
-      octave = Math.min(96, Math.max(24, octave + (e.code === "KeyX" ? 12 : -12)));
-    }
-  }
-
-  /** Al perder el foco no llega el keyup: se suelta todo para que no se quede sonando. */
-  function pcRelease() {
-    for (const p of pressed.values()) pcNote([0x80 | live.channel, p, 0]);
-    pressed.clear();
-    if (live.pedal) pcNote([0xb0 | live.channel, 64, 0]);
-  }
-
-  async function connect(name: string) {
-    port = name;
-    error = "";
-    const ch = new Channel<number[]>();
-    ch.onmessage = feed;
-    try {
-      hasOut = await invoke<boolean>("midi_open", { name, on: ch });
-      connected = name;
-      failed = "";
-      store("estudio.midi", name);
-    } catch (e) {
-      connected = "";
-      failed = name;
-      error = String(e);
-    }
-  }
-
   function setVolume(v: number) {
     volume = v;
     store("estudio.midi.volume", String(v));
     // CC7 (volumen del canal) en el canal del teclado; casi todos los pianos digitales lo obedecen
-    invoke("midi_send", { msg: [0xb0 | live.channel, 7, v] }).catch((e) => (error = String(e)));
+    send([0xb0 | live.channel, 7, v]).catch((e) => (error = String(e)));
   }
 
   const stamp = (d: Date) => {
@@ -140,7 +53,7 @@
     if (!started || !dirty) return;
     dirty = false;
     const base = `${paths.data}/sesiones/${stamp(started)}`;
-    const { json, mid } = live.snapshot(performance.now() / 1000, connected || "teclado del ordenador", started, latin);
+    const { json, mid } = live.snapshot(performance.now() / 1000, input.connected || "teclado del ordenador", started, latin);
     try {
       await writeBytes(`${base}.mid`, mid);
       await writeBytes(`${base}.json`, new TextEncoder().encode(JSON.stringify(json))); // compacto: la mitad de tokens para la IA
@@ -166,13 +79,12 @@
   }
 
   onMount(() => {
-    void scan();
-    const poll = setInterval(scan, 2000); // enchufar y desenchufar el USB en marcha
+    const stop = useInput(feed);
     const auto = setInterval(save, 15000); // si se cierra la app, como mucho se pierden 15 s
     return () => {
-      clearInterval(poll);
       clearInterval(auto);
-      void save().then(() => invoke("midi_close"));
+      stop();
+      void save();
     };
   });
 
@@ -264,30 +176,22 @@
   });
 </script>
 
-<svelte:window onkeydown={pcKey} onkeyup={pcKey} onblur={pcRelease} />
+<svelte:window onkeydown={(e) => pcKey(e, live.channel)} onkeyup={(e) => pcKey(e, live.channel)} onblur={() => pcRelease(live.channel)} />
 
 <section class="play">
   <header>
     <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
-    <span class="dot" class:on={!!connected}></span>
-    <select bind:value={port} onchange={() => connect(port)} disabled={!ports.length}>
-      {#each ports as p (p)}<option value={p}>{p}</option>{/each}
-      {#if !ports.length}<option value="">Ningún teclado MIDI conectado</option>{/if}
-    </select>
-    {#if port && !connected}<button class="ghost" onclick={() => connect(port)}>Conectar</button>{/if}
-    <label title={hasOut ? "Volumen del teclado (CC7)" : "Este aparato no tiene salida MIDI: el volumen, en el propio teclado"}>
+    <InputBar />
+    <label title={input.hasOut ? "Volumen del teclado (CC7)" : "Este aparato no tiene salida MIDI: el volumen, en el propio teclado"}>
       Volumen
-      <input type="range" min="0" max="127" value={volume} disabled={!hasOut} oninput={(e) => setVolume(+e.currentTarget.value)} />
+      <input type="range" min="0" max="127" value={volume} disabled={!input.hasOut} oninput={(e) => setVolume(+e.currentTarget.value)} />
     </label>
     <label title="Cuántos segundos de notas se ven subir">
       Velocidad
       <input type="range" min="1" max="6" step="0.5" value={7 - settings.rollSpeed} oninput={(e) => (settings.rollSpeed = 7 - +e.currentTarget.value)} />
     </label>
-    <span class="pc muted" title="Teclado del ordenador: fila A S D F G H J K L Ñ = blancas, W E T Y U O P = negras, Z/X = octava, Espacio = pedal">
-      ⌨ A–Ñ · Z/X octava ({noteName(0, { tonic: 0, minor: false }, latin)}{octave / 12 - 1}) · Espacio pedal
-    </span>
     <span class="grow"></span>
-    {#if error}<span class="error-text err" title={error}>{error}</span>{/if}
+    {#if error || input.error}<span class="error-text err" title={error || input.error}>{error || input.error}</span>{/if}
     <span class="mono muted" title={saved}>{count} notas{saved ? " · guardada" : ""}</span>
     <button class="ghost" onclick={save} disabled={!count} title="Se guarda sola cada 15 s: .mid para reproducir y .json para la IA">Guardar</button>
     <button class="ghost" onclick={toSessions} title="Volver a oír y analizar lo tocado (se guarda esta antes)">Sesiones</button>
@@ -303,11 +207,7 @@
   header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   header label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
   header label input { width: 90px; }
-  select { max-width: 280px; font-size: 12px; padding: 5px 8px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
-  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   .grow { flex: 1; }
-  .pc { font-size: 12px; white-space: nowrap; }
   .err { font-size: 12px; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .muted { font-size: 12px; }
   .stage { flex: 1; min-height: 0; overflow: hidden; }
