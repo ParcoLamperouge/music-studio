@@ -79,13 +79,18 @@ assert.ok(gb.includes("<step>C</step><alter>-1</alter><octave>5</octave>"), gb.s
 const pr = new Practice([{ t: 1, p: 60, hand: "rh" }, { t: 1, p: 64, hand: "rh" }, { t: 2, p: 67, hand: "rh" }]);
 assert.equal(pr.blocking(0.9), null);
 assert.equal(pr.blocking(1.05), 1);
-assert.equal(pr.press(60, 1.05), true);
-assert.equal(pr.press(62, 1.05), false, "nota equivocada");
+assert.ok(pr.press(60, 1.05));
+assert.equal(pr.press(62, 1.05), null, "nota equivocada");
 assert.equal(pr.blocking(1.3), 1, "falta el Mi del acorde");
-assert.equal(pr.press(64, 1.3, 1), true, "en espera vale aunque haya pasado el margen");
+assert.ok(pr.press(64, 1.3, 1), "en espera vale aunque haya pasado el margen");
 assert.equal(pr.blocking(1.3), null);
 const st = pr.stats(3);
-assert.deepEqual([st.due, st.hits, st.wrong], [3, 2, 1]);
+assert.deepEqual([st.due, st.hits, st.wrong, st.force], [3, 2, 1, null], "sin fuerza (teclado del ordenador)");
+// fuerza: más fuerte de lo que pide, de media, y cuántas se pasan del margen
+const dyn = new Practice([{ t: 1, p: 60, v: 0.5, hand: "rh" }, { t: 2, p: 62, v: 0.5, hand: "rh" }]);
+dyn.press(60, 1, null, 0.9);
+dyn.press(62, 2, null, 0.6);
+assert.deepEqual([dyn.stats(3).force, dyn.stats(3).offForce], [32, 1]);
 pr.reset(0.5);
 assert.equal(pr.targets.filter((x) => x.hit).length, 0);
 // saltar hacia delante: lo de antes sin tocar no frena la espera ni cuenta como fallo

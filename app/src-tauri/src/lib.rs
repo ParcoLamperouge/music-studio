@@ -1075,6 +1075,57 @@ async fn director(brief: Value) -> Result<Value, String> {
     .await
 }
 
+/// Las pistas de una canción más lentas sin cambiar el tono (FFmpeg con rubberband), para practicar a tempo reducido en
+/// Aprender. Una vez por canción y velocidad: se guardan en <datos>/lento/<canción>/<por ciento>/ (fuera de la carpeta
+/// de la canción, para que no se sincronicen con el servidor) y las que ya están no se repiten. Todas a la vez.
+#[tauri::command]
+async fn stretch_stems(key: String, files: Vec<String>, speed: f64) -> Result<Vec<String>, String> {
+    if !(0.3..1.0).contains(&speed) {
+        return Err(format!("velocidad fuera de rango: {speed}"));
+    }
+    blocking(move || {
+        let safe: String = key.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+        let out_dir = PathBuf::from(&paths().data).join("lento").join(safe).join(format!("{}", (speed * 100.0).round() as u32));
+        std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
+        let jobs: Vec<(PathBuf, PathBuf)> = files
+            .iter()
+            .map(|f| {
+                let src = inside(Path::new(f))?;
+                let name = src.file_name().ok_or("sin nombre")?.to_owned();
+                Ok((src, out_dir.join(name)))
+            })
+            .collect::<Result<_, String>>()?;
+        let handles: Vec<_> = jobs
+            .iter()
+            .filter(|(_, dst)| !dst.exists())
+            .map(|(src, dst)| {
+                let (src, dst) = (src.clone(), dst.clone());
+                thread::spawn(move || -> Result<(), String> {
+                    let tmp = dst.with_extension("tmp.wav");
+                    let ok = Command::new("ffmpeg")
+                        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+                        .arg(&src)
+                        .args(["-af", &format!("rubberband=tempo={speed}:pitchq=quality")])
+                        .arg(&tmp)
+                        .status()
+                        .map_err(|e| format!("ffmpeg: {e}"))?
+                        .success();
+                    if !ok {
+                        let _ = std::fs::remove_file(&tmp);
+                        return Err(format!("ffmpeg no pudo estirar {}", src.display()));
+                    }
+                    std::fs::rename(&tmp, &dst).map_err(|e| e.to_string())
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().map_err(|_| "un hilo de ffmpeg se cayó".to_string())??;
+        }
+        Ok(jobs.into_iter().map(|(_, dst)| dst.to_string_lossy().into_owned()).collect())
+    })
+    .await
+}
+
 /// Un MIDI o MusicXML que se elige para importar como pieza (puede estar en cualquier sitio: lo eligió el usuario en el
 /// diálogo). Solo esas extensiones y hasta 20 MB.
 #[tauri::command]
@@ -1432,7 +1483,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             paths_cmd, catalog, song, run_cmd, enqueue, import, jobs, job, cancel, cancel_all, retry, top, clear_finished, write_file, list_dir,
             remove_file, render, director, has_director, gpu_name, now_playing, player_seek, player_toggle, prefetch_now,
-            analyze_session, read_import, midi::midi_ports, midi::midi_open, midi::midi_send, midi::midi_close
+            analyze_session, read_import, stretch_stems, midi::midi_ports, midi::midi_open, midi::midi_send, midi::midi_close
         ])
         .setup(|app| {
             let _ = APP.set(app.handle().clone());

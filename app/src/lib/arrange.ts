@@ -398,20 +398,24 @@ export function toMusicXML(a: Arrangement, title: string) {
 
 // ---------------------------------------------------------------- práctica
 
-export type Target = { t: number; p: number; hand: Hand; hit: boolean; skipped?: boolean; err?: number };
+/** Una nota que tocar; `v` la fuerza que pide (0-1) y `vel` la que se tocó (con teclado MIDI). */
+export type Target = { t: number; p: number; v?: number; hand: Hand; hit: boolean; skipped?: boolean; err?: number; vel?: number };
+/** Diferencia de fuerza a partir de la que se avisa (en 0-1; unas 30 de 127). */
+export const VEL_TOL = 0.25;
 
 /** Lo que hay que tocar y lo que se va tocando. `tol`: segundos de margen antes y después de cada nota. */
 export class Practice {
   targets: Target[];
   wrong = 0;
   tol: number;
-  constructor(notes: { t: number; p: number; hand: Hand }[], tol = 0.2) {
+  constructor(notes: { t: number; p: number; v?: number; hand: Hand }[], tol = 0.2) {
     this.tol = tol;
     this.targets = notes.map((n) => ({ ...n, hit: false })).sort((a, b) => a.t - b.t);
   }
-  /** Una tecla pulsada en `now`: acierta la nota pendiente más cercana de esa altura dentro del margen. En modo espera,
-   * además, las del grupo en el que se ha parado aunque haya pasado el margen. */
-  press(p: number, now: number, waitingAt: number | null = null) {
+  /** Una tecla pulsada en `now` (con fuerza `vel`, si se sabe): acierta la nota pendiente más cercana de esa altura
+   * dentro del margen. En modo espera, además, las del grupo en el que se ha parado aunque haya pasado el margen.
+   * Devuelve la nota acertada (para ver su fuerza) o null. */
+  press(p: number, now: number, waitingAt: number | null = null, vel?: number): Target | null {
     let best: Target | null = null;
     for (const x of this.targets) {
       if (x.hit || x.skipped || x.p !== p) continue;
@@ -421,11 +425,12 @@ export class Practice {
     }
     if (!best) {
       this.wrong++;
-      return false;
+      return null;
     }
     best.hit = true;
     best.err = now - best.t;
-    return true;
+    best.vel = vel;
+    return best;
   }
   /** Modo espera: el instante del primer grupo de notas sin tocar que ya debería haber sonado (para pararse ahí). */
   blocking(now: number) {
@@ -436,7 +441,7 @@ export class Practice {
    * sin tocar se da por saltado (si no, la espera volvería atrás a buscarlo). */
   reset(from = 0) {
     for (const x of this.targets) {
-      if (x.t >= from - 0.01) [x.hit, x.skipped, x.err] = [false, false, undefined];
+      if (x.t >= from - 0.01) [x.hit, x.skipped, x.err, x.vel] = [false, false, undefined, undefined];
       else if (!x.hit) x.skipped = true;
     }
   }
@@ -444,11 +449,15 @@ export class Practice {
     const due = this.targets.filter((x) => !x.skipped && (x.t <= now - this.tol || x.hit));
     const hits = due.filter((x) => x.hit);
     const errs = hits.map((x) => x.err ?? 0);
+    // fuerza: lo que se tocó menos lo que pedía, de media (+ más fuerte), y cuántas se pasaron del margen
+    const dyn = hits.filter((x) => x.vel != null && x.v != null).map((x) => x.vel! - x.v!);
     return {
       due: due.length,
       hits: hits.length,
       wrong: this.wrong,
       ms: errs.length ? Math.round((1000 * errs.reduce((a, b) => a + b, 0)) / errs.length) : 0,
+      force: dyn.length ? Math.round((127 * dyn.reduce((a, b) => a + b, 0)) / dyn.length) : null,
+      offForce: dyn.filter((d) => Math.abs(d) > VEL_TOL).length,
     };
   }
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
   import { onMount, untrack } from "svelte";
-  import { arrange, easyTranspose, LEVELS, Practice, toBeat, toMusicXML, toSeconds, type Arrangement, type Level } from "./arrange";
+  import { arrange, easyTranspose, LEVELS, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
   import { loadNotation } from "./ChordsTab.svelte";
   import { enqueue, paths, readJson, songDetail, STEM_INFO, writeBytes, type Detail, type Song } from "./engine";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
@@ -61,6 +62,11 @@
   let playing = $state(false);
   let time = $state(0);
   let baseDuration = $state(0); // a tempo
+  // las pistas de la canción y a qué velocidad están cargadas (más lentas: estiradas con FFmpeg, sin cambiar el tono)
+  let stemSrcs: { name: string; path: string }[] = [];
+  let audioSpeed = $state(1);
+  let stretching = $state(false);
+  let guideBufs: { rh?: AudioBuffer; lh?: AudioBuffer } = {};
   /** A tempo reducido todo se estira: pulsos, notas, acordes y la duración. */
   const duration = $derived(baseDuration / o.speed);
 
@@ -126,11 +132,14 @@
       const bs = d.beatData?.beats?.length ? d.beatData.beats : Array.from({ length: Math.ceil((d.duration * (d.bpm ?? 120)) / 60) }, (_, i) => (i * 60) / (d.bpm ?? 120));
       const cs = d.chordData?.chords;
       if (!cs?.length && d.audio && !jobOf(k, "chords")) void enqueue("chords", [k]); // los del audio, para la próxima vez
-      await player.load(d.stemlab.stems.map((s) => ({ name: s.name, path: `${dir}/${s.file}` })));
+      stemSrcs = d.stemlab.stems.map((s) => ({ name: s.name, path: `${dir}/${s.file}` }));
+      await player.load(stemSrcs);
+      audioSpeed = 1;
       if (key !== k) return;
       [notes, beats, harmony, detail] = [ns, bs, cs?.length ? fromModel(cs, ns, bs, d.duration) : analyze(ns, bs, d.duration), d];
       baseDuration = player.duration;
       time = 0;
+      if (o.speed !== 1) void loadStems(o.speed); // abierta ya a tempo reducido
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -196,8 +205,34 @@
     untrack(() => {
       [loop, loopA, loopB] = [false, null, null];
       seek(at);
+      void loadStems(sp);
     });
   });
+
+  /** Las pistas de la canción a la velocidad `sp` (la primera vez se estiran: unos segundos), sin perder el sitio. */
+  let stemsVersion = 0;
+  async function loadStems(sp: number) {
+    if (!detail || !stemSrcs.length || sp === audioSpeed) return;
+    const v = ++stemsVersion, k = key;
+    stretching = sp !== 1;
+    try {
+      const paths = sp === 1 ? stemSrcs.map((x) => x.path) : await invoke<string[]>("stretch_stems", { key: k, files: stemSrcs.map((x) => x.path), speed: sp });
+      if (v !== stemsVersion || key !== k) return;
+      const [at, was] = [player.time(), player.playing];
+      await player.load(stemSrcs.map((x, i) => ({ name: x.name, path: paths[i] })));
+      if (v !== stemsVersion || key !== k) return;
+      if (guideBufs.rh) player.setBuffer("guia-rh", guideBufs.rh);
+      if (guideBufs.lh) player.setBuffer("guia-lh", guideBufs.lh);
+      audioSpeed = sp;
+      applyGains();
+      player.seek(at);
+      if (was) player.play();
+    } catch (e) {
+      error = `No se pudieron preparar las pistas más lentas: ${e}`;
+    } finally {
+      if (v === stemsVersion) stretching = false;
+    }
+  }
   const plays = (hand: "rh" | "lh") => o.hands === "both" || o.hands === hand;
   // acordes con el mismo transporte que el arreglo, para el piano roll
   const chords = $derived.by(() => {
@@ -216,6 +251,7 @@
     if (!len) return;
     void Promise.all([synth(rh, len), synth(lh, len)]).then(([a, b]) => {
       if (v !== guideVersion) return;
+      guideBufs = { rh: a, lh: b };
       player.setBuffer("guia-rh", a);
       player.setBuffer("guia-lh", b);
       applyGains();
@@ -225,14 +261,14 @@
   /** La canción sin la parte que tocas: con transporte, solo la batería (el resto sonaría en otra tonalidad). */
   function applyGains() {
     for (const s of detail?.stemlab?.stems ?? []) {
-      // transportada, solo la batería (lo demás iría en otra tonalidad); más lenta, nada (no se estira sin cambiar el tono)
-      const off = o.speed !== 1 || (semis !== 0 && s.name !== "drums") || (s.name === melody && plays("rh"));
+      // transportada, solo la batería (lo demás iría en otra tonalidad); más lenta, solo cuando ya están estiradas
+      const off = audioSpeed !== o.speed || (semis !== 0 && s.name !== "drums") || (s.name === melody && plays("rh"));
       player.setGain(s.name, off ? 0 : o.song);
     }
     for (const h of ["rh", "lh"] as const) player.setGain(`guia-${h}`, plays(h) ? (o.hearMine ? o.guide * 0.6 : 0) : o.guide);
   }
   $effect(() => {
-    JSON.stringify([o.song, o.guide, o.hearMine, o.hands, melody, semis, o.speed]);
+    JSON.stringify([o.song, o.guide, o.hearMine, o.hands, melody, semis, o.speed, audioSpeed]);
     untrack(applyGains);
   });
   $effect(() => player.setMaster(settings.masterVolume));
@@ -240,7 +276,7 @@
   // ---------------------------------------------------------------- práctica
 
   const practice = $derived(
-    new Practice([...(plays("rh") ? rhSec.map(([t, , p]) => ({ t, p, hand: "rh" as const })) : []), ...(plays("lh") ? lhSec.map(([t, , p]) => ({ t, p, hand: "lh" as const })) : [])]),
+    new Practice([...(plays("rh") ? rhSec.map(([t, , p, v]) => ({ t, p, v, hand: "rh" as const })) : []), ...(plays("lh") ? lhSec.map(([t, , p, v]) => ({ t, p, v, hand: "lh" as const })) : [])]),
   );
   // al cambiar de nivel, manos… la práctica nueva sigue desde donde vas, no desde el principio
   $effect(() => {
@@ -248,7 +284,7 @@
     untrack(() => pr.reset(time));
   });
   let waiting: number | null = null;
-  let stats = $state({ due: 0, hits: 0, wrong: 0, ms: 0 });
+  let stats = $state<ReturnType<Practice["stats"]>>({ due: 0, hits: 0, wrong: 0, ms: 0, force: null, offForce: 0 });
   const pressed = new Map<number, string>(); // tecla → color (verde acierto, rojo fallo)
   const voices = new Map<number, () => void>();
   let loopA = $state<number | null>(null);
@@ -259,8 +295,10 @@
     const [st, p, v] = msg;
     const kind = st & 0xf0;
     if (kind === 0x90 && v > 0) {
-      const hit = practice.press(p, player.time(), waiting);
-      pressed.set(p, hit ? "#9bd37f" : "#ff7a6b");
+      // la fuerza solo cuenta con teclado MIDI (el del ordenador siempre toca igual)
+      const hit = practice.press(p, player.time(), waiting, input.connected ? v / 127 : undefined);
+      const forceOff = hit?.vel != null && hit.v != null && Math.abs(hit.vel - hit.v) > VEL_TOL;
+      pressed.set(p, !hit ? "#ff7a6b" : forceOff ? "#f6c84a" : "#9bd37f");
       if (!input.connected) voices.set(p, voice(player.ctx, p, v / 127)); // sin piano, que suene aquí
       // en espera: con todo el grupo tocado, sigue
       if (waiting != null && practice.blocking(waiting) == null) {
@@ -424,7 +462,10 @@
       <span class="grow"></span>
       {#if loaded}
         <span class="mono score" title="Notas acertadas de las que ya tocaban · notas equivocadas · adelanto (−) o retraso (+) medio">
-          {stats.hits}/{stats.due} · {stats.wrong} fallos{stats.hits ? ` · ${stats.ms > 0 ? "+" : ""}${stats.ms} ms` : ""}
+          {stats.hits}/{stats.due} · {stats.wrong} fallos{stats.hits ? ` · ${stats.ms > 0 ? "+" : ""}${stats.ms} ms` : ""}{#if stats.force != null}<span
+              class="force" class:off={Math.abs(stats.force) > 20}
+              title="Fuerza: de media, cuánto más fuerte (+) o flojo (−) que lo que pide (de 127); en amarillo, las notas que se pasan">
+              · fuerza {stats.force > 0 ? "+" : ""}{stats.force}{stats.offForce ? ` (${stats.offForce} muy ${stats.force > 0 ? "fuertes" : "flojas"})` : ""}</span>{/if}
         </span>
       {/if}
     </div>
@@ -488,7 +529,7 @@
         </label>
         <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
         <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
-        {#if o.speed !== 1 && !piece}<small class="muted">Al {Math.round(o.speed * 100)} %: de la canción suena solo la guía (el audio no se puede ralentizar sin cambiar el tono).</small>
+        {#if stretching}<small class="note-warn"><span class="spinner inline"></span> Preparando las pistas al {Math.round(o.speed * 100)} % (solo la primera vez); mientras, suena la guía.</small>
         {:else if semis && !piece}<small class="muted">Transportada {fmtSemis(semis)}: de la canción solo suena la batería.</small>{/if}
         {#if o.melody !== "none" && melody === "none"}
           <small class="note-warn">
@@ -557,7 +598,9 @@
   .opts input[type="range"] { width: 90px; }
   .grow { flex: 1; }
   .score { font-size: 12px; color: var(--text-2); }
-  .note-warn { color: var(--accent); }
+  .note-warn { color: var(--accent); display: inline-flex; align-items: center; gap: 6px; }
+  .inline { width: 12px; height: 12px; }
+  .force.off { color: #f6c84a; }
   .small { padding: 3px 10px; font-size: 12px; }
   .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
   .seg button { padding: 4px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12px; }

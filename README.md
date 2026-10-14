@@ -70,7 +70,9 @@ escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
   pone, arrastrar mueve o alarga, clic derecho borra) y teclado (flechas, Mayús+flechas, Ctrl+↑↓
   octava, Tab cambia de mano, Supr, Ctrl+Z/Y/A/C/X/V/Q, Espacio); partitura en vivo; exporta a MIDI y MusicXML; pasa a
   sesión. MusicXML con repeticiones, 1.ª/2.ª casilla, D.C., D.S., Fine y Coda desarrollados. Practicar a tempo reducido
-  (50-100 %; de una canción, entonces suena solo la guía). En Sesiones: importar MIDI/MusicXML como sesión y «Practicar en Aprender» (la sesión como pieza). La guía, las sesiones y
+  (50-100 %): las pistas de la canción se estiran sin cambiar el tono (FFmpeg con rubberband; una vez por canción y
+  velocidad, en `$ESTUDIO_DATA/lento/`, ~6 s por pista). Con teclado MIDI, la práctica mira también la fuerza: tecla en
+  amarillo si la nota es buena pero muy fuerte o floja, y de media cuánto más fuerte o flojo se toca. En Sesiones: importar MIDI/MusicXML como sesión y «Practicar en Aprender» (la sesión como pieza). La guía, las sesiones y
   el teclado del ordenador suenan con muestras del Salamander Grand Piano (`app/public/piano`, CC BY, 2 MB).
 - **Sesiones**: dos listas. Canciones: las de la biblioteca con pistas separadas que añadas («＋ Añadir canción»; la lista va en
   `sesiones/canciones.json`), por instrumentos (volumen y M/S, piano roll de cada uno, acordes y progresión). Sesiones: las guardadas en Tocar, con el piano roll y el transporte de las canciones (suenan con un piano
