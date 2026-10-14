@@ -26,8 +26,8 @@ const KINDS: [string, number[]][] = [
 const EXOTIC = new Set(["sus2", "sus4", "aug", "6", "m6", "m7b5", "dim7"]);
 const WEIGHT: Record<string, number> = { bass: 1.2, guitar: 1, piano: 1, other: 0.8, vocals: 0.35 };
 
-/** Peso de cada clase de nota (0-11) entre a y b; y la más grave con peso (el bajo). */
-function profile(tracks: { stem: string; notes: Note[] }[], a: number, b: number) {
+/** Peso de cada clase de nota (0-11) entre a y b; y la más grave con peso de la pista `low` (el bajo). */
+function profile(tracks: { stem: string; notes: Note[] }[], a: number, b: number, lowStem = "bass") {
   const pc = new Array(12).fill(0);
   const low = new Array(12).fill(0);
   for (const { stem, notes } of tracks) {
@@ -37,10 +37,10 @@ function profile(tracks: { stem: string; notes: Note[] }[], a: number, b: number
       if (o <= 0) continue;
       const w = o * (0.5 + v) * k;
       pc[p % 12] += w;
-      if (stem === "bass") low[p % 12] += w / Math.max(1, (p - 24) / 12);
+      if (stem === lowStem) low[p % 12] += w / Math.max(1, (p - 24) / 12);
     }
   }
-  // sin bajo separado no se sabe qué nota va abajo (la voz no cuenta): sin barra
+  // sin bajo separado (o la pista sola) no se sabe qué nota va abajo (la voz no cuenta): sin barra
   const bass = low.some((x) => x > 0) ? low.indexOf(Math.max(...low)) : -1;
   return { pc, bass };
 }
@@ -127,8 +127,10 @@ export function named(chords: Chord[], k: Key, n: Notation) {
 
 const same = (a: Chord | null, b: Chord | null) => !!a && !!b && a.root === b.root && a.kind === b.kind && a.bass === b.bass;
 
-/** Acordes de la canción, un tramo de `per` pulsos cada vez (sin pulsos: tramos de 1 s). */
+/** Acordes de la canción, un tramo de `per` pulsos cada vez (sin pulsos: tramos de 1 s). Con una sola pista, los
+ * de ese instrumento (el piano solo: su mano izquierda hace de bajo). */
 export function analyze(tracks: { stem: string; notes: Note[] }[], beats: number[], duration: number, per = 2): Harmony {
+  const low = tracks.length === 1 && tracks[0].stem !== "vocals" ? tracks[0].stem : "bass";
   const all = profile(tracks, 0, Infinity).pc;
   const key = findKey(all);
   const scale = new Set((key.minor ? MINOR_SCALE : MAJOR_SCALE).map((i) => (key.tonic + i) % 12));
@@ -137,7 +139,7 @@ export function analyze(tracks: { stem: string; notes: Note[] }[], beats: number
   edges.push(Math.max(duration, edges[edges.length - 1] + 1));
   const raw: (Chord | null)[] = [];
   for (let i = 0; i + 1 < edges.length; i++) {
-    const { pc, bass } = profile(tracks, edges[i], edges[i + 1]);
+    const { pc, bass } = profile(tracks, edges[i], edges[i + 1], low);
     const c = bestChord(pc, bass, scale);
     raw.push(c && { ...c, t: edges[i], end: edges[i + 1] });
   }

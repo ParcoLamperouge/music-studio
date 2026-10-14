@@ -6,7 +6,7 @@
   } from "./engine";
   import ChordsTab, { loadNotation } from "./ChordsTab.svelte";
   import EditsTab from "./EditsTab.svelte";
-  import { analyze, degree, keyFromChords, keyName, named, type Harmony } from "./harmony";
+  import { analyze, degree, keyFromChords, keyName, named, type Harmony, type Note } from "./harmony";
   import Leds from "./Leds.svelte";
   import LyricsTab from "./LyricsTab.svelte";
   import MiniMixer from "./MiniMixer.svelte";
@@ -228,9 +228,12 @@
 
   // ---- acordes y tonalidad: de las notas ya sacadas (sin IA, milisegundos); solo si se miran
   let notation = $state(loadNotation());
-  let harmony = $state<Harmony | null>(null);
-  let harmonySig = "";
+  let noteTracks = $state<{ stem: string; notes: Note[] }[]>([]);
+  let tracksSig = "";
   const noted = $derived(stems.filter((s) => s.roll));
+  // de qué salen acordes y tonalidad: "mix" (toda la canción) o una pista con notas (lo que toca el piano…)
+  let chordSrc = $state("mix");
+  const src = $derived(noted.some((s) => s.name === chordSrc) ? chordSrc : "mix");
   // acordes del modelo (lv-chordia, del audio): mandan; los de las notas quedan de respaldo
   const modelHarmony = $derived.by<Harmony | null>(() => {
     const cs = detail?.chordData?.chords;
@@ -240,18 +243,22 @@
   $effect(() => {
     if ((tab === "chords" || tab === "roll") && !detail?.chordData && detail?.audio && !chordsJob) void enqueue("chords", [key]);
   });
-  const notesSig = $derived(noted.map((s) => `${s.name}@${s.version ?? 0}`).join(",") + `#${beatData?.beats.length ?? 0}`);
+  const notesSig = $derived(noted.map((s) => `${s.name}@${s.version ?? 0}`).join(","));
   $effect(() => {
     const sig = notesSig;
-    if (!noted.length || modelHarmony || (tab !== "chords" && tab !== "roll") || sig === harmonySig) return;
-    harmonySig = sig;
+    if (!noted.length || (modelHarmony && src === "mix") || (tab !== "chords" && tab !== "roll") || sig === tracksSig) return;
+    tracksSig = sig;
     untrack(async () => {
       const dir = stemlab!.dir;
-      const tracks = await Promise.all(noted.map(async (s) => ({ stem: s.name, notes: await readJson<[number, number, number, number][]>(`${dir}/${s.roll}`, []) })));
-      if (sig === harmonySig) harmony = analyze(tracks, beatData?.beats ?? [], duration || detail?.duration || 0);
+      const tracks = await Promise.all(noted.map(async (s) => ({ stem: s.name, notes: await readJson<Note[]>(`${dir}/${s.roll}`, []) })));
+      if (sig === tracksSig) noteTracks = tracks;
     });
   });
-  const shownHarmony = $derived(modelHarmony ?? (noted.length ? harmony : null));
+  const harmony = $derived.by<Harmony | null>(() => {
+    const ts = src === "mix" ? noteTracks : noteTracks.filter((t) => t.stem === src);
+    return noted.length && ts.length ? analyze(ts, beatData?.beats ?? [], duration || detail?.duration || 0) : null;
+  });
+  const shownHarmony = $derived(src === "mix" ? (modelHarmony ?? harmony) : harmony);
   // en el piano roll, el grado junto al acorde (V7, vi…) siempre
   const rollChords = $derived(
     shownHarmony ? named(shownHarmony.chords, shownHarmony.key, notation).map((c) => ({ ...c, deg: degree(c, shownHarmony.key) })) : [],
@@ -567,8 +574,9 @@
         {/if}
       {:else if tab === "chords"}
         {#if detail}
-          <ChordsTab {detail} harmony={shownHarmony} model={!!modelHarmony} sources={noted.map((s) => STEM_INFO[s.name].label)} {time} bind:notation
-            onseek={seek} onnotes={() => act("notes-all", quality())} oncheck={() => act("sync", ["lineas"])} busy={chordsBusy || notesBusy} />
+          <ChordsTab {detail} harmony={shownHarmony} model={src === "mix" && !!modelHarmony} sources={noted.map((s) => STEM_INFO[s.name].label)} {time} bind:notation
+            {src} onsrc={(s) => (chordSrc = s)} instruments={pitched.map((s) => ({ name: s.name, label: STEM_INFO[s.name].label, notes: !!s.roll, job: notesJob(s.name) && notesJob(s.name)!.status !== "error" ? jobText(notesJob(s.name)!) : "" }))}
+            onstemnotes={(s) => act("notes", [s, ...quality()])} onseek={seek} onnotes={() => act("notes-all", quality())} oncheck={() => act("sync", ["lineas"])} busy={chordsBusy || notesBusy} />
         {/if}
       {:else if tab === "edits"}
         <EditsTab {track} {detail} />

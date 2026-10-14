@@ -35,6 +35,9 @@ const block = (a: number, b: number, ps: number[]): Note[] => ps.map((p) => [a, 
 const notes = [...block(0, 2, [48, 60, 64, 67]), ...block(2, 4, [43, 59, 62, 67]), ...block(4, 6, [45, 57, 60, 64])];
 const h = analyze([{ stem: "piano", notes }], beats, 6, 2);
 assert.deepEqual(h.chords.map((c) => chordName(c, h.key, { latin: true, simple: false })), ["Do", "Sol", "Lam"]);
+// piano solo: su mano izquierda hace de bajo (Do con Mi abajo = Do/Mi)
+const inv = analyze([{ stem: "piano", notes: block(0, 2, [40, 60, 64, 67]) }], [], 2);
+assert.equal(chordName(inv.chords[0], C, { latin: true, simple: false }), "Do/Mi");
 // al simplificar, Sol7 + Sol seguidos son un solo Sol
 const g = (kind: string, t: number) => ({ root: 7, kind, bass: 7, t, end: t + 1 });
 assert.deepEqual(named([g("7", 0), g("", 1)], C, { latin: true, simple: true }).map((c) => [c.name, c.t, c.end]), [["Sol", 0, 2]]);

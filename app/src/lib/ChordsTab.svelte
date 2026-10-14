@@ -15,13 +15,17 @@
   import type { Detail } from "./engine";
   import { degree, keyName, leadSheet, named, relative, scaleNotes, type Harmony } from "./harmony";
 
-  let { detail, harmony, model, sources, time, notation = $bindable(), onseek, onnotes, oncheck, busy }: {
+  let { detail, harmony, model, sources, time, notation = $bindable(), src, instruments, onsrc, onstemnotes, onseek, onnotes, oncheck, busy }: {
     detail: Detail;
     harmony: Harmony | null;
     model: boolean; // acordes de lv-chordia (del audio); si no, de las notas transcritas
     sources: string[]; // pistas con notas de las que salen los acordes
     time: number;
     notation: ChordView;
+    src: string; // "mix" (toda la canción) o la pista de la que salen acordes y tonalidad
+    instruments: { name: string; label: string; notes: boolean; job: string }[]; // job: sacando sus notas, o ""
+    onsrc: (stem: string) => void;
+    onstemnotes: (stem: string) => void;
     onseek: (t: number) => void;
     onnotes: () => void; // (sin uso con acordes del modelo)
     oncheck: () => void; // comprobar que el audio es la versión de la letra
@@ -50,6 +54,20 @@
     sheet.querySelector<HTMLElement>(`[data-t="${c.t}"]`)?.closest<HTMLElement>(".row")?.scrollIntoView({ block: "center", behavior: "smooth" });
   });
 </script>
+
+<div class="src">
+  <div class="seg">
+    <button class:on={src === "mix"} onclick={() => onsrc("mix")}>Toda la canción</button>
+    {#each instruments.filter((x) => x.notes) as x (x.name)}
+      <button class:on={src === x.name} onclick={() => onsrc(x.name)}>{x.label}</button>
+    {/each}
+  </div>
+  {#each instruments.filter((x) => !x.notes) as x (x.name)}
+    <button class="add" disabled={!!x.job} onclick={() => onstemnotes(x.name)} title="Sacar sus notas para ver sus acordes y su tonalidad">
+      {x.job ? `${x.label}: ${x.job}` : `＋ ${x.label}`}
+    </button>
+  {/each}
+</div>
 
 {#if !harmony}
   <div class="empty">
@@ -109,7 +127,7 @@
 
     <aside class="info">
       <div class="card key">
-        <span class="kicker">Tonalidad</span>
+        <span class="kicker">Tonalidad{src !== "mix" ? ` · ${instruments.find((x) => x.name === src)?.label}` : ""}</span>
         <h3>{keyName(k, notation.latin)}</h3>
         <div class="scale">
           {#each scaleNotes(k, notation.latin) as n, i (i)}<span class:tonic={i === 0}>{n}</span>{/each}
@@ -135,7 +153,12 @@
         <label><input type="checkbox" bind:checked={notation.degrees} /> Grados (I, IV, V7…)</label>
       </div>
 
-      {#if model}
+      {#if src !== "mix"}
+        <p class="note">
+          De las notas de {instruments.find((x) => x.name === src)?.label.toLowerCase()}, sin IA: lo que toca ese instrumento solo (su nota
+          más grave hace de bajo), no la canción entera. Revísalo de oído.
+        </p>
+      {:else if model}
         <p class="note">Del audio con lv-chordia (Jiang et al., ISMIR 2019; ~170 acordes con inversiones). Es automático: revísalo de oído.</p>
       {:else}
         <p class="note">
@@ -148,6 +171,9 @@
 {/if}
 
 <style>
+  .src { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+  .src .add { padding: 4px 10px; border-radius: 99px; border: 1px dashed var(--line-hi); background: none; color: var(--text-2); font-size: 12px; }
+  .src .add:disabled { opacity: 0.6; }
   .warn-bar { flex-shrink: 0; margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; font-size: 12.5px; color: var(--text-2);
     border: 1px solid color-mix(in srgb, #ffc23d 40%, var(--line)); background: color-mix(in srgb, #ffc23d 7%, var(--panel)); }
   .warn-bar .link { margin-left: 6px; }
