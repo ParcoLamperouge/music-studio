@@ -144,4 +144,28 @@ assert.deepEqual(arrange({ ...base, melody: null, level: 5, bass: [[1, 2, 40, 0.
   assert.equal(pr.blocking(5.01), 5);
   assert.ok(pr.targets[0].skipped && !pr.targets[1].hit);
 }
+// lo que vale es la nota de ahora: tocarla otra vez (o después de saltarla) no es fallo; otra nota sí
+{
+  const pr = new Practice([{ t: 1, p: 60, hand: "rh" }, { t: 9, p: 62, hand: "rh" }]);
+  assert.ok(pr.press(60, 1.02));
+  assert.ok(pr.press(60, 1.1));
+  pr.targets[1].skipped = true;
+  assert.ok(pr.press(62, 9));
+  assert.equal(pr.press(64, 9), null);
+  assert.equal(pr.wrong, 1);
+  // la espera no vuelve a por lo de hace rato
+  const back = new Practice([{ t: 0, p: 60, hand: "rh" }, { t: 5, p: 62, hand: "rh" }]);
+  assert.equal(back.blocking(3), null);
+  assert.equal(back.blocking(5.01), 5);
+}
+// con espera, mantener: suelta antes de tiempo = parar; al final de la nota hay margen; volver a pulsarla mientras suena vale
+{
+  const pr = new Practice([{ t: 1, e: 3, p: 60, hand: "rh" }]);
+  pr.press(60, 1);
+  assert.equal(pr.released(2, () => true), false);
+  assert.equal(pr.released(2, () => false), true);
+  assert.equal(pr.released(2.9, () => false), false);
+  assert.ok(pr.press(60, 2.2));
+  assert.equal(pr.wrong, 0);
+}
 console.log("acompañamiento ok");

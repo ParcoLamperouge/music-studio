@@ -399,7 +399,7 @@ export function toMusicXML(a: Arrangement, title: string) {
 // ---------------------------------------------------------------- práctica
 
 /** Una nota que tocar; `v` la fuerza que pide (0-1) y `vel` la que se tocó (con teclado MIDI). */
-export type Target = { t: number; p: number; v?: number; hand: Hand; hit: boolean; skipped?: boolean; err?: number; vel?: number; counted?: boolean }; // counted: ya apuntada en las zonas (zones.ts)
+export type Target = { t: number; e?: number; p: number; v?: number; hand: Hand; hit: boolean; skipped?: boolean; err?: number; vel?: number; counted?: boolean }; // counted: ya apuntada en las zonas (zones.ts)
 /** Diferencia de fuerza a partir de la que se avisa (en 0-1; unas 30 de 127). */
 export const VEL_TOL = 0.25;
 
@@ -408,7 +408,7 @@ export class Practice {
   targets: Target[];
   wrong = 0;
   tol: number;
-  constructor(notes: { t: number; p: number; v?: number; hand: Hand }[], tol = 0.2) {
+  constructor(notes: { t: number; e?: number; p: number; v?: number; hand: Hand }[], tol = 0.2) {
     this.tol = tol;
     this.targets = notes.map((n) => ({ ...n, hit: false })).sort((a, b) => a.t - b.t);
   }
@@ -416,26 +416,43 @@ export class Practice {
    * dentro del margen. En modo espera, además, las del grupo en el que se ha parado aunque haya pasado el margen.
    * Devuelve la nota acertada (para ver su fuerza) o null. */
   press(p: number, now: number, waitingAt: number | null = null, vel?: number): Target | null {
+    // vale si esa nota toca ahora (o es la que se espera), la hubiera tocado ya o no: se prefiere la pendiente más cercana
     let best: Target | null = null;
+    const rank = (x: Target) => (x.hit ? 1000 : 0) + Math.abs(x.t - now);
     for (const x of this.targets) {
-      if (x.hit || x.skipped || x.p !== p) continue;
-      const ok = Math.abs(x.t - now) <= this.tol || (waitingAt != null && Math.abs(x.t - waitingAt) < 0.03);
-      if (ok && (!best || Math.abs(x.t - now) < Math.abs(best.t - now))) best = x;
+      if (x.p !== p) continue;
+      const sounding = x.e != null && x.t <= now && now < x.e; // mientras dura también vale (volver a pulsarla)
+      const ok = Math.abs(x.t - now) <= this.tol || sounding || (waitingAt != null && Math.abs(x.t - waitingAt) < 0.03);
+      if (ok && (!best || rank(x) < rank(best))) best = x;
       if (x.t > now + this.tol) break;
     }
     if (!best) {
       this.wrong++;
       return null;
     }
+    if (best.hit) return best; // repetida: bien, sin volver a contarla
     best.hit = true;
-    best.err = now - best.t;
+    best.skipped = false;
+    best.err = Math.abs(now - best.t) <= this.tol ? now - best.t : undefined; // a destiempo solo cuenta en su margen
     best.vel = vel;
     return best;
   }
   /** Modo espera: el instante del primer grupo de notas sin tocar que ya debería haber sonado (para pararse ahí). */
   blocking(now: number) {
-    const x = this.targets.find((x) => !x.hit && !x.skipped);
+    // solo lo de ahora: lo que quedó atrás sin tocar (pasó sin espera) no hace volver
+    const x = this.targets.find((x) => !x.hit && !x.skipped && x.t >= now - 1);
     return x && x.t <= now ? x.t : null;
+  }
+  /** Con espera, la música solo sigue mientras se mantiene lo que suena: ¿hay alguna nota tocada que debería seguir
+   * pulsada en `now` y no lo está? Al final de cada nota hay margen para soltar (legato, notas repetidas). */
+  released(now: number, held: (p: number) => boolean) {
+    for (const x of this.targets) {
+      if (x.t > now) break;
+      if (!x.hit || x.skipped || x.e == null) continue;
+      const grace = Math.min(0.25, (x.e - x.t) * 0.4);
+      if (now < x.e - grace && !held(x.p)) return true;
+    }
+    return false;
   }
   /** Se sigue desde `from` (un salto, el bucle, activar la espera): lo de después vuelve a estar pendiente y lo de antes
    * sin tocar se da por saltado (si no, la espera volvería atrás a buscarlo). */
@@ -448,7 +465,7 @@ export class Practice {
   stats(now: number) {
     const due = this.targets.filter((x) => !x.skipped && (x.t <= now - this.tol || x.hit));
     const hits = due.filter((x) => x.hit);
-    const errs = hits.map((x) => x.err ?? 0);
+    const errs = hits.filter((x) => x.err != null).map((x) => x.err!);
     // fuerza: lo que se tocó menos lo que pedía, de media (+ más fuerte), y cuántas se pasaron del margen
     const dyn = hits.filter((x) => x.vel != null && x.v != null).map((x) => x.vel! - x.v!);
     return {

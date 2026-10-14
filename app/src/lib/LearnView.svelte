@@ -358,7 +358,7 @@
   // ---------------------------------------------------------------- práctica
 
   const practice = $derived(
-    new Practice([...(plays("rh") ? rhSec.map(([t, , p, v]) => ({ t, p, v, hand: "rh" as const })) : []), ...(plays("lh") ? lhSec.map(([t, , p, v]) => ({ t, p, v, hand: "lh" as const })) : [])]),
+    new Practice([...(plays("rh") ? rhSec.map(([t, e, p, v]) => ({ t, e, p, v, hand: "rh" as const })) : []), ...(plays("lh") ? lhSec.map(([t, e, p, v]) => ({ t, e, p, v, hand: "lh" as const })) : [])]),
   );
   // al cambiar de nivel, manos… la práctica nueva sigue desde donde vas, no desde el principio
   $effect(() => {
@@ -368,6 +368,7 @@
   let waiting: number | null = null;
   let stats = $state<ReturnType<Practice["stats"]>>({ due: 0, hits: 0, wrong: 0, ms: 0, force: null, offForce: 0 });
   const pressed = new Map<number, string>(); // tecla → color (verde acierto, rojo fallo)
+  const held = (p: number) => pressed.has(p);
   const voices = new Map<number, () => void>();
   let loopA = $state<number | null>(null);
   let loopB = $state<number | null>(null);
@@ -396,7 +397,7 @@
       pressed.set(p, !hit ? "#ff7a6b" : forceOff ? "#f6c84a" : "#9bd37f");
       if (!input.connected) voices.set(p, voice(player.ctx, p, v / 127)); // sin piano, que suene aquí
       // en espera: con todo el grupo tocado, sigue
-      if (waiting != null && practice.blocking(waiting) == null) {
+      if (waiting != null && practice.blocking(waiting) == null && !practice.released(waiting, held)) {
         waiting = null;
         player.play();
         playing = true;
@@ -415,7 +416,9 @@
       playing = false;
     } else if (waiting != null) {
       // parada esperando una nota: el play la salta (queda sin tocar) y sigue
-      for (const x of practice.targets) if (!x.hit && Math.abs(x.t - waiting) < 0.03) x.skipped = true;
+      // (y si esperaba a que se mantuviera una nota, esa deja de pedirlo)
+      for (const x of practice.targets)
+        if ((!x.hit && Math.abs(x.t - waiting) < 0.03) || (x.e != null && x.t <= waiting && waiting < x.e)) x.skipped = true;
       waiting = null;
       player.play();
       playing = true;
@@ -480,11 +483,16 @@
           seek(loopA);
         }
         // modo espera: se para en la primera nota sin tocar que ya debería sonar
+        // y solo sigue mientras se mantiene pulsado lo que suena: si se suelta antes, se para ahí hasta volver a pulsar
         const block = o.wait ? practice.blocking(time) : null;
         if (block != null) {
           player.pause();
           player.seek(block);
           waiting = block;
+          playing = false;
+        } else if (o.wait && practice.released(time, held)) {
+          player.pause();
+          waiting = player.time();
           playing = false;
         } else if (time >= duration) {
           player.stop();
