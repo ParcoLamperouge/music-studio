@@ -4,6 +4,7 @@
   import AddDialog, { loadAfter, thenOf } from "./lib/AddDialog.svelte";
   import { enqueue, finished, fmtBytes, gpuName, importSources, initPaths, run } from "./lib/engine";
   import Library from "./lib/Library.svelte";
+  import PlayView from "./lib/PlayView.svelte";
   import Queue from "./lib/Queue.svelte";
   import SettingsPanel from "./lib/SettingsPanel.svelte";
   import { loadSettings, saveSettings, settings } from "./lib/settings.svelte";
@@ -14,6 +15,8 @@
   let ready = $state(false);
   let fatal = $state("");
   let selected = $state<string | null>(params.get("song"));
+  // qué se va a hacer: analizar canciones o tocar el teclado; sin elegir, el menú
+  let mode = $state<"analizar" | "tocar" | null>(params.get("song") ? "analizar" : (params.get("mode") as "analizar" | "tocar" | null));
   let initialTab = $state(params.get("tab") ?? undefined);
   let picked = $state<string[]>([]);
   let queueOpen = $state(false);
@@ -40,7 +43,7 @@
         unlisten = await getCurrentWebview().onDragDropEvent((e) => {
           const t = e.payload.type;
           dragging = t === "enter" || t === "over";
-          if (t === "drop" && e.payload.paths.length) void importSources(e.payload.paths, thenOf(loadAfter())).then(() => (queueOpen = true));
+          if (t === "drop" && mode === "analizar" && e.payload.paths.length) void importSources(e.payload.paths, thenOf(loadAfter())).then(() => (queueOpen = true));
         });
       } catch (e) {
         fatal = String(e);
@@ -58,6 +61,11 @@
   const gpuJob = $derived(store.jobs.find((j) => j.status === "running" && j.steps[j.cur]?.res === "gpu"));
   const gpuWaiting = $derived(store.jobs.filter((j) => j.status === "ready" && j.steps[j.cur]?.res === "gpu").length);
   const titleOf = (key: string) => store.tracks.find((t) => t.key === key)?.title ?? key;
+
+  function go(m: typeof mode) {
+    mode = m;
+    history.replaceState(null, "", m ? `?mode=${m}` : "?");
+  }
 
   function select(key: string) {
     selected = key;
@@ -92,6 +100,8 @@
   function onkey(e: KeyboardEvent) {
     const typing = (e.target as HTMLElement).closest("input, textarea, select, [contenteditable]");
     if (typing || e.ctrlKey || e.metaKey || e.altKey || adding) return;
+    if (!mode && (e.key === "1" || e.key === "2")) return go(e.key === "1" ? "analizar" : "tocar");
+    if (mode !== "analizar") return;
     if (e.key === "q" || e.key === "Q") ((queueOpen = !queueOpen), e.preventDefault());
     else if (e.key === "n" || e.key === "N") ((adding = true), e.preventDefault());
   }
@@ -107,6 +117,25 @@
   </div>
 {:else if !ready}
   <div class="boot"><span class="spinner"></span></div>
+{:else if !mode}
+  <div class="menu">
+    <span class="kicker">Estudio</span>
+    <h1>¿Qué vas a <em>hacer</em>?</h1>
+    <div class="choices">
+      <button onclick={() => go("analizar")}>
+        <kbd>1</kbd>
+        <strong>Analizar canciones</strong>
+        <span>Biblioteca: letra, pistas separadas, partitura, acordes y edits.</span>
+      </button>
+      <button onclick={() => go("tocar")}>
+        <kbd>2</kbd>
+        <strong>Tocar</strong>
+        <span>Teclado MIDI: piano roll en vivo, el acorde que suena y la sesión guardada para analizarla luego.</span>
+      </button>
+    </div>
+  </div>
+{:else if mode === "tocar"}
+  <main class="solo"><PlayView onback={() => go(null)} /></main>
 {:else}
   <div class="app">
     <aside class="side">
@@ -141,6 +170,9 @@
         <button class="qbtn" class:on={active.length > 0} onclick={() => (queueOpen = !queueOpen)} title="Cola (Q)">
           Cola{#if active.length}<b>{active.length}</b>{/if}
         </button>
+        <button class="icon-btn gear" onclick={() => go(null)} title="Menú: analizar o tocar" aria-label="Menú">
+          <svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" /></svg>
+        </button>
         <button class="icon-btn gear" onclick={() => (settingsOpen = true)} title="Ajustes: Spotify, notas, playlists" aria-label="Ajustes">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
         </button>
@@ -172,6 +204,8 @@
       {/if}
     </main>
   </div>
+{/if}
+{#if ready && mode === "analizar"}
   <Queue bind:open={queueOpen} {gpu} onopen={(k) => ((queueOpen = false), select(k))} />
   <SettingsPanel bind:open={settingsOpen} onopen={select} />
   <AddDialog bind:open={adding} onadded={(k) => (k ? select(k) : (queueOpen = true), refresh(true))} />
@@ -226,6 +260,17 @@
   .cta kbd { background: #0002; border-color: #0003; color: #1c0f05; }
   .stats { margin-top: 30px; color: var(--text-3) !important; font-size: 12px !important; }
 
+  .solo { height: 100vh; }
+  .menu { height: 100vh; display: flex; flex-direction: column; justify-content: center; max-width: 820px; margin: 0 auto; padding: 32px; animation: rise 0.6s var(--ease); }
+  .menu h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(48px, 6vw, 80px); line-height: 0.95; margin: 14px 0 32px; }
+  .menu em { color: var(--accent); }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .choices button {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 22px; border-radius: var(--radius); text-align: left;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text-2); transition: border-color 0.15s, background 0.15s, transform 0.15s var(--ease);
+  }
+  .choices button:hover { border-color: var(--accent); background: var(--panel-hi); transform: translateY(-2px); }
+  .choices strong { font-family: var(--serif); font-weight: 400; font-size: 32px; color: var(--text); }
   .boot { height: 100vh; display: grid; place-items: center; }
   .fatal { padding: 60px; max-width: 760px; }
   .fatal h1 { font-family: var(--serif); font-weight: 400; font-size: 48px; margin: 0 0 16px; }

@@ -1,3 +1,22 @@
+<script lang="ts" module>
+  const BLACK = new Set([1, 3, 6, 8, 10]);
+  const isBlack = (p: number) => BLACK.has(p % 12);
+
+  /** x y ancho de cada nota midi en un teclado de `lo` a `hi` que ocupa `width`. */
+  export function keyLayout(lo: number, hi: number, width: number) {
+    const whites = [];
+    for (let p = lo; p <= hi; p++) if (!isBlack(p)) whites.push(p);
+    const ww = width / whites.length;
+    const map = new Map<number, { x: number; w: number; black: boolean }>();
+    let i = 0;
+    for (let p = lo; p <= hi; p++) {
+      if (isBlack(p)) map.set(p, { x: i * ww - ww * 0.3, w: ww * 0.6, black: true });
+      else map.set(p, { x: i++ * ww, w: ww, black: false });
+    }
+    return map;
+  }
+</script>
+
 <script lang="ts">
   import { readBytes } from "./engine";
   import type { Snippet } from "svelte";
@@ -28,8 +47,6 @@
   $effect(() => () => {
     if (fullscreen) setWindowFullscreen(false); // al cerrar el panel en pantalla completa
   });
-  const BLACK = new Set([1, 3, 6, 8, 10]);
-  const isBlack = (p: number) => BLACK.has(p % 12);
 
   let canvas: HTMLCanvasElement;
   let width = $state(0);
@@ -57,20 +74,7 @@
     return { lo, hi };
   });
 
-  /** x y ancho de cada nota midi en el teclado. */
-  const keys = $derived.by(() => {
-    const { lo, hi } = range;
-    const whites = [];
-    for (let p = lo; p <= hi; p++) if (!isBlack(p)) whites.push(p);
-    const ww = width / whites.length;
-    const map = new Map<number, { x: number; w: number; black: boolean }>();
-    let i = 0;
-    for (let p = lo; p <= hi; p++) {
-      if (isBlack(p)) map.set(p, { x: i * ww - ww * 0.3, w: ww * 0.6, black: true });
-      else map.set(p, { x: i++ * ww, w: ww, black: false });
-    }
-    return map;
-  });
+  const keys = $derived(keyLayout(range.lo, range.hi, width));
 
   $effect(() => {
     if (!width || !height) return;

@@ -21,6 +21,8 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 
+mod midi;
+
 // ---------------------------------------------------------------- rutas
 
 fn engine_dir() -> PathBuf {
@@ -971,7 +973,7 @@ fn write_file(request: tauri::ipc::Request) -> Result<(), String> {
     let path = PathBuf::from(percent_decode(raw));
     let name = path.file_name().and_then(|n| n.to_str()).ok_or("sin nombre")?.to_string();
     let media = path.parent().is_some_and(|p| p.ends_with("media"));
-    if !(name.ends_with(".json") || name.ends_with(".pdf") || name == "playlists.txt" || media) || name.starts_with('.') {
+    if !(name.ends_with(".json") || name.ends_with(".pdf") || name.ends_with(".mid") || name == "playlists.txt" || media) || name.starts_with('.') {
         return Err(format!("no se escribe ese tipo de fichero: {name}"));
     }
     let dir = path.parent().ok_or("sin carpeta")?;
@@ -1367,7 +1369,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             paths_cmd, catalog, song, run_cmd, enqueue, import, jobs, job, cancel, cancel_all, retry, top, clear_finished, write_file, list_dir,
-            remove_file, render, director, has_director, gpu_name, now_playing, player_seek, player_toggle, prefetch_now
+            remove_file, render, director, has_director, gpu_name, now_playing, player_seek, player_toggle, prefetch_now,
+            midi::midi_ports, midi::midi_open, midi::midi_send, midi::midi_close
         ])
         .setup(|app| {
             let _ = APP.set(app.handle().clone());

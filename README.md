@@ -55,6 +55,13 @@ escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
 
 ## Uso
 
+- **Menú** al abrir: «Analizar canciones» (todo lo de abajo) o «Tocar» (`1`/`2`; la casita de arriba vuelve).
+- **Tocar**: teclado MIDI por USB (`midir`, ALSA; se conecta solo al enchufarlo, el último usado o el único). Piano roll
+  al revés (la barra sale de la tecla al tocarla y sube), pedal de resonancia, el acorde que suena con su grado y la
+  tonalidad de lo tocado (sin IA, `live.ts` con las plantillas de `harmony.ts`), volumen del teclado por CC7. La sesión
+  se guarda sola cada 15 s en `$ESTUDIO_DATA/sesiones/<fecha>.mid` (se reproduce en cualquier sitio) y `.json` (notas,
+  nombres, acordes y pedal, para pasárselo a una IA).
+
 - **Biblioteca**: todas las canciones de las tres apps. Filtros, búsqueda (`/`), orden; selección con casillas,
   Ctrl/Mayús+clic o Ctrl+A, y acciones en bloque (Todo, Letra, Pistas, Notas, pulsos, borrar).
 - **Añadir** (`N`): por artista y título (como Letras), de YouTube y cualquier web de yt-dlp, o ficheros (también
