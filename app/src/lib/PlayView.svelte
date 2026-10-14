@@ -2,7 +2,7 @@
   import { Channel, invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { loadNotation } from "./ChordsTab.svelte";
-  import { paths, writeBytes, writeJson } from "./engine";
+  import { paths, writeBytes } from "./engine";
   import { chordName, degree, keyName, noteName } from "./harmony";
   import { Live } from "./live";
   import { keyLayout } from "./Roll.svelte";
@@ -143,7 +143,7 @@
     const { json, mid } = live.snapshot(performance.now() / 1000, connected || "teclado del ordenador", started, latin);
     try {
       await writeBytes(`${base}.mid`, mid);
-      await writeJson(`${base}.json`, json);
+      await writeBytes(`${base}.json`, new TextEncoder().encode(JSON.stringify(json))); // compacto: la mitad de tokens para la IA
       saved = `${base}.mid`;
     } catch (e) {
       dirty = true;

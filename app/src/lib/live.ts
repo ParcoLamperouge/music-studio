@@ -147,3 +147,41 @@ export function stamps(text: string): { text: string; t?: number }[] {
   if (last < text.length) out.push({ text: text.slice(last) });
   return out;
 }
+
+const r3 = (x: number) => Math.round(x * 1000) / 1000;
+const noteRow = ([s, e, p, v]: Note) => ({ inicio: r3(s), fin: r3(e), nota: p, vel: r3(v) });
+
+/** Lo que se le pasa a la IA de una canción (en TOON): notas de los instrumentos elegidos, acordes con grado y letra. */
+export function songForAI(
+  song: { title: string; artist: string; duration: number; key: string | null; bpm: number | null },
+  tracks: { name: string; notes: Note[] }[],
+  chords: { t: number; end: number; name: string; deg?: string }[],
+  doc: { offset?: number; lines: { t: number | null; text: string }[] } | null,
+) {
+  return {
+    app: "Estudio",
+    kind: "cancion",
+    ...song,
+    duration: r3(song.duration),
+    format:
+      "instruments: notas transcritas del audio de cada pista separada (pueden sobrar o faltar notas): inicio y fin en s, " +
+      "nota MIDI (60 = Do central), velocidad 0-1; chords: acordes sacados del audio por un modelo, con su grado en la tonalidad; " +
+      "lyrics: cada verso con su inicio en s",
+    instruments: Object.fromEntries(tracks.map((t) => [t.name, t.notes.map(noteRow)])),
+    chords: chords.map((c) => ({ t: r3(c.t), end: r3(c.end), name: c.name, deg: c.deg ?? "" })),
+    lyrics: (doc?.lines ?? []).filter((l) => l.t != null && l.text.trim()).map((l) => ({ t: r3(l.t! + (doc!.offset ?? 0)), verso: l.text })),
+  };
+}
+
+/** Una sesión guardada (el .json de snapshot) como la lee la IA (en TOON): notas con su nombre y pedal en tablas. */
+export function sessionForAI(s: { notes: Note[]; noteNames?: string[]; pedal?: [number, number][]; [k: string]: unknown }) {
+  const { notes, noteNames, pedal = [], format: _, ...rest } = s;
+  return {
+    ...rest,
+    format:
+      "notes: inicio y fin en s (fin con el pedal), nota MIDI (60 = Do central) y su nombre, velocidad 0-1; " +
+      "chords: acordes sin IA de lo que sonaba (≥3 notas), con su grado en la tonalidad; pedal: pisado y soltado en s",
+    notes: notes.map((n, i) => ({ ...noteRow(n), nombre: noteNames?.[i] ?? "" })),
+    pedal: pedal.map(([pisado, soltado]) => ({ pisado, soltado })),
+  };
+}

@@ -973,7 +973,7 @@ fn write_file(request: tauri::ipc::Request) -> Result<(), String> {
     let path = PathBuf::from(percent_decode(raw));
     let name = path.file_name().and_then(|n| n.to_str()).ok_or("sin nombre")?.to_string();
     let media = path.parent().is_some_and(|p| p.ends_with("media"));
-    if !(name.ends_with(".json") || name.ends_with(".pdf") || name.ends_with(".mid") || name == "playlists.txt" || media) || name.starts_with('.') {
+    if !(name.ends_with(".json") || name.ends_with(".pdf") || name.ends_with(".mid") || name.ends_with(".toon") || name == "playlists.txt" || media) || name.starts_with('.') {
         return Err(format!("no se escribe ese tipo de fichero: {name}"));
     }
     let dir = path.parent().ok_or("sin carpeta")?;
@@ -1080,29 +1080,31 @@ fn has_director() -> bool {
     std::env::var("ANTHROPIC_API_KEY").is_ok()
 }
 
-const COACH: &str = "Eres profesor de piano y armonía. Te paso una sesión tocada en un teclado MIDI (JSON; el campo \"format\" \
-explica los datos; los acordes los sacó un algoritmo sin IA y pueden fallar). Coméntasela a quien la tocó en español y en \
-Markdown, bastante directo: sin introducciones, advertencias ni relleno; viñetas cortas. Cita cada momento como m:ss o m:ss.s \
-(0:21, 2:38.4) y los tramos como m:ss–m:ss, nunca de otra forma. Secciones: ## Por tramos (cada zona de la sesión: qué se toca \
-y qué sensación o emoción transmite), ## Progresiones (cada progresión que aparece, con sus acordes, las notas de cada uno y sus \
-grados; qué sensación da y por qué, en breve) y ## Fallos (notas o acordes equivocados, acordes mal detectados, ritmo \
-irregular). Sin tablas.";
+const COACH: &str = "Eres profesor de piano y armonía. Te paso música en TOON (como JSON, pero las listas van en tabla: \
+cabecera con los campos y una fila por elemento): una sesión tocada en un teclado MIDI o una canción con las notas transcritas del audio por instrumento (el campo format explica los datos; notas y acordes los sacó un algoritmo \
+y pueden fallar). Coméntala en español y en Markdown, bastante directo: sin introducciones, advertencias ni relleno; viñetas \
+cortas. Cita cada momento como m:ss o m:ss.s (0:21, 2:38.4) y los tramos como m:ss–m:ss, nunca de otra forma. Secciones: \
+## Por tramos (cada zona: qué se toca y qué sensación o emoción transmite; en una canción, sus partes: intro, estrofa, \
+estribillo… con la letra si la hay), ## Progresiones (cada progresión que aparece, con sus acordes, las notas de cada uno y sus \
+grados; qué sensación da y por qué, en breve) y ## Fallos (en una sesión: notas o acordes equivocados, acordes mal detectados, \
+ritmo irregular; en una canción: notas que chocan y lo que la transcripción o el detector de acordes probablemente hizo mal). \
+Sin tablas.";
 
-/// Claude (Opus 5.5, esfuerzo medio) analiza una sesión del teclado con Claude Code (`claude -p`: la suscripción, sin API key) y lo deja al lado
+/// Claude (Opus 5.5, esfuerzo medio) analiza una sesión del teclado o unas pistas de una canción con Claude Code (`claude -p`: la suscripción, sin API key) y lo deja al lado
 /// como `<sesión>.analisis.md`.
 #[tauri::command]
 async fn analyze_session(path: String) -> Result<String, String> {
     blocking(move || {
-        let json = inside(Path::new(&path))?;
-        if json.extension().is_none_or(|e| e != "json") {
-            return Err("no es una sesión".into());
+        let toon = inside(Path::new(&path))?;
+        if toon.extension().is_none_or(|e| e != "toon") {
+            return Err("no es un .toon para analizar".into());
         }
-        let data = std::fs::read(&json).map_err(|e| e.to_string())?;
+        let data = std::fs::read(&toon).map_err(|e| e.to_string())?;
         // sin herramientas ni ajustes del usuario (hooks, plugins): solo el texto
         let mut child = Command::new("claude")
             .args(["-p", "--model", "claude-opus-5-5", "--effort", "medium", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--system-prompt", COACH])
-            .arg("Analiza esta sesión (JSON por la entrada estándar).")
-            .current_dir(json.parent().ok_or("sin carpeta")?)
+            .arg("Analiza esto (TOON por la entrada estándar).")
+            .current_dir(toon.parent().ok_or("sin carpeta")?)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1115,7 +1117,7 @@ async fn analyze_session(path: String) -> Result<String, String> {
             let err = String::from_utf8_lossy(&out.stderr);
             return Err(err.trim().lines().last().filter(|l| !l.is_empty()).unwrap_or(&text).to_string());
         }
-        std::fs::write(json.with_extension("analisis.md"), &text).map_err(|e| e.to_string())?;
+        std::fs::write(toon.with_extension("analisis.md"), &text).map_err(|e| e.to_string())?;
         Ok(text)
     })
     .await

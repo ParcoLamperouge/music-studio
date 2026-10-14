@@ -2,8 +2,10 @@
   import { invoke } from "@tauri-apps/api/core";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
-  import { listDir, paths, readBytes, readJson, removeFile, writeJson } from "./engine";
-  import { stamps } from "./live";
+  import { listDir, paths, readBytes, readJson, removeFile, STEM_INFO, writeBytes, writeJson, type Detail } from "./engine";
+  import type { Note } from "./harmony";
+  import { sessionForAI, songForAI, stamps } from "./live";
+  import { toToon } from "./toon";
   import { Player, synth } from "./player";
   import Roll from "./Roll.svelte";
   import { settings } from "./settings.svelte";
@@ -56,6 +58,23 @@
   let songTime = $state(0);
   let songChords = $state<{ t: number; end: number; name: string; deg?: string }[]>([]);
   let songKey = $state("");
+  let songInfo = $state<Detail | null>(null);
+  // instrumentos que se le pasan a Claude: al abrir una canción, todos los que tienen notas
+  const noted = $derived(songInfo?.stemlab?.stems.filter((s) => s.roll) ?? []);
+  let aiStems = $state<string[]>([]);
+  $effect(() => {
+    aiStems = noted.map((s) => s.name);
+  });
+  /** Cada canción + instrumentos tiene su análisis: sesiones/canciones/<canción>__<pistas>.{toon,analisis.md}. */
+  const aiBase = $derived(song && aiStems.length ? `${dir}/canciones/${song.replace(/[/:]/g, "_")}__${[...aiStems].sort().join("+")}` : "");
+  const target = $derived(song ? aiBase : (sel?.base ?? ""));
+  $effect(() => {
+    const base = aiBase;
+    if (!song) return;
+    analysis = "";
+    error = "";
+    if (base) readBytes(`${base}.analisis.md`).then((b) => base === aiBase && (analysis = new TextDecoder().decode(b)), () => {});
+  });
   let adding = $state(false);
   let query = $state("");
   let picked = $state<string[]>([]);
@@ -72,6 +91,7 @@
     player.stop();
     playing = false;
     sel = null;
+    [songInfo, songChords, songKey] = [null, [], ""]; // que no se cuele la ficha de la anterior
     song = key;
   }
 
@@ -145,27 +165,40 @@
 
   /** Un tiempo del análisis: ir ahí y escucharlo. */
   function jump(t: number) {
+    if (song) return songPlayer?.seek(t, true);
     seek(Math.min(t, duration));
     if (!player.playing && !loading) toggle();
   }
 
   async function analyze() {
-    const it = sel;
-    if (!it) return;
+    const base = target;
+    if (!base) return;
     analyzing = true;
     error = "";
     try {
-      const text = await invoke<string>("analyze_session", { path: `${it.base}.json` });
-      if (sel === it) analysis = text;
+      // la IA lee TOON (tablas en vez de JSON: muchos menos tokens); el .json de la sesión sigue siendo el de la app
+      const data = song ? await songJson() : sessionForAI(sel!.s as never);
+      await writeBytes(`${base}.toon`, new TextEncoder().encode(toToon(data)));
+      const text = await invoke<string>("analyze_session", { path: `${base}.toon` });
+      if (target === base) analysis = text;
     } catch (e) {
-      if (sel === it) error = String(e);
+      if (target === base) error = String(e);
     }
     analyzing = false;
   }
 
+  /** Las notas de los instrumentos elegidos, los acordes y la letra de la canción abierta. */
+  async function songJson() {
+    const d = songInfo!;
+    const tracks = await Promise.all(
+      noted.filter((s) => aiStems.includes(s.name)).map(async (s) => ({ name: STEM_INFO[s.name]?.label ?? s.name, notes: await readJson<Note[]>(`${d.stemlab!.dir}/${s.roll}`, []) })),
+    );
+    return songForAI({ title: d.title, artist: d.artist, duration: d.duration, key: songKey || null, bpm: d.bpm }, tracks, songChords, d.doc);
+  }
+
   async function remove() {
-    if (!sel || !confirm(`Borrar la sesión del ${when(sel.name)} (.mid, .json y su análisis). No se puede deshacer.`)) return;
-    for (const ext of [".json", ".mid", ".analisis.md"]) await removeFile(sel.base + ext).catch(() => {});
+    if (!sel || !confirm(`Borrar la sesión del ${when(sel.name)} (.mid, .json, .toon y su análisis). No se puede deshacer.`)) return;
+    for (const ext of [".json", ".mid", ".toon", ".analisis.md"]) await removeFile(sel.base + ext).catch(() => {});
     player.stop();
     playing = false;
     sel = null;
@@ -227,6 +260,18 @@
   {#each stamps(text) as p, i (i)}{#if p.t != null}<button class="ts" onclick={() => jump(p.t!)} title="Ir a {p.text}">{p.text}</button>{:else}{p.text}{/if}{/each}
 {/snippet}
 
+{#snippet aiOut()}
+  {#if analyzing}<div class="bar indet"><i></i></div>{/if}
+  {#if error}<p class="error-text">{error}</p>{/if}
+  {#if blocks.length}
+    <article>
+      {#each blocks as b, i (i)}
+        {#if b.kind === "h"}<h3>{b.text}</h3>{:else}<p class:li={b.kind === "li"}>{@render linked(b.text)}</p>{/if}
+      {/each}
+    </article>
+  {/if}
+{/snippet}
+
 {#snippet controls()}
   <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !sel} ontoggle={toggle} onseek={seek} />
 {/snippet}
@@ -269,7 +314,7 @@
 
   <main>
     {#if song}
-      {#key song}<SongPlayer bind:this={songPlayer} key={song} bind:time={songTime} bind:chords={songChords} bind:keyLabel={songKey} />{/key}
+      {#key song}<SongPlayer bind:this={songPlayer} key={song} bind:time={songTime} bind:chords={songChords} bind:keyLabel={songKey} bind:detail={songInfo} />{/key}
     {:else if sel?.s}
       {#key sel.base}
         <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} chords={sel.s.chords} keyLabel={sel.s.key ?? ""}
@@ -303,10 +348,24 @@
       {:else}
         <p class="muted">Sin acordes todavía: sácalos en Analizar (pestaña Acordes).</p>
       {/if}
+      <span class="kicker">Instrumentos para Claude</span>
+      {#if noted.length}
+        <div class="chips pick">
+          {#each noted as st (st.name)}
+            <button class:on={aiStems.includes(st.name)} onclick={() => (aiStems = aiStems.includes(st.name) ? aiStems.filter((x) => x !== st.name) : [...aiStems, st.name])}>
+              {STEM_INFO[st.name]?.label ?? st.name}{#if st.notes}<small> {st.notes} notas</small>{/if}
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <p class="muted">Ninguna pista tiene notas todavía: sácalas en Analizar.</p>
+      {/if}
       <div class="actions">
+        <button class="primary" onclick={analyze} disabled={analyzing || !aiStems.length}>{analyzing ? "Claude escuchando…" : analysis ? "Analizar otra vez" : "Analizar con Claude"}</button>
         <button class="ghost" onclick={() => song && onsong(song)} title="Letra, partitura, acordes…">Abrir en Analizar</button>
         <button class="ghost" onclick={removeSong} title="Solo la quita de esta lista; la canción sigue en la biblioteca">Quitar</button>
       </div>
+      {@render aiOut()}
     {:else if sel?.s}
       <span class="kicker">Sesión</span>
       <h2>{when(sel.name)}</h2>
@@ -332,15 +391,7 @@
         <button class="ghost" onclick={() => sel && revealItemInDir(`${sel.base}.mid`)} title="El .mid se abre en cualquier programa">Carpeta</button>
         <button class="ghost" onclick={remove}>Borrar</button>
       </div>
-      {#if analyzing}<div class="bar indet"><i></i></div>{/if}
-      {#if error}<p class="error-text">{error}</p>{/if}
-      {#if blocks.length}
-        <article>
-          {#each blocks as b, i (i)}
-            {#if b.kind === "h"}<h3>{b.text}</h3>{:else}<p class:li={b.kind === "li"}>{@render linked(b.text)}</p>{/if}
-          {/each}
-        </article>
-      {/if}
+      {@render aiOut()}
     {/if}
   </section>
 </div>
@@ -416,6 +467,9 @@
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chips span { padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--text); font-size: 13px; }
   .chips small { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; }
+  .pick button { padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); background: none; color: var(--text-3); font-size: 12.5px; }
+  .pick button.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--text); }
+  .pick small { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
   .prog { display: flex; flex-wrap: wrap; gap: 4px; max-height: 160px; overflow-y: auto; }
   .prog button { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text-2); font-family: var(--mono); font-size: 11.5px; }
   .prog button:hover { color: var(--text); border-color: var(--line-hi); }

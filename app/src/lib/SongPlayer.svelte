@@ -11,15 +11,15 @@
 
   /** Una canción separada, para tocar encima: pistas con su volumen y M/S, piano roll por instrumento y acordes (lv-chordia).
    * Versión corta de SongView, sin pestañas ni cola. */
-  let { key, time = $bindable(0), chords = $bindable([]), keyLabel = $bindable("") }: {
+  let { key, time = $bindable(0), chords = $bindable([]), keyLabel = $bindable(""), detail = $bindable(null) }: {
     key: string;
+    detail?: Detail | null; // la ficha, para quien la use fuera (el análisis)
     time?: number;
     chords?: { t: number; end: number; name: string; deg?: string }[];
     keyLabel?: string;
   } = $props();
 
   const player = new Player();
-  let detail = $state<Detail | null>(null);
   let loading = $state(true);
   let error = $state("");
   let playing = $state(false);

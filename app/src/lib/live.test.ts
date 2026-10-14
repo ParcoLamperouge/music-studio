@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chordName } from "./harmony.ts";
-import { Live, stamps, toMidi } from "./live.ts";
+import { Live, sessionForAI, songForAI, stamps, toMidi } from "./live.ts";
+import { toToon } from "./toon.ts";
 
 // Do mayor con el pedal: las teclas se sueltan pero suenan hasta levantarlo
 const r = (x: number) => Math.round(x * 1000) / 1000;
@@ -51,3 +52,39 @@ assert.deepEqual(stamps("Escalas (0:21–0:25) y final en 2:38.4."), [
 ]);
 assert.deepEqual(stamps("compás 3:4, a las 12:30:00 o 1:2"), [{ text: "compás 3:4, a las 12:30:00 o 1:2" }]);
 console.log("tiempos ok");
+
+// canción para la IA: notas redondeadas por instrumento, letra con su desfase, sin versos vacíos ni sin tiempo
+const song = songForAI(
+  { title: "T", artist: "A", duration: 10.12345, key: "Do mayor", bpm: 90 },
+  [{ name: "Piano", notes: [[1.23456, 2, 60, 0.51234]] }],
+  [{ t: 0, end: 2, name: "Do", deg: "I" }],
+  { offset: 0.5, lines: [{ t: 1, text: "hola" }, { t: null, text: "x" }, { t: 3, text: " " }] },
+);
+assert.deepEqual(song.instruments, { Piano: [{ inicio: 1.235, fin: 2, nota: 60, vel: 0.512 }] });
+assert.deepEqual(song.lyrics, [{ t: 1.5, verso: "hola" }]);
+assert.equal(song.duration, 10.123);
+console.log("cancion ok");
+
+// TOON: tablas para listas de objetos iguales, comillas solo cuando hacen falta
+assert.equal(
+  toToon({ key: "Do mayor", n: 2, x: null, tags: ["a", "b c"], chords: [{ t: 0, name: "Do/Mi", deg: "I" }, { t: 1.5, name: "Sol7", deg: "" }], lyrics: [{ t: 1, verso: "hola, adiós" }], inst: { "Batería": [] } }),
+  `key: Do mayor
+n: 2
+x: null
+tags[2]: a,b c
+chords[2]{t,name,deg}:
+  0,Do/Mi,I
+  1.5,Sol7,""
+lyrics[1]{t,verso}:
+  1,"hola, adiós"
+inst:
+  "Batería"[0]:`,
+);
+assert.equal(toToon({ a: ["1", "-x", "true", ""], m: [[1, 2], { k: 1, j: [3] }] }), `a[4]: "1","-x","true",""
+m[2]:
+  - [2]: 1,2
+  - k: 1
+    j[1]: 3`);
+const ses = toToon(sessionForAI(json as never));
+assert.ok(ses.includes("notes[3]{inicio,fin,nota,vel,nombre}:\n  0,1,60,0.787,Do4"), ses);
+console.log("toon ok");

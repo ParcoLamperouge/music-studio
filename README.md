@@ -59,7 +59,9 @@ escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
 - **Sesiones**: dos listas. Canciones: las de la biblioteca con pistas separadas que añadas («＋ Añadir canción»; la lista va en
   `sesiones/canciones.json`), por instrumentos (volumen y M/S, piano roll de cada uno, acordes y progresión). Sesiones: las guardadas en Tocar, con el piano roll y el transporte de las canciones (suenan con un piano
   sintetizado), tonalidad, acordes que más suenan y la progresión (clic = ir ahí). «Analizar con Claude» (Opus 5.5, esfuerzo medio: por tramos con su emoción, progresiones con notas y grados, fallos) usa Claude Code
-  (`claude -p`, la suscripción; sin herramientas ni tus hooks) y deja `<sesión>.analisis.md` al lado (~1 min).
+  (`claude -p`, la suscripción; sin herramientas ni tus hooks) y deja `<sesión>.analisis.md` al lado (~1 min). A las canciones de la lista también, con los instrumentos que elijas
+  (sus notas, acordes y letra; `sesiones/canciones/<canción>__<pistas>.analisis.md`). Claude recibe TOON (`toon.ts`: las
+  listas de notas y acordes en tabla), no el JSON.
 - **Tocar**: teclado MIDI por USB (`midir`, ALSA; se conecta solo al enchufarlo, el último usado o el único). Piano roll
   al revés (la barra sale de la tecla al tocarla y sube), pedal de resonancia, el acorde que suena con su grado y la
   tonalidad de lo tocado (sin IA, `live.ts` con las plantillas de `harmony.ts`), volumen del teclado por CC7. Para probar sin piano, el teclado del ordenador: fila A–Ñ blancas, W E T Y U O P negras,
