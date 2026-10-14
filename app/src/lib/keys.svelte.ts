@@ -88,8 +88,9 @@ function pcNote(msg: number[]) {
   void send(msg).catch(() => {});
 }
 
-/** onkeydown y onkeyup de la ventana. `channel`: el del teclado MIDI, para que todo vaya junto. */
-export function pcKey(e: KeyboardEvent, channel = 0) {
+/** onkeydown y onkeyup de la ventana. `channel`: el del teclado MIDI, para que todo vaya junto; `velocity`: la fuerza
+ * de las notas (1-127; el teclado del ordenador no la tiene). */
+export function pcKey(e: KeyboardEvent, channel = 0, velocity = 90) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const down = e.type === "keydown";
   if (e.code in PC_KEYS) {
@@ -97,7 +98,7 @@ export function pcKey(e: KeyboardEvent, channel = 0) {
     if (down && !e.repeat && !pressed.has(e.code)) {
       const p = input.octave + PC_KEYS[e.code];
       pressed.set(e.code, p);
-      pcNote([0x90 | channel, p, 90]);
+      pcNote([0x90 | channel, p, velocity]);
     } else if (!down && pressed.has(e.code)) {
       pcNote([0x80 | channel, pressed.get(e.code)!, 0]);
       pressed.delete(e.code);

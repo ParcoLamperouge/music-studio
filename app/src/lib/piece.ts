@@ -146,9 +146,50 @@ const kids = (e: El | undefined, tag: string) => e?.kids.filter((k) => k.tag ===
 const txt = (e: El | undefined, tag: string) => kid(e, tag)?.text.trim() ?? "";
 const STEP: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
-/** MusicXML (score-partwise) como pieza. Dos pentagramas en una parte: el de arriba es la derecha; varias partes: la
- * primera la derecha y las demás la izquierda; uno solo: se reparte en el Do central. Las ligaduras unen notas, las
- * notas de adorno no cuentan. */
+/** Lo que importa de un compás para saber el orden en que se toca. */
+export type Bar = { forward?: boolean; backward?: number; endings?: number[]; segno?: boolean; coda?: boolean; fine?: boolean; dacapo?: boolean; dalsegno?: boolean; tocoda?: boolean };
+
+/** El orden en que se tocan los compases: repeticiones (dos veces, o las que diga `times`), 1.ª/2.ª vez (cada pasada,
+ * su casilla), D.C. y D.S. (sin repetir otra vez, como es costumbre), al Fine o al Coda. */
+export function playOrder(bars: Bar[]): number[] {
+  const order: number[] = [];
+  const lastEnding = Math.max(1, ...bars.flatMap((b) => b.endings ?? []));
+  const segno = bars.findIndex((b) => b.segno), coda = bars.findIndex((b) => b.coda);
+  const jumps = new Map<number, number>(); // barra de repetición → veces que ya se volvió
+  let i = 0, start = 0, pass = 1, after = false; // after: tras D.C. o D.S.
+  for (let guard = 0; i < bars.length && guard < 20000; guard++) {
+    const b = bars[i];
+    if (b.endings && !b.endings.includes(after ? lastEnding : pass)) {
+      i++; // casilla de otra pasada
+      continue;
+    }
+    order.push(i);
+    if (after && b.fine) break;
+    if (after && b.tocoda && coda > i) {
+      i = coda;
+      continue;
+    }
+    if (!after && b.backward) {
+      const n = jumps.get(i) ?? 0;
+      if (n < b.backward - 1) {
+        jumps.set(i, n + 1);
+        [i, pass] = [start, pass + 1];
+        continue;
+      }
+    }
+    if (!after && (b.dacapo || (b.dalsegno && segno >= 0))) {
+      [after, i] = [true, b.dacapo ? 0 : segno];
+      continue;
+    }
+    i++;
+    if (bars[i]?.forward && !after) [start, pass] = [i, 1]; // empieza otra sección que se repite
+  }
+  return order;
+}
+
+/** MusicXML (score-partwise) como pieza, con las repeticiones desarrolladas. Dos pentagramas en una parte: el de arriba
+ * es la derecha; varias partes: la primera la derecha y las demás la izquierda; uno solo: se reparte en el Do central.
+ * Las ligaduras unen notas, las notas de adorno no cuentan. */
 export function fromMusicXML(xml: string, title = "MusicXML"): Piece {
   const doc = parseXml(xml);
   const score = kid(doc, "score-partwise");
@@ -159,16 +200,49 @@ export function fromMusicXML(xml: string, title = "MusicXML"): Piece {
   let bpm = 0, meter = 0;
   let key: Key | undefined;
   parts.forEach((part, pi) => {
-    let div = 1, pos = 0, lastStart = 0, staves = 1;
+    const measures = kids(part, "measure");
+    // las marcas de cada compás (barras, casillas y saltos), con las casillas que abarcan varios compases
+    let ending: number[] | undefined;
+    const bars: Bar[] = measures.map((m) => {
+      const bar: Bar = {};
+      const sounds = [...kids(m, "sound"), ...kids(m, "direction").map((d) => kid(d, "sound")).filter((x): x is El => !!x)];
+      for (const snd of sounds) {
+        const a = snd.attrs;
+        if (a.segno) bar.segno = true;
+        if (a.coda) bar.coda = true;
+        if (a.fine) bar.fine = true;
+        if (a.dacapo === "yes") bar.dacapo = true;
+        if (a.dalsegno) bar.dalsegno = true;
+        if (a.tocoda) bar.tocoda = true;
+      }
+      let close = false;
+      for (const bl of kids(m, "barline")) {
+        const rep = kid(bl, "repeat");
+        if (rep?.attrs.direction === "forward") bar.forward = true;
+        if (rep?.attrs.direction === "backward") bar.backward = +(rep.attrs.times ?? 2) || 2;
+        const end = kid(bl, "ending");
+        if (end?.attrs.type === "start") ending = (end.attrs.number ?? "1").split(/[,\s]+/).filter(Boolean).map(Number);
+        if (end && (end.attrs.type === "stop" || end.attrs.type === "discontinue")) close = true;
+      }
+      if (ending) bar.endings = ending;
+      if (close) ending = undefined;
+      return bar;
+    });
+    let div = 1, staves = 1, barLen = 4, offset = 0;
     const tied = new Map<string, PNote>(); // nota que sigue ligada, por altura y pentagrama
-    const partNotes: (PNote & { staff: number })[] = [];
-    for (const m of kids(part, "measure")) {
+    const partNotes: PNote[] = [];
+    for (const mi of playOrder(bars)) {
+      const m = measures[mi];
+      let pos = 0, lastStart = 0, maxPos = 0;
       for (const el of m.kids) {
         if (el.tag === "attributes") {
           if (kid(el, "divisions")) div = +txt(el, "divisions") || 1;
           if (kid(el, "staves")) staves = +txt(el, "staves") || 1;
           const time = kid(el, "time");
-          if (time && !meter) meter = Math.round((+txt(time, "beats") * 4) / (+txt(time, "beat-type") || 4)) || 4;
+          if (time) {
+            barLen = (+txt(time, "beats") * 4) / (+txt(time, "beat-type") || 4) || 4;
+            if (!meter) meter = Math.round(barLen) || 4;
+          }
           const k = kid(el, "key");
           if (k && !key && kid(k, "fifths")) {
             const f = +txt(k, "fifths"), minor = txt(k, "mode") === "minor";
@@ -184,11 +258,12 @@ export function fromMusicXML(xml: string, title = "MusicXML"): Piece {
         else if (el.tag === "note") {
           if (kid(el, "grace")) continue;
           const d = +txt(el, "duration") / div || 0;
-          const start = kid(el, "chord") ? lastStart : pos;
+          const start = offset + (kid(el, "chord") ? lastStart : pos);
           if (!kid(el, "chord")) {
             lastStart = pos;
             pos += d;
           }
+          maxPos = Math.max(maxPos, pos);
           const pitch = kid(el, "pitch");
           if (!pitch || kid(el, "rest")) continue;
           const p = 12 * (+txt(pitch, "octave") + 1) + STEP[txt(pitch, "step")] + (+txt(pitch, "alter") || 0);
@@ -202,13 +277,16 @@ export function fromMusicXML(xml: string, title = "MusicXML"): Piece {
             continue;
           }
           const hand: Hand = parts.length > 1 ? (pi === 0 ? "rh" : "lh") : staves > 1 ? (staff === 1 ? "rh" : "lh") : handOf(p);
-          const n = { b: start, d, p, v: 0.7, hand, staff };
+          const n = { b: start, d, p, v: 0.7, hand };
           partNotes.push(n);
           if (ties.includes("start")) tied.set(id, n);
         }
+        maxPos = Math.max(maxPos, pos);
       }
+      // la anacrusa (compás «implícito») dura lo que trae; los demás, lo que dice el compás
+      offset += m.attrs.implicit === "yes" ? maxPos : Math.max(barLen, maxPos);
     }
-    for (const { staff: _, ...n } of partNotes) notes.push(n);
+    notes.push(...partNotes);
   });
   return { ...newPiece(name), bpm: Math.round(bpm || 90), meter: meter || 4, key, notes: notes.filter((n) => n.d > 0).sort((x, y) => x.b - y.b || x.p - y.p) };
 }

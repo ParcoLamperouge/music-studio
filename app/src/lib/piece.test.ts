@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { toMusicXML } from "./arrange.ts";
 import { toMidi } from "./live.ts";
-import { fromMidi, fromMusicXML, fromSession, importPiece, newPiece, parseXml, pieceArrangement, pieceEvents, unzipMxl, type Piece } from "./piece.ts";
+import { fromMidi, fromMusicXML, fromSession, playOrder, type Bar, importPiece, newPiece, parseXml, pieceArrangement, pieceEvents, unzipMxl, type Piece } from "./piece.ts";
 
 const pc: Piece = { ...newPiece("Prueba"), bpm: 100, notes: [
   { b: 0, d: 1, p: 72, v: 0.8, hand: "rh" }, { b: 1, d: 0.5, p: 74, v: 0.8, hand: "rh" }, { b: 1.5, d: 0.5, p: 74, v: 0.8, hand: "rh" },
@@ -77,4 +77,26 @@ await assert.rejects(importPiece("x.pdf", new Uint8Array()), /Formato/);
 // una sesión (segundos) como pieza a 120 bpm
 const fs = fromSession([[0.5, 1, 64, 0.8], [0.5, 2, 48, 0.6]], "Sesión");
 assert.deepEqual(fs.notes.map((n) => [n.b, n.d, n.p, n.hand]), [[1, 1, 64, "rh"], [1, 3, 48, "lh"]]);
+// repeticiones: el orden de los compases
+assert.deepEqual(playOrder([{ forward: true }, { backward: 2 }, {}]), [0, 1, 0, 1, 2], "|: A B :| C");
+assert.deepEqual(playOrder([{}, { forward: true }, { backward: 3 }]), [0, 1, 2, 1, 2, 1, 2], "A |: B C :| ×3");
+assert.deepEqual(playOrder([{ backward: 2 }, {}]), [0, 0, 1], "sin barra de inicio: desde el principio");
+assert.deepEqual(playOrder([{ forward: true }, { endings: [1], backward: 2 }, { endings: [2] }, {}]), [0, 1, 0, 2, 3], "1.ª y 2.ª casilla");
+assert.deepEqual(playOrder([{ forward: true }, {}, { endings: [1, 2], backward: 3 }, { endings: [3] }]), [0, 1, 2, 0, 1, 2, 0, 1, 3], "casilla 1-2 y 3.ª");
+assert.deepEqual(playOrder([{}, { fine: true }, { dacapo: true }]), [0, 1, 2, 0, 1], "D.C. al Fine");
+const ds: Bar[] = [{}, { segno: true }, { tocoda: true }, { dalsegno: true }, { coda: true }];
+assert.deepEqual(playOrder(ds), [0, 1, 2, 3, 1, 2, 4], "D.S. al Coda");
+assert.deepEqual(playOrder([{ forward: true }, { backward: 2 }, { dacapo: true }]), [0, 1, 0, 1, 2, 0, 1, 2], "tras el D.C. no se repite otra vez");
+
+// en el MusicXML: anacrusa, sección repetida con 1.ª y 2.ª casilla
+const bar = (n: number, extra = "", note = `<note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration></note>`) =>
+  `<measure number="${n}"${n === 0 ? ' implicit="yes"' : ""}>${extra}${note}</measure>`;
+const rep = `<score-partwise><part-list/><part id="P1">
+<measure number="0" implicit="yes"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+${bar(1, '<barline location="left"><repeat direction="forward"/></barline>')}
+${bar(2, '<barline location="left"><ending number="1" type="start"/></barline><barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline>', `<note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration></note>`)}
+${bar(3, '<barline location="left"><ending number="2" type="start"/></barline><barline location="right"><ending number="2" type="discontinue"/></barline>', `<note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration></note>`)}
+</part></score-partwise>`;
+const r = fromMusicXML(rep);
+assert.deepEqual(r.notes.map((n) => [n.b, n.p]), [[0, 67], [1, 72], [5, 74], [9, 72], [13, 76]], "anacrusa, A, 1.ª, A, 2.ª");
 console.log("piezas ok");

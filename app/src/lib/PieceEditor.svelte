@@ -18,10 +18,10 @@
   /** Editor de piezas: piano roll con el tiempo en horizontal. Notas con el ratón (clic pone, arrastrar mueve o alarga,
    * clic derecho borra) o con el teclado de piano: paso a paso (cada nota con lo que la mantienes, y el cursor avanza) o
    * grabando en tiempo real con metrónomo. Se guarda sola. */
-  let { piece, onclose, onpractice }: { piece: Piece; onclose: () => void; onpractice: (p: Piece) => void } = $props();
+  let { piece, onclose, onpractice, onsessions }: { piece: Piece; onclose: () => void; onpractice: (p: Piece) => void; onsessions: () => void } = $props();
 
   const latin = loadNotation().latin;
-  const LO = 21, HI = 108, KEYS_W = 64, RULER_H = 22;
+  const LO = 21, HI = 108, KEYS_W = 64, RULER_H = 22, VEL_H = 56; // VEL_H: el carril de la fuerza, abajo
   const COLORS = { rh: "#f29d38", lh: "#74c6f0" };
 
   // svelte-ignore state_referenced_locally
@@ -41,6 +41,8 @@
   let scrollX = $state(0);
   let scrollY = $state((HI - 72) * 14);
   let message = $state("");
+  let goSessions = $state(false); // el aviso de «→ Sesión» ofrece ir
+  let defaultVel = $state(0.7); // fuerza de las notas nuevas (ratón y teclado del ordenador)
 
   const spb = $derived(60 / meta.bpm); // segundos por negra
   const current = (): Piece => ({ ...piece, ...meta, notes });
@@ -117,6 +119,8 @@
   // ---------------------------------------------------------------- notas desde el teclado de piano
 
   const held = new Map<number, { b: number; t0: number; v: number }>();
+  const sustained = new Map<number, { b: number; t0: number; v: number }>(); // grabando: soltadas con el pedal pisado
+  let pedal = false;
   let stepAt = 0, stepMax = 0;
   const voices = new Map<number, () => void>();
   const nowBeat = () => (recording && player.playing ? player.time() / spb : playhead);
@@ -127,9 +131,18 @@
     const [st, p, v] = msg;
     const kind = st & 0xf0;
     const now = performance.now() / 1000;
+    if (kind === 0xb0 && p === 64) {
+      // pedal: grabando, sostiene lo soltado hasta levantarlo (como en una sesión)
+      pedal = v >= 64;
+      if (!pedal && recording) for (const k of [...sustained.keys()]) closeRecorded(k, sustained);
+      return;
+    }
     if (kind === 0x90 && v > 0) {
       if (!input.connected) voices.set(p, voice(player.ctx, p, v / 127)); // sin piano, que suene aquí
-      if (recording) held.set(p, { b: Math.max(playhead, nowBeat()), t0: now, v: v / 127 });
+      if (recording) {
+        if (sustained.has(p)) closeRecorded(p, sustained); // la misma tecla otra vez con el pedal
+        held.set(p, { b: Math.max(playhead, nowBeat()), t0: now, v: v / 127 });
+      }
       else if (stepInput) {
         if (!held.size) [stepAt, stepMax] = [playhead, 0]; // un acorde empieza donde está el cursor
         held.set(p, { b: stepAt, t0: now, v: v / 127 });
@@ -139,12 +152,13 @@
       voices.delete(p);
       const h = held.get(p);
       if (!h) return;
-      held.delete(p);
       if (recording) {
-        let b = h.b, d = nowBeat() - h.b;
-        if (quantize) [b, d] = [q(b), Math.max(grid, q(d))];
-        addNote({ b, d: Math.max(0.05, d), p, v: h.v, hand: handFor(p) });
+        if (pedal) {
+          held.delete(p);
+          sustained.set(p, h);
+        } else closeRecorded(p, held);
       } else {
+        held.delete(p);
         // paso a paso: la nota dura lo que la mantuviste (al tempo), y al soltar todo el cursor avanza
         const d = Math.max(grid, q((now - h.t0) / spb));
         addNote({ b: h.b, d, p, v: h.v, hand: handFor(p) });
@@ -155,6 +169,16 @@
         }
       }
     }
+  }
+
+  /** Grabando: la nota `p` acaba ahora. */
+  function closeRecorded(p: number, from: Map<number, { b: number; t0: number; v: number }>) {
+    const h = from.get(p);
+    if (!h) return;
+    from.delete(p);
+    let b = h.b, d = nowBeat() - h.b;
+    if (quantize) [b, d] = [q(b), Math.max(grid, q(d))];
+    addNote({ b, d: Math.max(0.05, d), p, v: h.v, hand: handFor(p) });
   }
 
   function addNote(n: PNote) {
@@ -192,8 +216,8 @@
 
   function finishRecording() {
     const end = nowBeat();
-    for (const [p, h] of held) addNote({ b: quantize ? q(h.b) : h.b, d: Math.max(grid, (quantize ? q(end) : end) - h.b), p, v: h.v, hand: handFor(p) });
-    held.clear();
+    for (const k of [...held.keys()]) closeRecorded(k, held);
+    for (const k of [...sustained.keys()]) closeRecorded(k, sustained);
     playhead = Math.max(playhead, end);
     message = "";
     player.setGain("__click", metronome ? 0.5 : 0);
@@ -231,6 +255,7 @@
   const toX = (b: number) => KEYS_W + (b - scrollX) * pxBeat;
   const toB = (x: number) => (x - KEYS_W) / pxBeat + scrollX;
   const toY = (p: number) => RULER_H + (HI - p) * rowH - scrollY;
+  const laneTop = () => height - VEL_H;
   const toP = (y: number) => HI - Math.floor((y - RULER_H + scrollY) / rowH);
 
   /** Que el cursor se vea al avanzar. */
@@ -306,10 +331,27 @@
       g.strokeRect(drag.x0, drag.y0, drag.x - drag.x0, drag.y - drag.y0);
       g.setLineDash([]);
     }
+    // carril de la fuerza: una barra por nota (las elegidas, en blanco)
+    const lt = laneTop();
+    g.fillStyle = "#100d0c";
+    g.fillRect(0, lt, width, VEL_H);
+    g.fillStyle = "#ffffff1a";
+    g.fillRect(0, lt, width, 1);
+    for (const n of notes) {
+      const x = toX(n.b);
+      if (x < KEYS_W || x > width) continue;
+      const h = n.v * (VEL_H - 10);
+      g.fillStyle = selected.has(n) ? "#ffffff" : COLORS[n.hand];
+      g.fillRect(x, lt + VEL_H - 4 - h, 3, h);
+      g.fillRect(x - 2, lt + VEL_H - 5 - h, 7, 2);
+    }
+    g.fillStyle = "#7c7164";
+    g.font = "500 10px 'JetBrains Mono Variable', monospace";
+    g.fillText("Fuerza", 8, lt + VEL_H / 2 + 4);
     // teclado a la izquierda
     for (let p = HI; p >= LO; p--) {
       const y = toY(p);
-      if (y > height || y + rowH < RULER_H) continue;
+      if (y > laneTop() - rowH || y + rowH < RULER_H) continue;
       const black = BLACK.has(p % 12);
       g.fillStyle = held.has(p) ? "#f29d38" : black ? "#15161c" : "#eceae4";
       g.fillRect(0, y, black ? KEYS_W * 0.6 : KEYS_W, rowH - (black ? 0 : 1));
@@ -338,6 +380,7 @@
     | { mode: "move" | "resize"; x0: number; y0: number; x: number; y: number; orig: Map<PNote, { b: number; d: number; p: number }>; changed: boolean; before: string }
     | { mode: "box"; x0: number; y0: number; x: number; y: number; add: boolean }
     | { mode: "ruler"; x0: number; y0: number; x: number; y: number }
+    | { mode: "vel"; x0: number; y0: number; x: number; y: number }
     | { mode: "key"; x0: number; y0: number; x: number; y: number; stopVoice: () => void };
   let drag = $state.raw<Drag | null>(null);
 
@@ -358,6 +401,13 @@
       playhead = Math.max(0, e.shiftKey ? toB(x) : q(toB(x)));
       if (player.playing && !recording) player.seek(playhead * spb);
       drag = { mode: "ruler", x0: x, y0: y, x, y };
+      return;
+    }
+    if (y >= laneTop()) {
+      // carril de la fuerza: arrastrando se pinta la de las notas por las que se pasa
+      remember();
+      drag = { mode: "vel", x0: x, y0: y, x, y };
+      paintVel(x, y);
       return;
     }
     if (x < KEYS_W) {
@@ -393,12 +443,12 @@
     const p = toP(y);
     if (p < LO || p > HI) return;
     remember();
-    const n: PNote = { b: Math.max(0, Math.floor(toB(x) / grid) * grid), d: grid, p, v: 0.7, hand: handFor(p) };
+    const n: PNote = { b: Math.max(0, Math.floor(toB(x) / grid) * grid), d: grid, p, v: defaultVel, hand: handFor(p) };
     set([...notes, n]);
     selected = new Set([n]);
     drag = { mode: "resize", x0: x, y0: y, x, y, orig: new Map([[n, { b: n.b, d: n.d, p: n.p }]]), changed: true, before: "" };
     voices.get(-1)?.();
-    voices.set(-1, voice(player.ctx, p, 0.7));
+    voices.set(-1, voice(player.ctx, p, defaultVel));
   }
 
   function move(e: PointerEvent) {
@@ -410,6 +460,7 @@
       playhead = Math.max(0, e.shiftKey ? toB(x) : q(toB(x)));
       return;
     }
+    if (d.mode === "vel") return paintVel(x, y);
     if (d.mode === "box" || d.mode === "key") {
       drag = { ...d, x, y };
       return;
@@ -444,6 +495,23 @@
     drag = null;
   }
 
+  /** La fuerza de las notas que empiezan cerca de x (las elegidas si hay alguna ahí), según la altura en el carril. */
+  function paintVel(x: number, y: number) {
+    const v = Math.min(1, Math.max(0.05, 1 - (y - laneTop() - 4) / (VEL_H - 10)));
+    const near = notes.filter((n) => Math.abs(toX(n.b) - x) <= 5);
+    const pick = near.some((n) => selected.has(n)) ? near.filter((n) => selected.has(n)) : near;
+    for (const n of pick) n.v = v;
+    if (pick.length) notes = [...notes];
+  }
+
+  /** El control «Fuerza»: la de las notas elegidas o, sin ninguna, la de las nuevas. */
+  const velShown = $derived(selected.size ? [...selected].reduce((s, n) => s + n.v, 0) / selected.size : defaultVel);
+  function setVel(v: number) {
+    if (!selected.size) return void (defaultVel = v);
+    for (const n of selected) n.v = v;
+    notes = [...notes];
+  }
+
   function wheel(e: WheelEvent) {
     e.preventDefault();
     if (e.ctrlKey) {
@@ -452,7 +520,7 @@
       pxBeat = Math.min(240, Math.max(12, pxBeat * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
       scrollX = Math.max(0, at - (e.clientX - r.left - KEYS_W) / pxBeat);
     } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) scrollX = Math.max(0, scrollX + (e.deltaX || e.deltaY) / pxBeat);
-    else scrollY = Math.min((HI - LO + 1) * rowH - (height - RULER_H), Math.max(0, scrollY + e.deltaY));
+    else scrollY = Math.min((HI - LO + 1) * rowH - (laneTop() - RULER_H), Math.max(0, scrollY + e.deltaY));
   }
 
   // ---------------------------------------------------------------- teclado del ordenador
@@ -507,8 +575,13 @@
       if (!sel.length) return (playhead = Math.max(0, playhead + dir));
       return e.shiftKey ? shift(0, 0, dir) : shift(dir, 0, 0);
     }
+    if ((k === "ArrowUp" || k === "ArrowDown") && e.altKey) {
+      done();
+      if (sel.length) (remember(), sel.forEach((n) => (n.v = Math.min(1, Math.max(0.05, n.v + (k === "ArrowUp" ? 0.05 : -0.05))))), (notes = [...notes]));
+      return;
+    }
     if (k === "ArrowUp" || k === "ArrowDown") return (done(), shift(0, k === "ArrowUp" ? 1 : -1, 0));
-    pcKey(e); // el resto, el teclado como piano (fila A–Ñ, Z/X octava)
+    pcKey(e, 0, Math.round(defaultVel * 127)); // el resto, el teclado como piano (fila A–Ñ, Z/X octava)
   }
 
   function shift(db: number, dp: number, dd: number) {
@@ -559,7 +632,8 @@
   async function toSession() {
     try {
       await pieceToSession(current(), latin);
-      message = "Guardada como sesión (en Sesiones)";
+      message = "Guardada como sesión";
+      goSessions = true;
     } catch (e) {
       message = `No se pudo guardar como sesión: ${e}`;
     }
@@ -583,7 +657,7 @@
   const fmtPos = (b: number) => `${Math.floor(b / meta.meter) + 1}.${Math.floor(b % meta.meter) + 1}`;
 </script>
 
-<svelte:window onkeydown={onkey} onkeyup={(e) => !(e.target instanceof Element && e.target.closest("input, select, textarea")) && pcKey(e)} onblur={() => pcRelease()} />
+<svelte:window onkeydown={onkey} onkeyup={(e) => !(e.target instanceof Element && e.target.closest("input, select, textarea")) && pcKey(e, 0, Math.round(defaultVel * 127))} onblur={() => pcRelease()} />
 
 {#snippet noControls()}{/snippet}
 
@@ -598,6 +672,10 @@
     {#if keyLabel}<small class="muted" title="La que sale de las notas escritas">{keyLabel}</small>{/if}
     <span class="grow"></span>
     {#if message}<small class="msg">{message}</small>{/if}
+    {#if goSessions}
+      <button class="ghost small" onclick={onsessions}>Ir a Sesiones</button>
+      <button class="icon-btn" onclick={() => ((goSessions = false), (message = ""))} aria-label="Cerrar aviso">✕</button>
+    {/if}
     <span class="mono muted pos">{fmtPos(playhead)} · {notes.length} notas</span>
   </div>
   <div class="row">
@@ -619,6 +697,11 @@
       <button class:on={handMode === "rh"} onclick={() => (handMode = "rh")}><i style:background={COLORS.rh}></i>Derecha</button>
       <button class:on={handMode === "lh"} onclick={() => (handMode = "lh")}><i style:background={COLORS.lh}></i>Izquierda</button>
     </div>
+    <label title={selected.size ? `Fuerza de las ${selected.size} notas elegidas (Alt+↑↓; o en el carril de abajo)` : "Fuerza de las notas nuevas"}>
+      Fuerza{selected.size ? ` (${selected.size})` : ""}
+      <input type="range" min="0.05" max="1" step="0.01" value={velShown} onpointerdown={() => selected.size && remember()} oninput={(e) => setVel(+e.currentTarget.value)} />
+      <span class="mono vel">{Math.round(velShown * 127)}</span>
+    </label>
     <button class="ghost" onclick={() => restore(undo, redo)} title="Deshacer (Ctrl+Z)">↶</button>
     <button class="ghost" onclick={() => restore(redo, undo)} title="Rehacer (Ctrl+Y)">↷</button>
     <button class="ghost" onclick={quantizeNotes} title="Cuadrar a la cuadrícula lo elegido, o todo (Ctrl+Q)">Cuadrar</button>
@@ -659,6 +742,9 @@
   .title { font-family: var(--serif); font-size: 22px; padding: 2px 8px !important; width: 320px; }
   .grow { flex: 1; }
   .msg { color: var(--accent); }
+  .small { padding: 3px 10px; font-size: 12px; }
+  .vel { font-size: 11px; min-width: 24px; }
+  .row input[type="range"] { width: 90px; }
   .pos { font-size: 12px; }
   .play { width: 38px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
   .rec.on { color: #ff7a6b; border-color: #ff7a6b; }

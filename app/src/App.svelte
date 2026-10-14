@@ -151,7 +151,7 @@
 {:else if mode === "tocar"}
   <main class="solo"><PlayView onback={() => go(null)} onsessions={() => go("sesiones")} /></main>
 {:else if mode === "aprender"}
-  <LearnView onback={() => go(null)} />
+  <LearnView onback={() => go(null)} onsessions={() => go("sesiones")} />
 {:else if mode === "sesiones"}
   <SessionsView onback={() => go(null)} onsong={(k) => (go("analizar"), select(k))} onlearn={(id) => go("aprender", id)} />
 {:else}

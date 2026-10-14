@@ -20,10 +20,10 @@
   /** Modo Aprender: una canción separada como arreglo para piano (arrange.ts), del nivel 1 al 5, para tocarla encima de
    * sus pistas (sin la parte que tocas), con guía sintetizada, modo espera, bucle y piano roll o partitura. O una pieza
    * (escrita en el editor o importada de MIDI / MusicXML): el nivel 5 es la pieza tal cual. */
-  let { onback }: { onback: () => void } = $props();
+  let { onback, onsessions }: { onback: () => void; onsessions: () => void } = $props();
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" };
-  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones" };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas"; speed: number };
+  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1 };
   const saved = (() => {
     try {
       return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("estudio.aprender") ?? "{}") } as Opts;
@@ -60,7 +60,9 @@
   let error = $state("");
   let playing = $state(false);
   let time = $state(0);
-  let duration = $state(0);
+  let baseDuration = $state(0); // a tempo
+  /** A tempo reducido todo se estira: pulsos, notas, acordes y la duración. */
+  const duration = $derived(baseDuration / o.speed);
 
   let piece = $state.raw<Piece | null>(null);
   let editing = $state.raw<Piece | null>(null);
@@ -85,7 +87,7 @@
     const len = (pieceLength(pc) * 60) / pc.bpm;
     const h = analyze(ns, bs, len);
     [notes, beats, harmony, piece] = [ns, bs, { ...h, key: pc.key ?? h.key }, pc];
-    duration = len + 2;
+    baseDuration = len + 2;
   }
 
   async function newOrImport(kind: "new" | "import") {
@@ -127,7 +129,7 @@
       await player.load(d.stemlab.stems.map((s) => ({ name: s.name, path: `${dir}/${s.file}` })));
       if (key !== k) return;
       [notes, beats, harmony, detail] = [ns, bs, cs?.length ? fromModel(cs, ns, bs, d.duration) : analyze(ns, bs, d.duration), d];
-      duration = player.duration;
+      baseDuration = player.duration;
       time = 0;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -181,14 +183,27 @@
       transpose: semis,
     });
   });
-  const rhSec = $derived(arr ? toSeconds(arr.rh, beats) : []);
-  const lhSec = $derived(arr ? toSeconds(arr.lh, beats) : []);
+  const slowBeats = $derived(o.speed === 1 ? beats : beats.map((t) => t / o.speed));
+  const rhSec = $derived(arr ? toSeconds(arr.rh, slowBeats) : []);
+  const lhSec = $derived(arr ? toSeconds(arr.lh, slowBeats) : []);
+  // al cambiar de velocidad se sigue en el mismo punto de la canción (y el bucle, que era de otro tempo, fuera)
+  let lastSpeed = untrack(() => o.speed);
+  $effect(() => {
+    const sp = o.speed;
+    if (sp === lastSpeed) return;
+    const at = untrack(() => time) * (lastSpeed / sp);
+    lastSpeed = sp;
+    untrack(() => {
+      [loop, loopA, loopB] = [false, null, null];
+      seek(at);
+    });
+  });
   const plays = (hand: "rh" | "lh") => o.hands === "both" || o.hands === hand;
   // acordes con el mismo transporte que el arreglo, para el piano roll
   const chords = $derived.by(() => {
     if (!harmony || !arr) return [];
     const up = (x: number) => (x + semis + 12) % 12;
-    const cs = harmony.chords.map((c) => ({ ...c, root: up(c.root), bass: up(c.bass) }));
+    const cs = harmony.chords.map((c) => ({ ...c, t: c.t / o.speed, end: c.end / o.speed, root: up(c.root), bass: up(c.bass) }));
     return named(cs, arr.key, notation).map((c) => ({ ...c, deg: degree(c, arr.key) }));
   });
 
@@ -210,13 +225,14 @@
   /** La canción sin la parte que tocas: con transporte, solo la batería (el resto sonaría en otra tonalidad). */
   function applyGains() {
     for (const s of detail?.stemlab?.stems ?? []) {
-      const off = (semis !== 0 && s.name !== "drums") || (s.name === melody && plays("rh"));
+      // transportada, solo la batería (lo demás iría en otra tonalidad); más lenta, nada (no se estira sin cambiar el tono)
+      const off = o.speed !== 1 || (semis !== 0 && s.name !== "drums") || (s.name === melody && plays("rh"));
       player.setGain(s.name, off ? 0 : o.song);
     }
     for (const h of ["rh", "lh"] as const) player.setGain(`guia-${h}`, plays(h) ? (o.hearMine ? o.guide * 0.6 : 0) : o.guide);
   }
   $effect(() => {
-    JSON.stringify([o.song, o.guide, o.hearMine, o.hands, melody, semis]);
+    JSON.stringify([o.song, o.guide, o.hearMine, o.hands, melody, semis, o.speed]);
     untrack(applyGains);
   });
   $effect(() => player.setMaster(settings.masterVolume));
@@ -400,7 +416,7 @@
 
   <main>
     {#if editing}
-      <PieceEditor piece={editing} onclose={() => ((editing = null), void loadPieces())}
+      <PieceEditor piece={editing} {onsessions} onclose={() => ((editing = null), void loadPieces())}
         onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
     {:else}
     <div class="row">
@@ -464,9 +480,16 @@
             Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
           </label>
         {/if}
+        <label title="Más lento para aprender: todo a ese tempo (de una canción, a tempo reducido suena solo la guía)">
+          Tempo
+          <select value={String(o.speed)} onchange={(e) => (o.speed = +e.currentTarget.value)}>
+            {#each [1, 0.9, 0.8, 0.7, 0.6, 0.5] as v (v)}<option value={String(v)}>{Math.round(v * 100)} %</option>{/each}
+          </select>
+        </label>
         <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
         <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
-        {#if semis}<small class="muted">Transportada {fmtSemis(semis)}: de la canción solo suena la batería.</small>{/if}
+        {#if o.speed !== 1 && !piece}<small class="muted">Al {Math.round(o.speed * 100)} %: de la canción suena solo la guía (el audio no se puede ralentizar sin cambiar el tono).</small>
+        {:else if semis && !piece}<small class="muted">Transportada {fmtSemis(semis)}: de la canción solo suena la batería.</small>{/if}
         {#if o.melody !== "none" && melody === "none"}
           <small class="note-warn">
             {STEM_INFO[o.melody]?.label ?? o.melody} sin notas todavía:
@@ -492,7 +515,7 @@
       {:else if scorePath}
         {#key scorePath}
           <Score song={scoreSong} stems={[]} path={scorePath} {player} {controls} bind:follow={settings.scoreFollow} title="{title} · nivel {o.level}"
-            beatAt={(t) => toBeat(beats, t) - arr.start} pdfName={scoreName} />
+            beatAt={(t) => toBeat(slowBeats, t) - arr.start} pdfName={scoreName} />
         {/key}
       {/if}
       <div class="bottom">{@render controls()}</div>

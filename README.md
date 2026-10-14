@@ -66,9 +66,11 @@ escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
 - **Mis piezas** (en Aprender): canciones escritas a mano o importadas (MIDI; MusicXML `.musicxml`/`.xml`/`.mxl`), en
   `piezas/<id>.json`, con los mismos niveles (el 5 es la pieza tal cual). **Editor** en piano roll: paso a paso con el
   piano o el teclado (cada nota en el cursor con lo que la mantienes, y el cursor avanza) o grabando en tiempo real con
-  metrónomo; ratón (clic pone, arrastrar mueve o alarga, clic derecho borra) y teclado (flechas, Mayús+flechas, Ctrl+↑↓
+  metrónomo (el pedal sostiene lo soltado); fuerza de cada nota (carril de abajo, control «Fuerza», Alt+↑↓); ratón (clic
+  pone, arrastrar mueve o alarga, clic derecho borra) y teclado (flechas, Mayús+flechas, Ctrl+↑↓
   octava, Tab cambia de mano, Supr, Ctrl+Z/Y/A/C/X/V/Q, Espacio); partitura en vivo; exporta a MIDI y MusicXML; pasa a
-  sesión. En Sesiones: importar MIDI/MusicXML como sesión y «Practicar en Aprender» (la sesión como pieza). La guía, las sesiones y
+  sesión. MusicXML con repeticiones, 1.ª/2.ª casilla, D.C., D.S., Fine y Coda desarrollados. Practicar a tempo reducido
+  (50-100 %; de una canción, entonces suena solo la guía). En Sesiones: importar MIDI/MusicXML como sesión y «Practicar en Aprender» (la sesión como pieza). La guía, las sesiones y
   el teclado del ordenador suenan con muestras del Salamander Grand Piano (`app/public/piano`, CC BY, 2 MB).
 - **Sesiones**: dos listas. Canciones: las de la biblioteca con pistas separadas que añadas («＋ Añadir canción»; la lista va en
   `sesiones/canciones.json`), por instrumentos (volumen y M/S, piano roll de cada uno, acordes y progresión). Sesiones: las guardadas en Tocar, con el piano roll y el transporte de las canciones (suenan con un piano
