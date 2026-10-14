@@ -648,7 +648,8 @@
     {#if !exercise}
       <div class="grp" title="Dificultad: {LEVELS[o.level - 1][1]}">
         <span class="lbl">Nivel</span>
-        <div class="seg">{#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}</div>
+        <div class="seg">{#each LEVELS.slice(0, 4) as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}</div>
+        <button class="ghost small" class:on={o.level === 5} onclick={() => (o.level = 5)} title={LEVELS[4][1]}>Original</button>
       </div>
       <div class="grp" title="Qué manos tocas: la otra la toca la guía">
         <span class="lbl">Manos</span>

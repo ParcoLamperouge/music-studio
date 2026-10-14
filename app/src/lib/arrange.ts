@@ -6,7 +6,8 @@
 import { noteName, tonesOf, usesFlats, type Chord, type Key, type Note } from "./harmony.ts";
 
 export type Level = 1 | 2 | 3 | 4 | 5;
-export const LEVELS: [Level, string][] = [[1, "Principiante"], [2, "Fácil"], [3, "Intermedio"], [4, "Avanzado"], [5, "Transcripción"]];
+/** 1-4: arreglos de menos a más difícil; 5 no es «más difícil», es el original tal cual (la pieza, o lo transcrito). */
+export const LEVELS: [Level, string][] = [[1, "Principiante"], [2, "Fácil"], [3, "Intermedio"], [4, "Avanzado"], [5, "Original: tal cual, sin arreglar (puede ser más fácil o más difícil que el 4)"]];
 /** Nota del arreglo: inicio y duración en pulsos, nota MIDI, velocidad 0-1. */
 export type ANote = { b: number; d: number; p: number; v: number };
 export type Hand = "rh" | "lh";
