@@ -547,6 +547,25 @@
   const nowBar = $derived(barAt(time));
   const barColor = (a: number | null) => (a == null ? "var(--line)" : a >= 0.9 ? "#9bd37f" : a >= 0.75 ? "#e8c45a" : a >= 0.5 ? "#f29d38" : "#ff7a6b");
 
+  // reiniciar lo apuntado de esta pieza en lo que se ve (nivel, melodía y manos); el resto se queda. Dos clics
+  const hasZoneData = $derived.by(() => (void zonesRev, barMap.some((a) => a != null)));
+  let confirmReset = $state(false);
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+  function resetZones() {
+    if (!confirmReset) {
+      confirmReset = true;
+      clearTimeout(confirmTimer);
+      confirmTimer = setTimeout(() => (confirmReset = false), 3000);
+      return;
+    }
+    confirmReset = false;
+    delete zoneBook[zoneKey];
+    [activeZone, loop, suggestUp] = [null, false, false];
+    zonesDirty = true;
+    zonesRev++;
+    void saveZones();
+  }
+
   /** Practicar un pasaje: en bucle con un compás antes, en espera y como mucho al 70 %. */
   function practiceZone(z: Zone) {
     activeZone = z;
@@ -812,7 +831,7 @@
                 onclick={() => seek(barTime(i))} aria-label="Compás {i + 1}"></button>{/each}
           </div>
         {/if}
-        {#if zones.length || activeZone}
+        {#if zones.length || activeZone || hasZoneData}
           <div class="row zones">
             {#if activeZone}
               <span>Practicando c. {activeZone.from + 1}{activeZone.to > activeZone.from ? `–${activeZone.to + 1}` : ""} al {Math.round(o.speed * 100)} %</span>
@@ -824,7 +843,14 @@
                 <button class="ghost small" onclick={() => practiceZone(z)} title="{z.tries} notas tocadas ahí">
                   c. {z.from + 1}{z.to > z.from ? `–${z.to + 1}` : ""} · {Math.round(z.acc * 100)} % · Practicar
                 </button>
+              {:else}
+                <span class="muted">ninguna por ahora</span>
               {/each}
+              <span class="grow"></span>
+              <button class="ghost small" class:danger={confirmReset} onclick={resetZones}
+                title="Borra lo apuntado de esta pieza en este nivel, melodía y manos (lo demás se queda)">
+                {confirmReset ? "¿Seguro? Clic otra vez" : "Reiniciar zonas"}
+              </button>
             {/if}
           </div>
         {/if}
@@ -884,6 +910,8 @@
   .zonemap button:hover, .zonemap button.now { opacity: 1; outline: 1px solid var(--text); }
   .zonemap button.loop { opacity: 1; box-shadow: 0 -3px 0 var(--accent); }
   .zones { margin-bottom: 6px; font-size: 12.5px; }
+  .zones .grow { flex: 1; }
+  .zones .danger { border-color: #ff7a6b; color: #ff7a6b; }
   .small { padding: 3px 10px; font-size: 12px; }
   .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
   .seg button { padding: 4px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12px; }
