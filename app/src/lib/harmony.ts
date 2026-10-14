@@ -301,6 +301,12 @@ export function degree(c: Chord, k: Key) {
 }
 
 export const keyName = (k: Key, latin: boolean) => `${tonicName(k, latin)} ${latin ? (k.minor ? "menor" : "mayor") : k.minor ? "minor" : "major"}`;
+/** «Do mayor», «Sib menor», «F# minor» (lo que escribe keyName) → tonalidad; null si no se entiende. */
+export function parseKey(name: string | null | undefined): Key | null {
+  const [tonic, mode] = (name ?? "").trim().split(/\s+/);
+  const pc = [LATIN, LATIN_B, EN, EN_B].map((l) => l.indexOf(tonic)).find((i) => i >= 0);
+  return pc == null || !/^(mayor|menor|major|minor)$/.test(mode ?? "") ? null : { tonic: pc, minor: /^m(enor|inor)$/.test(mode) };
+}
 export const scaleNotes = (k: Key, latin: boolean) => (k.minor ? MINOR_SCALE : MAJOR_SCALE).map((i) => noteName((k.tonic + i) % 12, k, latin));
 export const relative = (k: Key): Key => (k.minor ? { tonic: (k.tonic + 3) % 12, minor: false } : { tonic: (k.tonic + 9) % 12, minor: true });
 

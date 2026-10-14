@@ -15,10 +15,61 @@
     }
     return map;
   }
+
+  type Keys = ReturnType<typeof keyLayout>;
+  const MONO = "'JetBrains Mono Variable', monospace";
+
+  /** Teclado con el nombre de cada nota sobre su tecla (la octava en los Do): blancas siempre; negras cuando suenan, que
+   * no caben las doce a la vez. `lit`: color de las que suenan. */
+  export function drawKeys(g: CanvasRenderingContext2D, keys: Keys, top: number, h: number, lit: Map<number, string>, name: (p: number) => string) {
+    for (const black of [false, true]) {
+      for (const [p, k] of keys) {
+        if (k.black !== black) continue;
+        const color = lit.get(p);
+        const kh = black ? h * 0.62 : h;
+        g.fillStyle = color ?? (black ? "#15161c" : "#eceae4");
+        g.beginPath();
+        g.roundRect(k.x + 0.5, top, k.w - 1, kh, [0, 0, 4, 4]);
+        g.fill();
+        if (black && !color) continue;
+        const size = Math.max(7, Math.min(11, k.w * 0.45));
+        g.font = `${color ? 700 : 500} ${size}px ${MONO}`;
+        let label = name(p) + (p % 12 === 0 ? String(Math.floor(p / 12) - 1) : "");
+        if (g.measureText(label).width > k.w - 2) label = name(p); // sin octava si no cabe
+        const tw = g.measureText(label).width;
+        if (tw > k.w - 1) continue;
+        g.fillStyle = color ? "#1c0f05" : "#0000008c";
+        g.fillText(label, k.x + (k.w - tw) / 2, top + kh - 7);
+      }
+    }
+  }
+
+  /** Nombre de la nota dentro de su barra, pegado al extremo `y` (el del teclado); en las barras estrechas (teclas
+   * negras), en vertical si la barra es larga. */
+  export function drawBarLabel(g: CanvasRenderingContext2D, k: { x: number; w: number }, y: number, barH: number, label: string) {
+    if (barH < 14 || k.w < 9) return;
+    g.save(); // quien dibuja las barras sigue con su color y su letra
+    g.font = `700 ${Math.max(7, Math.min(10, k.w * 0.42))}px ${MONO}`;
+    g.globalAlpha = 0.8;
+    g.shadowBlur = 0;
+    g.fillStyle = "#1c0f05";
+    const tw = g.measureText(label).width;
+    if (tw <= k.w - 3) g.fillText(label, k.x + (k.w - tw) / 2, y - 4);
+    else if (barH >= tw + 8) {
+      g.translate(k.x + k.w / 2 + 3, y - 4);
+      g.rotate(-Math.PI / 2);
+      g.fillText(label, 0, 0);
+    }
+    g.restore();
+  }
+
+
 </script>
 
 <script lang="ts">
+  import { loadNotation } from "./ChordsTab.svelte";
   import { readBytes } from "./engine";
+  import { noteName, type Key } from "./harmony";
   import type { Snippet } from "svelte";
   import { setWindowFullscreen } from "./fullscreen";
   import type { Player } from "./player";
@@ -26,7 +77,7 @@
   type Note = [start: number, end: number, pitch: number, velocity: number];
   type Track = { stem: string; name: string; color: string; path: string; hidden: boolean };
 
-  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "" }: {
+  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality }: {
     player: Player;
     tracks: Track[];
     controls: Snippet; // transporte, para la pantalla completa
@@ -34,6 +85,7 @@
     windowSec?: number; // segundos visibles por encima del teclado: más = notas más lentas
     chords?: { t: number; end: number; name: string; deg?: string }[]; // cambios de acorde y su grado (de harmony.ts)
     keyLabel?: string; // tonalidad
+    tonality?: Key; // para escribir las notas como en su tonalidad (Sib en Fa mayor, no La#)
   } = $props();
 
   const KEYS_H = 90;
@@ -86,6 +138,9 @@
     const g = canvas.getContext("2d")!;
     let raf = 0;
 
+    const latin = loadNotation().latin;
+    const k0 = tonality ?? { tonic: 0, minor: false };
+    const name = (p: number) => noteName(p % 12, k0, latin);
     const draw = () => {
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t = player.time();
@@ -119,6 +174,7 @@
           g.beginPath();
           g.roundRect(k.x + 1, top, k.w - 2, Math.max(4, Math.min(bottom, rollH) - top), 4);
           g.fill();
+          drawBarLabel(g, k, Math.min(bottom, rollH), Math.min(bottom, rollH) - Math.max(top, 0), name(pitch));
         }
       }
       g.globalAlpha = 1;
@@ -181,23 +237,7 @@
       g.fillStyle = "#ffffff55";
       g.fillRect(0, rollH - 2, width, 2);
 
-      // teclado: blancas y luego negras por encima
-      for (const black of [false, true]) {
-        for (const [p, k] of keys) {
-          if (k.black !== black) continue;
-          const lit = active.get(p);
-          const h = black ? KEYS_H * 0.62 : KEYS_H;
-          g.fillStyle = lit ?? (black ? "#15161c" : "#eceae4");
-          g.beginPath();
-          g.roundRect(k.x + 0.5, rollH, k.w - 1, h, [0, 0, 4, 4]);
-          g.fill();
-          if (!black && p % 12 === 0) {
-            g.fillStyle = "#00000066";
-            g.font = "10px 'JetBrains Mono Variable', monospace";
-            g.fillText(`C${Math.floor(p / 12) - 1}`, k.x + 4, rollH + KEYS_H - 8);
-          }
-        }
-      }
+      drawKeys(g, keys, rollH, KEYS_H, active, name);
       raf = requestAnimationFrame(draw);
     };
     draw();

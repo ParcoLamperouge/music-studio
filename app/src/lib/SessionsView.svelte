@@ -3,7 +3,7 @@
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
   import { listDir, paths, readBytes, readJson, removeFile, STEM_INFO, writeBytes, writeJson, type Detail } from "./engine";
-  import type { Note } from "./harmony";
+  import { parseKey, type Note } from "./harmony";
   import { sessionForAI, songForAI, stamps } from "./live";
   import { toToon } from "./toon";
   import { Player, synth } from "./player";
@@ -317,7 +317,7 @@
       {#key song}<SongPlayer bind:this={songPlayer} key={song} bind:time={songTime} bind:chords={songChords} bind:keyLabel={songKey} bind:detail={songInfo} />{/key}
     {:else if sel?.s}
       {#key sel.base}
-        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} chords={sel.s.chords} keyLabel={sel.s.key ?? ""}
+        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} chords={sel.s.chords} keyLabel={sel.s.key ?? ""} tonality={parseKey(sel.s.key) ?? undefined}
           tracks={[{ stem: "piano", name: sel.s.device || "Teclado", color: "#f29d38", path: `${sel.base}.json`, hidden: false }]} />
       {/key}
       <div class="bottom">{@render controls()}</div>

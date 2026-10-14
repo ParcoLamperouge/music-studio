@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { analyze, bestChord, chordName, degree, findKey, keyFromChords, keyName, leadSheet, named, refineChords, scaleNotes, type Note } from "./harmony.ts";
+import { analyze, bestChord, chordName, degree, findKey, keyFromChords, keyName, leadSheet, named, parseKey, refineChords, scaleNotes, type Note } from "./harmony.ts";
 
 const pc = (...ps: number[]) => {
   const w = new Array(12).fill(0);
@@ -98,3 +98,8 @@ assert.equal(refineChords(rem, [{ stem: "vocals", notes: notesD7(0) }], { tonic:
 assert.equal(refineChords(rem, [{ stem: "piano", notes: [[0, 0.1, 54, 0.5]] }], { tonic: 7, minor: true })[0].kind, "m", "con casi nada manda el modelo");
 assert.equal(refineChords(rem, [{ stem: "piano", notes: [[0, 2, 47, 0.8], [0, 2, 50, 0.8], [0, 2, 53, 0.8]] }], { tonic: 7, minor: true })[0].root, 2, "nunca cambia la fundamental");
 console.log("revisión ok");
+assert.deepEqual(parseKey("Sib menor"), { tonic: 10, minor: true });
+assert.deepEqual(parseKey("F# major"), { tonic: 6, minor: false });
+assert.equal(parseKey("Do"), null);
+assert.equal(parseKey(null), null);
+console.log("parseKey ok");

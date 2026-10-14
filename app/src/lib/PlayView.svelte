@@ -5,7 +5,7 @@
   import { paths, writeBytes } from "./engine";
   import { chordName, degree, keyName, noteName } from "./harmony";
   import { Live } from "./live";
-  import { keyLayout } from "./Roll.svelte";
+  import { drawBarLabel, drawKeys, keyLayout } from "./Roll.svelte";
   import { settings } from "./settings.svelte";
 
   let { onback, onsessions }: { onback: () => void; onsessions: () => void } = $props();
@@ -199,6 +199,9 @@
       const win = settings.rollSpeed;
       const rollH = H - KEYS_H;
       const y = (x: number) => rollH - ((t - x) / win) * rollH;
+      const k = live.key(now);
+      const kk = k ?? { tonic: 0, minor: false };
+      const name = (p: number) => noteName(p % 12, kk, latin);
       const bg = g.createLinearGradient(0, 0, 0, rollH);
       bg.addColorStop(0, "#0d0b0a");
       bg.addColorStop(1, "#1a1613");
@@ -216,6 +219,7 @@
         g.beginPath();
         g.roundRect(k.x + 1, top, k.w - 2, Math.max(4, y(e) - top), 4);
         g.fill();
+        drawBarLabel(g, k, y(e), y(e) - top, name(p));
       };
       g.fillStyle = g.shadowColor = "#f29d38";
       // ponytail: recorre todas las notas cada frame; en sesiones de horas, empezar por el final y cortar
@@ -225,9 +229,7 @@
       g.shadowBlur = 0;
 
       // lo que suena: acorde, notas y tonalidad
-      const k = live.key(now);
-      const kk = k ?? { tonic: 0, minor: false };
-      const names = [...live.sounding.keys()].sort((a, b) => a - b).map((p) => noteName(p % 12, kk, latin) + (Math.floor(p / 12) - 1));
+      const names = [...live.sounding.keys()].sort((a, b) => a - b).map((p) => name(p) + (Math.floor(p / 12) - 1));
       g.fillStyle = "#15110ed9";
       g.beginPath();
       g.roundRect(12, 12, 300, 112, 12);
@@ -254,21 +256,7 @@
 
       g.fillStyle = "#ffffff55";
       g.fillRect(0, rollH - 2, width, 2);
-      for (const black of [false, true]) {
-        for (const [p, kb] of keys) {
-          if (kb.black !== black) continue;
-          const h = black ? KEYS_H * 0.62 : KEYS_H;
-          g.fillStyle = live.sounding.has(p) ? "#f29d38" : black ? "#15161c" : "#eceae4";
-          g.beginPath();
-          g.roundRect(kb.x + 0.5, rollH, kb.w - 1, h, [0, 0, 4, 4]);
-          g.fill();
-          if (!black && p % 12 === 0) {
-            g.fillStyle = "#00000066";
-            g.font = "10px 'JetBrains Mono Variable', monospace";
-            g.fillText(`C${Math.floor(p / 12) - 1}`, kb.x + 3, rollH + KEYS_H - 8);
-          }
-        }
-      }
+      drawKeys(g, keys, rollH, KEYS_H, new Map([...live.sounding.keys()].map((p) => [p, "#f29d38"])), name);
       raf = requestAnimationFrame(draw);
     };
     draw();

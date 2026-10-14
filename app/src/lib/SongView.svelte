@@ -538,7 +538,7 @@
           </div>
         {:else if tab === "roll"}
           <Roll {player} tracks={rollTracks} {controls} bind:windowSec={settings.rollSpeed} ontoggle={(s) => (rollHidden[s] = !rollHidden[s])}
-            chords={rollChords} keyLabel={shownHarmony ? keyName(shownHarmony.key, notation.latin) : ""} />
+            chords={rollChords} keyLabel={shownHarmony ? keyName(shownHarmony.key, notation.latin) : ""} tonality={shownHarmony?.key} />
         {:else}
           <div class="picker">
             {#each scored as st (st.name)}

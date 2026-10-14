@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { loadNotation } from "./ChordsTab.svelte";
   import { readJson, songDetail, STEM_INFO, viewPath, type Detail } from "./engine";
-  import { degree, fromModel, keyName, named, type Note } from "./harmony";
+  import { degree, fromModel, keyName, named, type Key, type Note } from "./harmony";
   import MiniMixer from "./MiniMixer.svelte";
   import { Player } from "./player";
   import Roll from "./Roll.svelte";
@@ -28,6 +28,7 @@
   let muted = $state<Record<string, boolean>>({});
   let solo = $state<Record<string, boolean>>({});
   let rollHidden = $state<Record<string, boolean>>({});
+  let tonality = $state<Key>();
 
   const stemlab = $derived(detail?.stemlab ?? null);
   const stems = $derived(stemlab?.stems ?? []);
@@ -61,6 +62,7 @@
           const h = fromModel(cs, tracks);
           chords = named(h.chords, h.key, loadNotation()).map((c) => ({ ...c, deg: degree(c, h.key) }));
           keyLabel = keyName(h.key, loadNotation().latin);
+          tonality = h.key;
         } else [chords, keyLabel] = [[], ""];
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
@@ -126,7 +128,7 @@
 {:else if loading}
   <div class="msg"><span class="spinner"></span></div>
 {:else}
-  <Roll {player} tracks={rollTracks} {controls} bind:windowSec={settings.rollSpeed} ontoggle={(s) => (rollHidden[s] = !rollHidden[s])} {chords} {keyLabel} />
+  <Roll {player} tracks={rollTracks} {controls} bind:windowSec={settings.rollSpeed} ontoggle={(s) => (rollHidden[s] = !rollHidden[s])} {chords} {keyLabel} {tonality} />
   <div class="bottom">{@render controls()}</div>
 {/if}
 
