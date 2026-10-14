@@ -61,14 +61,15 @@ export function easyTranspose(k: Key) {
 const GRID: Record<Level, number> = { 1: 1, 2: 0.5, 3: 0.25, 4: 0.25, 5: 0 };
 
 /** Melodía limpia en pulsos: una sola voz (en cada casilla de la cuadrícula, la nota que más suena), sin notas sueltas
- * muy cortas, y las casillas seguidas de la misma nota cantada unidas en una. Con `grid` 0, tal cual. */
-export function melodyLine(notes: Note[], beats: number[], grid: number): ANote[] {
+ * muy cortas, y las casillas seguidas de la misma nota cantada unidas en una. Con `grid` 0, tal cual (`lowest`: si se
+ * pisan, la grave; para un bajo). */
+export function melodyLine(notes: Note[], beats: number[], grid: number, lowest = false): ANote[] {
   const src = notes
     .filter(([s, e]) => e - s >= 0.08)
     .map(([s, e, p, v], i) => ({ b: toBeat(beats, s), e: toBeat(beats, e), p, v, i }))
     .sort((a, b) => a.b - b.b);
   if (!src.length) return [];
-  if (!grid) return monophonic(src).map((n) => ({ b: n.b, d: n.e - n.b, p: n.p, v: n.v }));
+  if (!grid) return monophonic(src, lowest).map((n) => ({ b: n.b, d: n.e - n.b, p: n.p, v: n.v }));
   const out: (ANote & { src: number })[] = [];
   const from = Math.floor(src[0].b / grid) * grid;
   const to = Math.max(...src.map((n) => n.e));
@@ -100,13 +101,13 @@ export function melodyLine(notes: Note[], beats: number[], grid: number): ANote[
   return out.map(({ src: _, ...n }) => n);
 }
 
-/** Una sola voz: si dos notas se pisan, la aguda manda y la otra se corta. */
-function monophonic(src: { b: number; e: number; p: number; v: number }[]) {
+/** Una sola voz: si dos notas se pisan, la aguda manda (la grave, en un bajo) y la otra se corta. */
+function monophonic(src: { b: number; e: number; p: number; v: number }[], lowest = false) {
   const out: { b: number; e: number; p: number; v: number }[] = [];
   for (const n of src) {
     const last = out[out.length - 1];
     if (last && n.b < last.e) {
-      if (n.p < last.p) continue;
+      if (lowest ? n.p > last.p : n.p < last.p) continue;
       last.e = n.b;
       if (last.e - last.b < 0.05) out.pop();
     }
@@ -227,6 +228,7 @@ function harmonize(mel: ANote[], segs: Seg[], meter: number, start: number): ANo
 export function arrange(o: {
   melody: Note[] | null; // la pista de la mano derecha; null: solo acompañamiento
   piano?: Note[]; // la pista de piano, para el nivel 5
+  bass?: Note[]; // la de bajo: en el nivel 5, si no hay piano de verdad, su línea real en la izquierda
   chords: Chord[];
   beats: number[];
   downbeats?: number[];
@@ -246,19 +248,57 @@ export function arrange(o: {
   if (o.melody) {
     rh = fold(melodyLine(o.melody, beats, GRID[level]), 60, level <= 2 ? 79 : 84);
     if (level === 4) rh = harmonize(rh, segs, meter, start);
-    lh = level === 5 && o.piano?.length ? lowPart(o.piano, beats) : accompaniment(segs, level === 5 ? 4 : level, "lh");
+    lh = level === 5 ? transcribedLeft(o.piano ?? [], o.bass ?? [], segs, beats) : accompaniment(segs, level, "lh");
   } else {
+    // solo acompañamiento: la derecha, los acordes; la izquierda, el bajo, cada vez más cerca del de la canción
     rh = accompaniment(segs, level, "rh");
-    lh = accompaniment(segs, Math.min(level, 2) as Level, "lh");
+    lh = level <= 2 ? accompaniment(segs, 1, "lh") : level === 3 ? accompaniment(segs, 2, "lh") : level === 4 ? bassOnBeats(segs) : (realBass(o.bass ?? [], beats) ?? bassOnBeats(segs));
   }
   const t = o.transpose ?? 0;
   const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));
   return { rh: shift(rh), lh: shift(lh), key: { tonic: (o.key.tonic + t + 12) % 12, minor: o.key.minor }, transpose: t, meter, start };
 }
 
-/** Nivel 5, izquierda: lo que toca el piano por debajo del Do central. */
-function lowPart(piano: Note[], beats: number[]): ANote[] {
-  return piano.filter(([s, e, p]) => p < 60 && e - s >= 0.06).map(([s, e, p, v]) => ({ b: toBeat(beats, s), d: toBeat(beats, e) - toBeat(beats, s), p, v }));
+/** Nivel 5, izquierda: lo que toca el piano por debajo del Do central si la canción tiene piano de verdad (suena en al
+ * menos el 40 % de la canción: muchas pistas «piano» son restos que el separador dejó ahí); si no, la línea real del bajo
+ * (una voz, en registro de izquierda) con los acordes en los pulsos; sin bajo, el acompañamiento del nivel 4. */
+function transcribedLeft(piano: Note[], bass: Note[], segs: Seg[], beats: number[]): ANote[] {
+  const low = piano.filter(([s, e, p]) => p < 60 && e - s >= 0.06).map(([s, e, p, v]) => ({ b: toBeat(beats, s), d: toBeat(beats, e) - toBeat(beats, s), p, v }));
+  const span = segs.reduce((n, x) => n + x.e - x.b, 0);
+  if (span && covered(low) / span >= 0.4) return low;
+  const line = realBass(bass, beats);
+  if (!line) return accompaniment(segs, 4, "lh");
+  // los acordes del nivel 4 sin su bajo (lo pone la línea real)
+  return [...line, ...accompaniment(segs, 4, "lh").filter((n) => !segs.some((x) => Math.abs(x.b - n.b) < 1e-6 && n.p < 48))];
+}
+
+/** La línea real del bajo (una voz, la nota grave si se pisan) en registro de mano izquierda; null si no hay. */
+function realBass(bass: Note[], beats: number[]): ANote[] | null {
+  const line = melodyLine(bass, beats, 0, true).map((n) => {
+    let p = n.p;
+    while (p < 28) p += 12;
+    while (p > 52) p -= 12;
+    return { ...n, p };
+  });
+  return line.length ? line : null;
+}
+
+/** La fundamental (o el bajo del acorde) en cada pulso. */
+function bassOnBeats(segs: Seg[]): ANote[] {
+  const out: ANote[] = [];
+  for (const { b, e, c } of segs) for (let x = b; x < e - 1e-6; x += 1) out.push({ b: x, d: Math.min(1, e - x) * 0.9, p: inRange(c.bass ?? c.root, 36), v: 0.65 });
+  return out;
+}
+
+/** Pulsos en los que suena algo de `notes` (los solapes cuentan una vez). */
+function covered(notes: ANote[]) {
+  let total = 0, end = -Infinity;
+  for (const n of [...notes].sort((a, b) => a.b - b.b)) {
+    const s = Math.max(n.b, end), e = n.b + n.d;
+    if (e > s) total += e - s;
+    end = Math.max(end, e);
+  }
+  return total;
 }
 
 /** Notas en segundos (para el piano roll y la guía sintetizada). */

@@ -237,7 +237,7 @@
   // acordes del modelo (lv-chordia, del audio): mandan; los de las notas quedan de respaldo
   const modelHarmony = $derived.by<Harmony | null>(() => {
     const cs = detail?.chordData?.chords;
-    return cs?.length ? fromModel(cs, noteTracks) : null; // revisados con las notas en cuanto se cargan
+    return cs?.length ? fromModel(cs, noteTracks, detail?.beatData?.beats ?? [], detail?.duration ?? 0) : null; // revisados con las notas en cuanto se cargan
   });
   const chordsJob = $derived(jobOf(key, "chords"));
   $effect(() => {

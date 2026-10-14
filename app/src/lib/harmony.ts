@@ -100,10 +100,24 @@ export function refineChords(chords: Chord[], tracks: { stem: string; notes: Not
 }
 export const REFINE = { margin: 0.25, energy: 1 };
 
-/** Acordes del modelo con su tonalidad; con notas transcritas, el bajo ayuda a la tonalidad y se revisan los acordes. */
-export function fromModel(chords: Chord[], tracks: { stem: string; notes: Note[] }[] = []): Harmony {
+/** Acordes del modelo con su tonalidad; con notas transcritas, el bajo ayuda a la tonalidad, se revisan los acordes y
+ * los huecos donde el modelo no vio acorde (más de 2 s) pero los instrumentos sí tocan se rellenan con los acordes de sus
+ * notas (pasajes distorsionados o ambiguos: en GOOD GIRL ERA, media canción). */
+export function fromModel(chords: Chord[], tracks: { stem: string; notes: Note[] }[] = [], beats: number[] = [], duration = 0): Harmony {
   const key = keyFromChords(chords, tracks.filter((t) => t.stem === "bass").flatMap((t) => t.notes));
-  return { chords: tracks.length ? refineChords(chords, tracks, key) : chords, key };
+  if (!tracks.length) return { chords, key };
+  const refined: Chord[] = refineChords(chords, tracks, key);
+  const harmonic = tracks.filter((t) => t.stem !== "vocals");
+  const end = Math.max(duration, chords.length ? chords[chords.length - 1].end : 0);
+  const gaps: [number, number][] = [];
+  for (let i = 0; i <= chords.length; i++) {
+    const a = i ? chords[i - 1].end : 0, b = i < chords.length ? chords[i].t : end;
+    if (b - a > 2) gaps.push([a, b]);
+  }
+  if (!gaps.length || !harmonic.length) return { chords: refined, key };
+  const fill = analyze(harmonic, beats, end).chords
+    .flatMap((c) => gaps.map(([a, b]) => ({ ...c, t: Math.max(c.t, a), end: Math.min(c.end, b) })).filter((x) => x.end - x.t > 0.3));
+  return { chords: [...refined, ...fill].sort((x, y) => x.t - y.t), key };
 }
 const PLAIN = ["", "m", "7", "m7", "maj7", "mmaj7"];
 

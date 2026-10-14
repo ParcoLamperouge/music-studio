@@ -62,7 +62,7 @@
         // sin acordes del modelo (lv-chordia) se piden a la cola y, mientras, salen de las notas, como en Analizar
         if (!cs?.length && d.audio && !jobOf(key, "chords")) void enqueue("chords", [key]);
         // los del modelo, revisados con las notas de cada pista (el V7 que dio como v menor…)
-        const h = cs?.length ? fromModel(cs, tracks) : tracks.length ? analyze(tracks, d.beatData?.beats ?? [], d.duration) : null;
+        const h = cs?.length ? fromModel(cs, tracks, d.beatData?.beats ?? [], d.duration) : tracks.length ? analyze(tracks, d.beatData?.beats ?? [], d.duration) : null;
         fromNotes = !cs?.length && !!h;
         if (h) {
           chords = named(h.chords, h.key, loadNotation()).map((c) => ({ ...c, deg: degree(c, h.key) }));

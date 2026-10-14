@@ -111,3 +111,23 @@ assert.deepEqual(sampleFor(61), [60, 2 ** (1 / 12)]);
 assert.deepEqual(sampleFor(62), [63, 2 ** (-1 / 12)]);
 assert.deepEqual(sampleFor(15), [21, 2 ** (-6 / 12)], "por debajo de La0, la de La0");
 console.log("piano ok");
+
+// nivel 5: sin piano de verdad (unas pocas notas sueltas), la línea real del bajo con los acordes; con piano, el piano
+const bassLine: Note[] = [[1, 1.4, 36, 0.8], [1.5, 2.9, 43, 0.8], [3, 4.9, 31, 0.8]];
+const sparse = arrange({ ...base, melody: sung, level: 5, piano: [[1, 1.2, 50, 0.5]], bass: bassLine });
+assert.ok(sparse.lh.some((n) => n.p === 36 && n.b === 0) && sparse.lh.some((n) => n.p === 43), "la línea del bajo, tal cual");
+assert.ok(sparse.lh.some((n) => n.b === 1 && n.p >= 48), "y los acordes en los pulsos");
+const pianoLow: Note[] = Array.from({ length: 16 }, (_, i) => [1 + i * 0.5, 1.5 + i * 0.5, 48 + (i % 3) * 4, 0.7]);
+const real = arrange({ ...base, melody: sung, level: 5, piano: pianoLow, bass: bassLine });
+assert.equal(real.lh.length, 16, "con piano de verdad, su parte grave");
+console.log("nivel 5 ok");
+
+// solo acompañamiento: la izquierda también sube de nivel (no se queda en raíz + quinta)
+const accLeft = (level: 1 | 2 | 3 | 4 | 5) => arrange({ ...base, melody: null, level, bass: bassLine }).lh;
+assert.equal(accLeft(1).filter((n) => n.b === 0).length, 1, "1: la fundamental");
+assert.equal(accLeft(3).filter((n) => n.b === 0).length, 2, "3: raíz y quinta");
+assert.equal(accLeft(4).filter((n) => n.b < 4).length, 4, "4: bajo en cada pulso");
+assert.deepEqual(accLeft(5).map((n) => n.p), [36, 43, 31], "5: la línea real del bajo");
+// la línea del bajo se queda con la grave si dos notas se pisan
+assert.deepEqual(arrange({ ...base, melody: null, level: 5, bass: [[1, 2, 40, 0.8], [1.2, 1.8, 47, 0.5]] }).lh.map((n) => n.p), [40]);
+console.log("acompañamiento ok");

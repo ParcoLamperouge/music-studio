@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { analyze, bestChord, chordName, degree, findKey, keyFromChords, keyName, leadSheet, named, parseKey, refineChords, scaleNotes, type Note } from "./harmony.ts";
+import { analyze, bestChord, chordName, degree, findKey, keyFromChords, keyName, fromModel, leadSheet, named, parseKey, refineChords, scaleNotes, type Note } from "./harmony.ts";
 
 const pc = (...ps: number[]) => {
   const w = new Array(12).fill(0);
@@ -103,3 +103,11 @@ assert.deepEqual(parseKey("F# major"), { tonic: 6, minor: false });
 assert.equal(parseKey("Do"), null);
 assert.equal(parseKey(null), null);
 console.log("parseKey ok");
+
+// huecos del modelo: si los instrumentos tocan, acordes de sus notas; la voz sola no rellena
+const model = [{ t: 0, end: 4, root: 0, kind: "", bass: 0 }, { t: 10, end: 14, root: 7, kind: "", bass: 7 }];
+const gNotes: Note[] = [[4, 10, 45, 0.8], [4, 10, 48, 0.8], [4, 10, 52, 0.8]]; // La menor en el hueco
+const filled = fromModel(model, [{ stem: "guitar", notes: gNotes }], [], 14).chords;
+assert.ok(filled.some((c) => c.t >= 4 && c.end <= 10 && c.root === 9 && c.kind === "m"), "el hueco, con Lam");
+assert.equal(fromModel(model, [{ stem: "vocals", notes: gNotes }], [], 14).chords.length, 2, "la voz sola no rellena");
+console.log("huecos ok");

@@ -76,7 +76,7 @@
       if (!cs?.length && d.audio && !jobOf(k, "chords")) void enqueue("chords", [k]); // los del audio, para la próxima vez
       await player.load(d.stemlab.stems.map((s) => ({ name: s.name, path: `${dir}/${s.file}` })));
       if (key !== k) return;
-      [notes, beats, harmony, detail] = [ns, bs, cs?.length ? fromModel(cs, ns) : analyze(ns, bs, d.duration), d];
+      [notes, beats, harmony, detail] = [ns, bs, cs?.length ? fromModel(cs, ns, bs, d.duration) : analyze(ns, bs, d.duration), d];
       duration = player.duration;
       time = 0;
     } catch (e) {
@@ -118,6 +118,7 @@
     return arrange({
       melody: melody === "none" ? null : (notes.find((t) => t.stem === melody)?.notes ?? null),
       piano: notes.find((t) => t.stem === "piano")?.notes,
+      bass: notes.find((t) => t.stem === "bass")?.notes,
       chords: harmony.chords,
       beats,
       downbeats: detail.beatData?.downbeats,
