@@ -370,6 +370,19 @@
     const [st, p, v] = msg;
     const kind = st & 0xf0;
     if (kind === 0x90 && v > 0) {
+      // parado y se empieza a tocar: arranca solo. Si lo siguiente que toca está cerca, desde ahí, como en espera (sigue
+      // al completar esa nota o acorde, y cuenta); si queda lejos (una intro), desde donde estaba
+      if (!player.playing && waiting == null && loaded && !loading) {
+        const now = player.time();
+        const next = practice.targets.find((x) => !x.hit && !x.skipped && x.t >= now - practice.tol);
+        if (next && next.t - now <= 1) {
+          player.seek(next.t);
+          time = waiting = next.t;
+        } else {
+          player.play();
+          playing = true;
+        }
+      }
       // la fuerza solo cuenta con teclado MIDI (el del ordenador siempre toca igual)
       const hit = practice.press(p, player.time(), waiting, input.connected ? v / 127 : undefined);
       if (!hit && arr) ((wrongAt(bars(), barAt(player.time())), (zonesDirty = true)));
