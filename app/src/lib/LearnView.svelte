@@ -147,6 +147,7 @@
     if (!l || !step || !("p" in step)) return;
     const p: CoursePractice = step.p;
     o.wait = true;
+    o.transpose = "orig"; // en la tonalidad que dice la lección
     if (p.kind === "ejercicio") {
       const ex = EXERCISES.find((e) => e.id === p.id);
       if (!ex) return;
@@ -248,7 +249,8 @@
     rev = r;
   });
 
-  const semis = $derived(!harmony ? 0 : o.transpose === "orig" ? 0 : o.transpose === "easy" ? easyTranspose(harmony.key) : o.transpose);
+  // un ejercicio va en la tonalidad y con las manos que dice el suyo: ni se transporta ni se reparte con la guía
+  const semis = $derived(!harmony || exercise ? 0 : o.transpose === "orig" ? 0 : o.transpose === "easy" ? easyTranspose(harmony.key) : o.transpose);
   const arr = $derived.by<Arrangement | null>(() => {
     if (!harmony || !loaded) return null;
     if (piece && (o.level === 5 || piece.exercise)) return pieceArrangement(piece, harmony.key, semis); // la pieza tal cual (un ejercicio, siempre)
@@ -302,7 +304,8 @@
       if (v === stemsVersion) stretching = false;
     }
   }
-  const plays = (hand: "rh" | "lh") => o.hands === "both" || o.hands === hand;
+  const myHands = $derived(exercise ? "both" : o.hands);
+  const plays = (hand: "rh" | "lh") => myHands === "both" || myHands === hand;
   // acordes con el mismo transporte que el arreglo, para el piano roll
   const chords = $derived.by(() => {
     if (!harmony || !arr) return [];
@@ -347,7 +350,7 @@
     for (const h of ["rh", "lh"] as const) player.setGain(`guia-${h}`, plays(h) ? (o.hearMine ? o.guide * 0.6 : 0) : o.guide);
   }
   $effect(() => {
-    JSON.stringify([o.song, o.guide, o.hearMine, o.hands, melody, semis, o.speed, audioSpeed]);
+    JSON.stringify([o.song, o.guide, o.hearMine, myHands, melody, semis, o.speed, audioSpeed]);
     untrack(applyGains);
   });
   $effect(() => player.setMaster(settings.masterVolume));
@@ -499,7 +502,7 @@
   let activeZone = $state<Zone | null>(null);
   let suggestUp = $state(false);
   const zonePath = () => `${learnDir}/zonas/${safe}.json`;
-  const zoneKey = $derived(`${o.level}/${melody}/${o.hands}`);
+  const zoneKey = $derived(`${o.level}/${melody}/${myHands}`);
   const bars = () => (zoneBook[zoneKey] ??= {});
   /** El compás (desde 0, el primero completo tras la anacrusa) de un instante. */
   const barAt = (t: number) => (arr ? Math.floor((toBeat(slowBeats, t) - arr.start) / arr.meter) : 0);
@@ -760,6 +763,7 @@
           </div>
           <small class="muted">{LEVELS[o.level - 1][1]}</small>
         {/if}
+        {#if !exercise}
         <label title={keyText}>
           Tonalidad
           <select value={String(o.transpose)} onchange={(e) => (o.transpose = /^-?\d+$/.test(e.currentTarget.value) ? +e.currentTarget.value : (e.currentTarget.value as "orig" | "easy"))}>
@@ -773,6 +777,7 @@
           <button class:on={o.hands === "rh"} onclick={() => (o.hands = "rh")}>Derecha</button>
           <button class:on={o.hands === "lh"} onclick={() => (o.hands = "lh")}>Izquierda</button>
         </div>
+        {/if}
         <label title="La canción se para hasta que tocas la nota que toca"><input type="checkbox" bind:checked={o.wait} onchange={() => practice.reset(time)} /> Espera</label>
         <div class="seg">
           <button class:on={o.view === "roll"} onclick={() => (o.view = "roll")}>Piano roll</button>
