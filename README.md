@@ -62,7 +62,8 @@ escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
   limpia y cuadrada a los pulsos de Beat This!; o, sin melodía, los acordes. Izquierda: generada de los acordes (raíz,
   raíz + quinta, tríadas con buen enlace, bajo + acorde). Transporte opcional a una tonalidad fácil (entonces de la
   canción solo suena la batería). Suena sobre sus pistas sin la parte que tocas, con guía sintetizada de la otra mano,
-  modo espera, bucle A–B y aciertos; en piano roll o en partitura (MusicXML de piano, con PDF).
+  modo espera, bucle A–B y aciertos; en piano roll o en partitura (MusicXML de piano, con PDF). La guía, las sesiones y
+  el teclado del ordenador suenan con muestras del Salamander Grand Piano (`app/public/piano`, CC BY, 2 MB).
 - **Sesiones**: dos listas. Canciones: las de la biblioteca con pistas separadas que añadas («＋ Añadir canción»; la lista va en
   `sesiones/canciones.json`), por instrumentos (volumen y M/S, piano roll de cada uno, acordes y progresión). Sesiones: las guardadas en Tocar, con el piano roll y el transporte de las canciones (suenan con un piano
   sintetizado), tonalidad, acordes que más suenan y la progresión (clic = ir ahí). «Analizar con Claude» (Opus 5.5, esfuerzo medio: por tramos con su emoción, progresiones con notas y grados, fallos) usa Claude Code

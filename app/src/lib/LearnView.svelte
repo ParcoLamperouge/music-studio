@@ -7,6 +7,7 @@
   import InputBar from "./InputBar.svelte";
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { Player, synth, voice } from "./player";
+  import { loadPiano } from "./piano";
   import Roll from "./Roll.svelte";
   import Score from "./Score.svelte";
   import { settings } from "./settings.svelte";
@@ -230,6 +231,7 @@
 
   onMount(() => {
     const stop = useInput(onMidi);
+    void loadPiano().catch(() => {}); // que la primera nota ya suene a piano
     let raf = 0;
     const tick = () => {
       time = player.time();

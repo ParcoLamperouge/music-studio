@@ -7,6 +7,7 @@
   import { sessionForAI, songForAI, stamps } from "./live";
   import { toToon } from "./toon";
   import { Player, synth } from "./player";
+  import { loadPiano } from "./piano";
   import Roll from "./Roll.svelte";
   import { settings } from "./settings.svelte";
   import SongPlayer from "./SongPlayer.svelte";
@@ -230,6 +231,7 @@
   $effect(() => player.setMaster(settings.masterVolume));
   onMount(() => {
     void scan();
+    void loadPiano().catch(() => {}); // que la primera nota ya suene a piano
     let raf = 0;
     const tick = () => {
       time = player.time();

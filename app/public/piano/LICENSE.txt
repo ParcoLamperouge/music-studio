@@ -1,0 +1,4 @@
+Salamander Grand Piano V3 (Yamaha C5), de Alexander Holm — CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/).
+Muestras reducidas (una cada tercera menor, de La0 a Do8, en mp3) tal como las publica Tone.js:
+https://tonejs.github.io/audio/salamander/  ·  Original: https://archive.org/details/SalamanderGrandPianoV3
+Estudio las usa para la guía de Aprender, las sesiones y el teclado del ordenador (src/lib/piano.ts).

@@ -1,4 +1,5 @@
 import { readBytes } from "./engine";
+import { loadPiano, playNote, ready } from "./piano";
 
 /** Nombre de la pista de clics del metrónomo dentro del reproductor. */
 export const CLICK = "__click";
@@ -138,17 +139,24 @@ export class Player {
   }
 }
 
-/** Un piano sencillo (armónicos que se apagan, los graves más despacio) para oír las sesiones del teclado.
+/** Las notas como un piano (muestras del Salamander, piano.ts) en un buffer, para reproducirlas sincronizadas con el
+ * resto. Si las muestras no cargan, un piano sintetizado sencillo (armónicos que se apagan, los graves más despacio).
  * notes: [inicio, fin, nota MIDI, velocidad 0-1]. */
-export function synth(notes: [number, number, number, number][], duration: number) {
-  const rate = 22050; // ponytail: todo en un buffer (~5 MB por minuto); para sesiones de horas, por tramos
-  const ctx = new OfflineAudioContext(1, Math.ceil((duration + 1.5) * rate), rate);
-  const wave = ctx.createPeriodicWave(new Float32Array(6), new Float32Array([0, 1, 0.5, 0.25, 0.12, 0.06]));
+export async function synth(notes: [number, number, number, number][], duration: number) {
+  const rate = 32000; // ponytail: todo en un buffer (~8 MB por minuto); para sesiones de horas, por tramos
+  const ctx = new OfflineAudioContext(1, Math.ceil((duration + 2) * rate), rate);
   const comp = ctx.createDynamicsCompressor(); // muchas notas a la vez no saturan
   comp.connect(ctx.destination);
   const out = ctx.createGain();
-  out.gain.value = 0.3;
   out.connect(comp);
+  const samples = await loadPiano().catch(() => null);
+  if (samples) {
+    out.gain.value = 0.55;
+    for (const [s, e, p, v] of notes) playNote(ctx, out, samples, p, v, s, e);
+    return ctx.startRendering();
+  }
+  out.gain.value = 0.3;
+  const wave = ctx.createPeriodicWave(new Float32Array(6), new Float32Array([0, 1, 0.5, 0.25, 0.12, 0.06]));
   for (const [s, e, p, v] of notes) {
     const o = ctx.createOscillator();
     o.setPeriodicWave(wave);
@@ -165,8 +173,11 @@ export function synth(notes: [number, number, number, number][], duration: numbe
   return ctx.startRendering();
 }
 
-/** Una nota en el momento (practicar con el teclado del ordenador sin piano): devuelve con qué soltarla. */
+/** Una nota en el momento (practicar con el teclado del ordenador sin piano): devuelve con qué soltarla. Con las
+ * muestras ya cargadas suena a piano; si aún no, un sonido sencillo mientras cargan. */
 export function voice(ctx: AudioContext, p: number, v = 0.7) {
+  if (ready) return playNote(ctx, ctx.destination, ready, p, v, ctx.currentTime, null);
+  void loadPiano().catch(() => {});
   const now = ctx.currentTime;
   const o = ctx.createOscillator();
   o.type = "triangle";

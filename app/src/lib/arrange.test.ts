@@ -101,3 +101,13 @@ const starts = [...new Set(tight.rh.map((n) => n.b))];
 for (const b of starts) assert.equal(tight.rh.filter((n) => n.b === b).length, 3, "una tríada cada vez (sin melodía, en la derecha)");
 assert.ok(tight.lh.every((n, i, all) => all.every((m) => m.b >= n.b + n.d - 1e-6 || m.b + m.d <= n.b + 1e-6 || m.b === n.b)), "la izquierda sin solapes");
 console.log("solapes ok");
+
+// piano: una muestra cada tercera menor de La0 a Do8; cada nota, con la más cercana reafinada
+import { SAMPLES, sampleFor } from "./piano.ts";
+assert.equal(SAMPLES.length, 30);
+assert.deepEqual([SAMPLES[0], SAMPLES[SAMPLES.length - 1], SAMPLES.find(([p]) => p === 60)], [[21, "A0"], [108, "C8"], [60, "C4"]]);
+assert.deepEqual(sampleFor(60), [60, 1]);
+assert.deepEqual(sampleFor(61), [60, 2 ** (1 / 12)]);
+assert.deepEqual(sampleFor(62), [63, 2 ** (-1 / 12)]);
+assert.deepEqual(sampleFor(15), [21, 2 ** (-6 / 12)], "por debajo de La0, la de La0");
+console.log("piano ok");
