@@ -134,3 +134,16 @@ export function toMidi(events: [number, number[]][]): Uint8Array {
   const ascii = (s: string) => [...s].map((c) => c.charCodeAt(0));
   return new Uint8Array([...ascii("MThd"), ...u32(6), 0, 0, 0, 1, 0x01, 0xe0, ...ascii("MTrk"), ...u32(body.length), ...body]);
 }
+
+/** Trozos de un texto con los tiempos («0:21», «2:38.4») aparte, en segundos, para poder saltar a ellos. */
+export function stamps(text: string): { text: string; t?: number }[] {
+  const out: { text: string; t?: number }[] = [];
+  let last = 0;
+  for (const m of text.matchAll(/(?<![\d:.,])(\d{1,2}):([0-5]\d(?:[.,]\d+)?)(?![\d:])/g)) {
+    if (m.index > last) out.push({ text: text.slice(last, m.index) });
+    out.push({ text: m[0], t: +m[1] * 60 + parseFloat(m[2].replace(",", ".")) });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}

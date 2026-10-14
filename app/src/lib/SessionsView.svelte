@@ -3,6 +3,7 @@
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
   import { listDir, paths, readBytes, readJson, removeFile } from "./engine";
+  import { stamps } from "./live";
   import { Player, synth } from "./player";
   import Roll from "./Roll.svelte";
   import { settings } from "./settings.svelte";
@@ -84,6 +85,12 @@
     time = t;
   }
 
+  /** Un tiempo del análisis: ir ahí y escucharlo. */
+  function jump(t: number) {
+    seek(Math.min(t, duration));
+    if (!player.playing && !loading) toggle();
+  }
+
   async function analyze() {
     const it = sel;
     if (!it) return;
@@ -157,6 +164,10 @@
 
 <svelte:window onkeydown={onkey} />
 
+{#snippet linked(text: string)}
+  {#each stamps(text) as p, i (i)}{#if p.t != null}<button class="ts" onclick={() => jump(p.t!)} title="Ir a {p.text}">{p.text}</button>{:else}{p.text}{/if}{/each}
+{/snippet}
+
 {#snippet controls()}
   <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !sel} ontoggle={toggle} onseek={seek} />
 {/snippet}
@@ -224,7 +235,7 @@
       {#if blocks.length}
         <article>
           {#each blocks as b, i (i)}
-            {#if b.kind === "h"}<h3>{b.text}</h3>{:else if b.kind === "li"}<p class="li">{b.text}</p>{:else}<p>{b.text}</p>{/if}
+            {#if b.kind === "h"}<h3>{b.text}</h3>{:else}<p class:li={b.kind === "li"}>{@render linked(b.text)}</p>{/if}
           {/each}
         </article>
       {/if}
@@ -269,5 +280,7 @@
   article h3 { font-family: var(--serif); font-weight: 400; font-size: 21px; color: var(--text); margin: 14px 0 4px; }
   article p { margin: 0 0 6px; }
   article .li { padding-left: 14px; position: relative; }
+  .ts { padding: 0 3px; border: 0; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 0.9em; }
+  .ts:hover { background: var(--accent); color: #1c0f05; }
   article .li::before { content: "·"; position: absolute; left: 3px; color: var(--accent); }
 </style>

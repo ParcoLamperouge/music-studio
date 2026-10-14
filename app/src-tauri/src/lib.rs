@@ -1081,10 +1081,11 @@ fn has_director() -> bool {
 }
 
 const COACH: &str = "Eres profesor de piano y armonía. Te paso una sesión tocada en un teclado MIDI (JSON; el campo \"format\" \
-explica los datos; los acordes los sacó un algoritmo sin IA y pueden fallar). Analízala para quien la tocó, en español, en Markdown, \
-breve y concreto, con tiempos (m:ss) cuando señales algo: ## Qué tocaste (tonalidad, estilo, partes, progresiones con grados), \
-## Armonía (funciones, cadencias, acordes mal detectados o incompletos), ## Ritmo y dinámica (pulso estimado, regularidad, \
-velocidades, pedal), ## Errores probables (notas fuera de lugar, tropiezos) y ## Para practicar (3 ejercicios concretos). Sin tablas: títulos, viñetas y párrafos cortos.";
+explica los datos; los acordes los sacó un algoritmo sin IA y pueden fallar). Dile a quien la tocó solo lo importante, en español \
+y en Markdown: muy directo, sin introducciones, advertencias ni relleno, viñetas de una línea, 150-250 palabras en total. Cita cada \
+momento como m:ss o m:ss.s (0:21, 2:38.4), nunca de otra forma. Secciones: ## Qué tocaste (tonalidad, partes, progresiones con \
+grados), ## Fallos (notas o acordes equivocados, acordes mal detectados, ritmo irregular) y ## Para practicar (3 ejercicios \
+concretos). Sin tablas.";
 
 /// Claude analiza una sesión del teclado con Claude Code (`claude -p`: la suscripción, sin API key) y lo deja al lado
 /// como `<sesión>.analisis.md`.

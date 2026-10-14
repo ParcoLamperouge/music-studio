@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { chordName } from "./harmony.ts";
-import { Live, toMidi } from "./live.ts";
+import { Live, stamps, toMidi } from "./live.ts";
 
 // Do mayor con el pedal: las teclas se sueltan pero suenan hasta levantarlo
 const r = (x: number) => Math.round(x * 1000) / 1000;
@@ -44,3 +44,10 @@ for (const [ps, name] of [[[59, 62, 65], "Sidim"], [[62, 65, 71], "Sidim/Re"], [
   assert.equal(v.chord && chordName(v.chord, { tonic: 0, minor: false }, { latin: true, simple: false }), name);
 }
 console.log("inversiones ok");
+
+// tiempos del análisis: «m:ss», con décimas y en rangos; no horas ni proporciones
+assert.deepEqual(stamps("Escalas (0:21–0:25) y final en 2:38.4."), [
+  { text: "Escalas (" }, { text: "0:21", t: 21 }, { text: "–" }, { text: "0:25", t: 25 }, { text: ") y final en " }, { text: "2:38.4", t: 158.4 }, { text: "." },
+]);
+assert.deepEqual(stamps("compás 3:4, a las 12:30:00 o 1:2"), [{ text: "compás 3:4, a las 12:30:00 o 1:2" }]);
+console.log("tiempos ok");
