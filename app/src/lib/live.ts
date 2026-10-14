@@ -1,7 +1,7 @@
 /** Modo Tocar: lo que llega del teclado MIDI (notas y pedal) se convierte en notas con su duración real, el acorde
  * que suena (sin IA, con las plantillas de harmony.ts) y, al guardar, un .mid reproducible y un .json para la IA. */
 
-import { bestChord, chordName, degree, findKey, keyName, noteName, type Chord, type Key, type Note } from "./harmony.ts";
+import { bestChord, chordName, degree, findKey, keyFromChords, keyName, noteName, tonesOf, type Chord, type Key, type Note } from "./harmony.ts";
 
 type Open = { t: number; v: number; held: boolean }; // held: la tecla sigue abajo (si no, la sostiene el pedal)
 
@@ -59,7 +59,9 @@ export class Live {
     this.notes.push([n.t, Math.max(t, n.t + 0.01), p, n.v]);
   }
 
-  /** Acorde de lo que suena: con 3 notas distintas o más; la más grave hace de bajo. */
+  /** Acorde de lo que suena: con 3 notas distintas o más; la más grave hace de bajo. Aquí las notas son exactas (no
+   * transcritas), así que se exige que suenen la fundamental y la tercera y nada de fuera, salvo un color (novena…) sobre
+   * el acorde completo: Re-Mi-Fa es un racimo, no Rem, y Re-Fa-Sol no es Sol7. */
   private updateChord(t: number) {
     const pcs = new Set([...this.sounding.keys()].map((p) => p % 12));
     let c: Chord | null = null;
@@ -67,7 +69,10 @@ export class Live {
       const pc = new Array(12).fill(0);
       for (const p of pcs) pc[p] = 1;
       const b = bestChord(pc, Math.min(...this.sounding.keys()) % 12);
-      c = b && { ...b, t, end: t };
+      const tones = b ? tonesOf(b.kind).map((i) => (b.root + i) % 12) : [];
+      const outside = [...pcs].filter((p) => !tones.includes(p)).length;
+      const real = b && pcs.has(tones[0]) && pcs.has(tones[1]) && (outside === 0 || (outside === 1 && pcs.has(tones[2])));
+      c = real ? { ...b, t, end: t } : null;
     }
     const cur = this.chord;
     if (cur && c && cur.root === c.root && cur.kind === c.kind && cur.bass === c.bass) return;
@@ -81,6 +86,8 @@ export class Live {
     const t = this.time(now);
     const all = [...this.notes, ...[...this.sounding].map(([p, n]) => [n.t, t, p, n.v] as Note)];
     if (all.length < 12) return null;
+    // con unos cuantos acordes, como un músico (tónica, dominante, cadencias; la mano izquierda hace de bajo)
+    if (this.chords.length >= 4) return keyFromChords(this.chords, all.filter((n) => n[2] < 55));
     const pc = new Array(12).fill(0);
     for (const [s, e, p] of all) pc[p % 12] += e - s;
     return findKey(pc);

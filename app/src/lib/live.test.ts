@@ -88,3 +88,17 @@ m[2]:
 const ses = toToon(sessionForAI(json as never));
 assert.ok(ses.includes("notes[3]{inicio,fin,nota,vel,nombre}:\n  0,1,60,0.787,Do4"), ses);
 console.log("toon ok");
+
+// racimos y acordes incompletos no son acordes; con un color sobre el acorde completo, sí
+const chordOf = (ps: number[]) => {
+  const v = new Live();
+  ps.forEach((p, i) => v.midi([0x90, p, 100], 1 + i / 1000));
+  return v.chord && chordName(v.chord, { tonic: 0, minor: false }, { latin: true, simple: false });
+};
+assert.equal(chordOf([62, 64, 65]), null, "Re-Mi-Fa es un racimo");
+assert.equal(chordOf([62, 65, 67]), null, "Re-Fa-Sol no es Sol7: falta el Si");
+assert.equal(chordOf([60, 62, 64, 65]), null, "Do-Re-Mi-Fa");
+assert.equal(chordOf([60, 64, 67, 74]), "Do", "Do con novena");
+assert.equal(chordOf([60, 64, 67, 69]), "Do6");
+assert.equal(chordOf([55, 59, 62, 65]), "Sol7");
+console.log("racimos ok");

@@ -21,9 +21,10 @@ const KINDS: [string, number[]][] = [
   ["m6", [0, 3, 7, 9]],
   ["m7b5", [0, 3, 6, 10]],
   ["dim7", [0, 3, 6, 9]],
+  ["mmaj7", [0, 3, 7, 11]],
 ];
 // la transcripción mete notas de más: lo raro tiene que ganar con claridad para salir
-const EXOTIC = new Set(["sus2", "sus4", "aug", "6", "m6", "m7b5", "dim7"]);
+const EXOTIC = new Set(["sus2", "sus4", "aug", "6", "m6", "m7b5", "dim7", "mmaj7"]);
 const WEIGHT: Record<string, number> = { bass: 1.2, guitar: 1, piano: 1, other: 0.8, vocals: 0.35 };
 
 /** Peso de cada clase de nota (0-11) entre a y b; y la más grave con peso de la pista `low` (el bajo). */
@@ -91,14 +92,50 @@ const TONES: Record<string, number[]> = {
   "9": [0, 4, 7, 10, 2], maj9: [0, 4, 7, 11, 2], m9: [0, 3, 7, 10, 2], "11": [0, 4, 7, 10, 5], "13": [0, 4, 7, 10, 9], "7sus4": [0, 5, 7, 10], mmaj7: [0, 3, 7, 11],
 };
 
-/** Tonalidad a partir de acordes (la fundamental pesa más), cada uno según lo que dura. */
-export function keyFromChords(chords: Chord[]): Key {
-  const pc = new Array(12).fill(0);
-  for (const c of chords) {
-    const d = c.end - c.t;
-    for (const [i, iv] of (TONES[c.kind] ?? TONES[""]).entries()) pc[(c.root + iv) % 12] += d * (i === 0 ? 1.5 : 1);
+// notas de cada tonalidad para ver si un acorde encaja; en menor también la sensible (el V mayor y el vii° de la armónica)
+const MAJOR_SET = new Set(MAJOR_SCALE);
+const MINOR_SET = new Set([...MINOR_SCALE, 11]);
+const isMinorKind = (kind: string) => /^m(?!aj)|^dim/.test(kind);
+
+/** Intervalos de un tipo de acorde desde su fundamental (fundamental, tercera, quinta, y lo que lleve). */
+export const tonesOf = (kind: string) => TONES[kind] ?? TONES[""];
+
+/** Pesos de cada pista para decidir la tonalidad (ajustados con 22 canciones revisadas a mano, harmony.test.ts). */
+export const KEY_WEIGHTS = { fit: 1, home: 1, dom: 1, cad: 0.5, ends: 0.1, bass: 0.5 };
+
+/** Tonalidad a partir de los acordes (y del bajo, si hay notas), como la buscaría un músico: para cada una de las 24,
+ * cuánto de lo que suena cabe en su escala, cuánto suena su acorde de tónica, su dominante, cuántas veces se llega a
+ * ella desde V, IV o (en menor) VII, si empieza o acaba en ella y cuánto toca el bajo su nota. Krumhansl sobre las notas de los acordes se iba a la
+ * dominante en las canciones que alternan i–V (Rem–La salía La mayor). */
+export function keyFromChords(chords: Chord[], bass: Note[] = [], w = KEY_WEIGHTS): Key {
+  const total = chords.reduce((n, c) => n + c.end - c.t, 0);
+  if (!total) return { tonic: 0, minor: false };
+  const bp = new Array(12).fill(0);
+  for (const [s, e, p] of bass) bp[p % 12] += e - s;
+  const bt = bp.reduce((a, b) => a + b, 0);
+  const changes = chords.filter((c, i) => i > 0 && c.root !== chords[i - 1].root);
+  let best = { score: -Infinity, tonic: 0, minor: false };
+  for (let t = 0; t < 12; t++) {
+    for (const minor of [false, true]) {
+      const set = minor ? MINOR_SET : MAJOR_SET;
+      let fit = 0, home = 0, dom = 0, cad = 0;
+      for (const [i, c] of chords.entries()) {
+        const d = (c.end - c.t) / total;
+        const iv = (c.root - t + 12) % 12;
+        // la tríada (fundamental, tercera, quinta): las séptimas y novenas de color no sacan a un acorde de la tonalidad
+        if ((TONES[c.kind] ?? TONES[""]).slice(0, 3).every((x) => set.has((iv + x) % 12))) fit += d;
+        if (iv === 0 && isMinorKind(c.kind) === minor) home += d;
+        if (iv === 7 && !isMinorKind(c.kind)) dom += d;
+        // llegadas a la tónica desde la dominante (V→I), la subdominante (IV→I, plagal) o, en menor, el VII (VII→i, eólica)
+        const from = i > 0 ? (chords[i - 1].root - t + 12) % 12 : -1;
+        if (iv === 0 && (from === 7 || from === 5 || (minor && from === 10))) cad++;
+      }
+      const ends = (chords[0].root === t ? 1 : 0) + (chords[chords.length - 1].root === t ? 1 : 0);
+      const score = w.fit * fit + w.home * home + w.dom * dom + w.cad * (changes.length ? cad / changes.length : 0) + w.ends * ends + w.bass * (bt ? bp[t] / bt : 0);
+      if (score > best.score + 1e-9) best = { score, tonic: t, minor };
+    }
   }
-  return findKey(pc);
+  return { tonic: best.tonic, minor: best.minor };
 }
 
 /** Tonalidad (Krumhansl-Kessler) de un perfil de clases de nota. */
@@ -131,29 +168,36 @@ const same = (a: Chord | null, b: Chord | null) => !!a && !!b && a.root === b.ro
  * de ese instrumento (el piano solo: su mano izquierda hace de bajo). */
 export function analyze(tracks: { stem: string; notes: Note[] }[], beats: number[], duration: number, per = 2): Harmony {
   const low = tracks.length === 1 && tracks[0].stem !== "vocals" ? tracks[0].stem : "bass";
-  const all = profile(tracks, 0, Infinity).pc;
-  const key = findKey(all);
-  const scale = new Set((key.minor ? MINOR_SCALE : MAJOR_SCALE).map((i) => (key.tonic + i) % 12));
   const edges = beats.length > 4 ? beats.filter((_, i) => i % per === 0) : Array.from({ length: Math.ceil(duration) }, (_, i) => i);
   if (edges[0] > 0.5) edges.unshift(0);
   edges.push(Math.max(duration, edges[edges.length - 1] + 1));
-  const raw: (Chord | null)[] = [];
-  for (let i = 0; i + 1 < edges.length; i++) {
-    const { pc, bass } = profile(tracks, edges[i], edges[i + 1], low);
-    const c = bestChord(pc, bass, scale);
-    raw.push(c && { ...c, t: edges[i], end: edges[i + 1] });
-  }
-  // un tramo suelto distinto de sus dos vecinos iguales es ruido de la transcripción
-  for (let i = 1; i + 1 < raw.length; i++) {
-    if (raw[i] && same(raw[i - 1], raw[i + 1]) && !same(raw[i], raw[i - 1])) raw[i] = { ...raw[i - 1]!, t: raw[i]!.t, end: raw[i]!.end };
-  }
-  const chords: Chord[] = [];
-  for (const c of raw) {
-    if (!c) continue;
-    const last = chords[chords.length - 1];
-    if (last && same(last, c) && c.t - last.end < 0.01) last.end = c.end;
-    else chords.push({ ...c });
-  }
+  const chordsIn = (key: Key) => {
+    const scale = new Set((key.minor ? MINOR_SCALE : MAJOR_SCALE).map((i) => (key.tonic + i) % 12));
+    const raw: (Chord | null)[] = [];
+    for (let i = 0; i + 1 < edges.length; i++) {
+      const { pc, bass } = profile(tracks, edges[i], edges[i + 1], low);
+      const c = bestChord(pc, bass, scale);
+      raw.push(c && { ...c, t: edges[i], end: edges[i + 1] });
+    }
+    // un tramo suelto distinto de sus dos vecinos iguales es ruido de la transcripción
+    for (let i = 1; i + 1 < raw.length; i++) {
+      if (raw[i] && same(raw[i - 1], raw[i + 1]) && !same(raw[i], raw[i - 1])) raw[i] = { ...raw[i - 1]!, t: raw[i]!.t, end: raw[i]!.end };
+    }
+    const chords: Chord[] = [];
+    for (const c of raw) {
+      if (!c) continue;
+      const last = chords[chords.length - 1];
+      if (last && same(last, c) && c.t - last.end < 0.01) last.end = c.end;
+      else chords.push({ ...c });
+    }
+    return chords;
+  };
+  // primero la tonalidad de todas las notas (Krumhansl) para desempatar acordes; luego la de esos acordes con el bajo, que
+  // no se va a la relativa (Gm–Eb–Bb–F salía Sib mayor) ni cambia menor por mayor; si cambia, los acordes otra vez
+  const first = findKey(profile(tracks, 0, Infinity).pc);
+  let chords = chordsIn(first);
+  const key = keyFromChords(chords, tracks.filter((t) => t.stem === low).flatMap((t) => t.notes));
+  if (key.tonic !== first.tonic || key.minor !== first.minor) chords = chordsIn(key);
   return { chords, key };
 }
 
@@ -168,7 +212,29 @@ const FLAT_MAJORS = new Set([5, 10, 3, 8, 1, 6]);
 export const usesFlats = (k: Key) => FLAT_MAJORS.has(k.minor ? (k.tonic + 3) % 12 : k.tonic);
 
 export type Notation = { latin: boolean; simple: boolean };
-export const noteName = (pc: number, k: Key, latin: boolean) => (latin ? (usesFlats(k) ? LATIN_B : LATIN) : usesFlats(k) ? EN_B : EN)[pc];
+const tonicName = (k: Key, latin: boolean) => (latin ? (usesFlats(k) ? LATIN_B : LATIN) : usesFlats(k) ? EN_B : EN)[k.tonic];
+
+// grado (0-6) y alteración de cada distancia a la tónica; en menor, respecto a la menor natural. Lo cromático va como se
+// suele escribir: bII, bIII, #IV, bVI, bVII en mayor; bII, #III, #IV, #VI y la sensible (VII) en menor
+const STEPS_MAJOR: [number, number][] = [[0, 0], [1, -1], [1, 0], [2, -1], [2, 0], [3, 0], [3, 1], [4, 0], [5, -1], [5, 0], [6, -1], [6, 0]];
+const STEPS_MINOR: [number, number][] = [[0, 0], [1, -1], [1, 0], [2, 0], [2, 1], [3, 0], [3, 1], [4, 0], [5, 0], [5, 1], [6, 0], [6, 1]];
+const step = (iv: number, k: Key) => (k.minor ? STEPS_MINOR : STEPS_MAJOR)[iv];
+const LETTERS = ["Do", "Re", "Mi", "Fa", "Sol", "La", "Si"];
+const LETTERS_EN = ["C", "D", "E", "F", "G", "A", "B"];
+const NATURAL = [0, 2, 4, 5, 7, 9, 11];
+const ACC: Record<number, string> = { [-2]: "bb", [-1]: "b", 0: "", 1: "#", 2: "x" };
+
+/** Nombre de una nota en la tonalidad, con la letra de su grado: en Re menor la sensible es Do# (no Reb) y en Do mayor
+ * el bVII es Sib (no La#). */
+export function noteName(pc: number, k: Key, latin: boolean) {
+  const t = tonicName(k, latin);
+  if (pc === k.tonic) return t;
+  const letters = latin ? LETTERS : LETTERS_EN;
+  const tl = letters.findIndex((l) => t.replace(/[#b]+$/, "") === l);
+  const letter = (tl + step((pc - k.tonic + 12) % 12, k)[0]) % 7;
+  const acc = ((pc - NATURAL[letter] + 18) % 12) - 6;
+  return letters[letter] + (ACC[acc] ?? "");
+}
 
 const SIMPLE: Record<string, string> = {
   "7": "", maj7: "", "6": "", "9": "", maj9: "", "11": "", "13": "", m7: "m", m6: "m", m9: "m", mmaj7: "m", m7b5: "dim", dim7: "dim", "7sus4": "sus4",
@@ -186,21 +252,17 @@ const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII"];
 
 /** Grado del acorde en la tonalidad: «V7», «vi», «bVII»… (minúscula = menor). */
 export function degree(c: Chord, k: Key) {
-  const scale = k.minor ? MINOR_SCALE : MAJOR_SCALE;
   const iv = (c.root - k.tonic + 12) % 12;
-  let d = scale.indexOf(iv);
-  let acc = "";
-  if (d < 0) {
-    d = scale.indexOf((iv + 1) % 12);
-    acc = "b";
-  }
+  const [d, a] = step(iv, k);
+  // la sensible en menor (V mayor, vii°) es de la menor armónica: sin alteración
+  const acc = k.minor && iv === 11 ? "" : a < 0 ? "b" : a > 0 ? "#" : "";
   const minorish = /^m(?!aj)|^dim/.test(c.kind);
   const r = minorish ? ROMAN[d].toLowerCase() : ROMAN[d];
   const tail = ({ dim: "°", dim7: "°7", m7b5: "ø7", aug: "+" } as Record<string, string>)[c.kind] ?? c.kind.replace(/^m(?!aj)/, "");
   return acc + r + tail;
 }
 
-export const keyName = (k: Key, latin: boolean) => `${noteName(k.tonic, k, latin)} ${latin ? (k.minor ? "menor" : "mayor") : k.minor ? "minor" : "major"}`;
+export const keyName = (k: Key, latin: boolean) => `${tonicName(k, latin)} ${latin ? (k.minor ? "menor" : "mayor") : k.minor ? "minor" : "major"}`;
 export const scaleNotes = (k: Key, latin: boolean) => (k.minor ? MINOR_SCALE : MAJOR_SCALE).map((i) => noteName((k.tonic + i) % 12, k, latin));
 export const relative = (k: Key): Key => (k.minor ? { tonic: (k.tonic + 3) % 12, minor: false } : { tonic: (k.tonic + 9) % 12, minor: true });
 

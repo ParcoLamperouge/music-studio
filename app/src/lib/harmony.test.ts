@@ -53,3 +53,38 @@ const k2 = keyFromChords(loop);
 assert.ok((k2.tonic === 0 && k2.minor) || (k2.tonic === 3 && !k2.minor), JSON.stringify(k2));
 assert.equal(chordName({ root: 7, kind: "7sus4", bass: 7, t: 0, end: 1 }, C, { latin: true, simple: true }), "Solsus4");
 console.log("harmony ok");
+
+// tonalidad como un músico (canciones reales reducidas): la dominante y la relativa no ganan a la tónica
+const seq = (spec: string) => {
+  // "Dm:2 A:2" → acordes seguidos con su duración en compases
+  const R: Record<string, number> = { C: 0, "C#": 1, Db: 1, D: 2, Eb: 3, E: 4, F: 5, "F#": 6, G: 7, Ab: 8, A: 9, Bb: 10, B: 11 };
+  let t = 0;
+  return spec.split(" ").map((x) => {
+    const [name, d] = x.split(":");
+    const [, r, kind] = name.match(/^([A-G][b#]?)(.*)$/)!;
+    const c = { t, end: t + +d, root: R[r], kind: kind === "M" ? "" : kind, bass: R[r] };
+    t += +d;
+    return c;
+  });
+};
+const keyOf = (spec: string, rep = 6) => keyName(keyFromChords(seq(Array(rep).fill(spec).join(" "))), true);
+assert.equal(keyOf("Dm:2 A:2"), "Re menor", "Silent Movie: i–V alternando, no La mayor");
+assert.equal(keyOf("Dm:2 Gm:2 Dm:2 Gm:1 D:1 Eb:1 Gm:1"), "Sol menor", "Looking at Me: v–i y V–i, no Re menor");
+assert.equal(keyOf("Cm:1 Ab:1 Eb:1 Gm:1"), "Do menor", "DNA: no su relativa Mib");
+assert.equal(keyOf("Am:1 D:1 G:1 Em:1"), "Sol mayor", "Primadonna: ii–V–I–vi");
+assert.equal(keyOf("Cm:3 Fm:1"), "Do menor", "it's my party: i–iv, no v–i en Fa menor");
+assert.equal(keyOf("Gm:3 Bb:1 Eb:3 F:1"), "Sol menor", "0 OR 100: i–III–VI–VII con Solm largo (si duran igual, también es vi–I–IV–V en Sib)");
+assert.equal(keyOf("Am:2 Em:1 E:1"), "La menor", "Stay Mad: con su V mayor");
+
+// ortografía por grados: la sensible en menor es sostenido aunque la tonalidad lleve bemoles; el bVII en Do es Sib
+const Dm = { tonic: 2, minor: true };
+const cd = (root: number, kind: string, bass = root) => ({ t: 0, end: 1, root, kind, bass });
+assert.equal(chordName(cd(9, "7", 1), Dm, { latin: true, simple: false }), "La7/Do#");
+assert.equal(chordName(cd(10, ""), Dm, { latin: true, simple: false }), "Sib");
+assert.equal(degree(cd(1, "dim"), Dm), "vii°");
+assert.equal(degree(cd(10, ""), Dm), "VI");
+assert.equal(chordName(cd(10, ""), C, { latin: true, simple: false }), "Sib");
+assert.equal(degree(cd(6, "dim"), C), "#iv°");
+assert.equal(degree(cd(6, "m"), { tonic: 9, minor: true }), "#vi", "sexta dórica en La menor");
+assert.deepEqual(scaleNotes(Dm, true), ["Re", "Mi", "Fa", "Sol", "La", "Sib", "Do"]);
+console.log("tonalidad ok");
