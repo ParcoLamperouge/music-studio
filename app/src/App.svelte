@@ -157,7 +157,7 @@
 {:else if mode === "tocar"}
   <main class="solo"><PlayView onback={() => go(null)} onsessions={() => go("sesiones")} /></main>
 {:else if mode === "aprender"}
-  <LearnView onback={() => go(null)} onsessions={() => go("sesiones")} oncourse={(l) => go("curso", { leccion: l })} />
+  <LearnView onback={() => go(null)} onsessions={() => go("sesiones")} oncourse={(l, s) => go("curso", { leccion: l, paso: String(s) })} />
 {:else if mode === "curso"}
   <CourseView onback={() => go(null)} onpractice={(l, s) => go("aprender", { leccion: l, paso: String(s) })} />
 {:else if mode === "sesiones"}

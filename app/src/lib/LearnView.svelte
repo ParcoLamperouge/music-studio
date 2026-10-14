@@ -27,7 +27,8 @@
   /** Modo Aprender: una canción separada como arreglo para piano (arrange.ts), del nivel 1 al 5, para tocarla encima de
    * sus pistas (sin la parte que tocas), con guía sintetizada, modo espera, bucle y piano roll o partitura. O una pieza
    * (escrita en el editor o importada de MIDI / MusicXML): el nivel 5 es la pieza tal cual. */
-  let { onback, onsessions, oncourse }: { onback: () => void; onsessions: () => void; oncourse: (lesson: string) => void } = $props();
+  let { onback, onsessions, oncourse }: { onback: () => void; onsessions: () => void; oncourse: (lesson: string, step: number) => void } = $props();
+  const backToLesson = () => lessonPractice && oncourse(lessonPractice.lesson, lessonPractice.step);
 
   type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands };
   const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh" };
@@ -575,7 +576,11 @@
 <div class="learn">
   <aside>
     <header>
-      <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
+      {#if lessonPractice}
+        <button class="primary" onclick={backToLesson} title="Volver a la lección, al paso donde estabas">← Lección</button>
+      {:else}
+        <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
+      {/if}
       <strong>Aprender</strong>
     </header>
     <div class="tabs">
@@ -667,7 +672,7 @@
           <button class="ghost small" onclick={() => (seek(0), toggle())}>Otra vez</button>
         {/if}
         <span class="grow"></span>
-        <button class="ghost small" onclick={() => lessonPractice && oncourse(lessonPractice.lesson)}>← Volver a la lección</button>
+        <button class="primary small" onclick={backToLesson}>← Volver a la lección</button>
       </div>
     {/if}
     {#if editing}

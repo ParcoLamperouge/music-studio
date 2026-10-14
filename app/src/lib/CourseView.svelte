@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { LESSONS, practiceSteps, STAGES, stars, type Area, type Lesson, type Practice } from "./course";
   import EarQuiz from "./EarQuiz.svelte";
   import { EXERCISES } from "./exercises";
@@ -19,8 +19,13 @@
   onMount(async () => {
     await loadProgress();
     // vuelve de practicar a la lección de la que salió
-    const want = new URLSearchParams(location.search).get("leccion");
-    open(LESSONS.find((l) => l.id === want) ?? nextLesson() ?? LESSONS[0]);
+    const params = new URLSearchParams(location.search);
+    open(LESSONS.find((l) => l.id === params.get("leccion")) ?? nextLesson() ?? LESSONS[0]);
+    // y al paso que se estaba practicando, para seguir desde ahí
+    if (params.get("paso")) {
+      await tick();
+      document.getElementById(`paso-${params.get("paso")}`)?.scrollIntoView({ block: "center" });
+    }
   });
 
   function open(l: Lesson) {
@@ -122,7 +127,7 @@
         {:else}
           {@const best = (void progress.results, bestOf(lesson.id, i))}
           {@const goal = step.goal ?? 0.85}
-          <section class="card practice" class:passed={(best ?? 0) >= goal}>
+          <section class="card practice" id="paso-{i}" class:passed={(best ?? 0) >= goal}>
             <div class="ph">
               <span class="badge">{step.p.kind === "oido" ? "Oído" : "Práctica"}</span>
               <strong>{step.title}</strong>
