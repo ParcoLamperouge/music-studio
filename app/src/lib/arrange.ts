@@ -434,8 +434,6 @@ export class Practice {
   }
   /** Modo espera: el instante del primer grupo de notas sin tocar que ya debería haber sonado (para pararse ahí). */
   blocking(now: number) {
-    // lo que quedó atrás sin tocar (se tocó sin espera, o el reloj saltó) no hace volver: se da por saltado
-    for (const x of this.targets) if (!x.hit && !x.skipped && x.t < now - 1) x.skipped = true;
     const x = this.targets.find((x) => !x.hit && !x.skipped);
     return x && x.t <= now ? x.t : null;
   }

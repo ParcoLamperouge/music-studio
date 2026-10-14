@@ -380,15 +380,14 @@
       // parado y se empieza a tocar: arranca solo. Si lo siguiente que toca está cerca, desde ahí, como en espera (sigue
       // al completar esa nota o acorde, y cuenta); si queda lejos (una intro), desde donde estaba
       if (!player.playing && waiting == null && loaded && !loading) {
-        const now = player.time();
-        const next = practice.targets.find((x) => !x.hit && !x.skipped && x.t >= now - practice.tol);
+        const now = from();
+        practice.reset(now); // otra pasada desde aquí (si acabó, desde el principio)
+        const next = practice.targets.find((x) => !x.skipped && x.t >= now - practice.tol);
         if (next && next.t - now <= 1) {
+          if (now < 0.5) lessonResult = null;
           player.seek(next.t);
           time = waiting = next.t;
-        } else {
-          player.play();
-          playing = true;
-        }
+        } else start(now);
       }
       // la fuerza solo cuenta con teclado MIDI (el del ordenador siempre toca igual)
       const hit = practice.press(p, player.time(), waiting, input.connected ? v / 127 : undefined);
@@ -411,14 +410,29 @@
 
   function toggle() {
     if (loading || !loaded) return;
-    if (player.playing) player.pause();
-    else {
-      // con espera, se sigue desde aquí: lo de antes sin tocar no hace volver atrás
-      if (o.wait && waiting == null) practice.reset(player.time());
+    if (player.playing) {
+      player.pause();
+      playing = false;
+    } else if (waiting != null) {
+      // parada esperando una nota: el play la salta (queda sin tocar) y sigue
+      for (const x of practice.targets) if (!x.hit && Math.abs(x.t - waiting) < 0.03) x.skipped = true;
       waiting = null;
       player.play();
-    }
-    playing = player.playing;
+      playing = true;
+    } else start(from());
+  }
+
+  /** Desde dónde empieza a sonar: donde está, o el principio si ya acabó. */
+  const from = () => (player.time() >= duration - 0.05 ? 0 : player.time());
+  /** Empezar a sonar en `at`: lo que queda vuelve a estar pendiente (otra pasada) y lo de antes sin tocar, saltado. */
+  function start(at: number) {
+    if (at < 0.5) lessonResult = null;
+    player.seek(at);
+    time = at;
+    practice.reset(at);
+    waiting = null;
+    player.play();
+    playing = true;
   }
 
   function seek(t: number) {
@@ -453,7 +467,9 @@
       if (pc) ((o.tab = "piezas"), openPiece(pc));
     });
     let raf = 0;
-    const tick = () => {
+    // bucle, espera y final: en cada frame y además con un temporizador, que el reloj del audio sigue aunque la ventana
+    // no se pinte (oculta, o a tirones) y la espera no puede dejar pasar notas
+    const check = () => {
       time = player.time();
       if (player.playing) {
         if (loop && loopA != null && loopB != null && time >= loopB) {
@@ -480,6 +496,10 @@
           }
         }
       }
+    };
+    const watch = setInterval(check, 40);
+    const tick = () => {
+      check();
       stats = practice.stats(time);
       if (arr && tally(bars(), practice.targets, time, practice.tol, barAt)) zonesDirty = true;
       raf = requestAnimationFrame(tick);
@@ -487,6 +507,7 @@
     tick();
     return () => {
       cancelAnimationFrame(raf);
+      clearInterval(watch);
       for (const off of voices.values()) off();
       player.stop();
       void player.ctx.close();
