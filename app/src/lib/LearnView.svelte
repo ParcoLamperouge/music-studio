@@ -30,8 +30,8 @@
   let { onback, onsessions, oncourse }: { onback: () => void; onsessions: () => void; oncourse: (lesson: string, step: number) => void } = $props();
   const backToLesson = () => lessonPractice && oncourse(lessonPractice.lesson, lessonPractice.step);
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands; more: boolean };
-  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh", more: false };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands; more: boolean; list: boolean };
+  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh", more: false, list: true };
   const saved = (() => {
     try {
       return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("estudio.aprender") ?? "{}") } as Opts;
@@ -633,7 +633,7 @@
   const fmtSemis = (n: number) => (n > 0 ? `+${n}` : String(n));
 </script>
 
-<svelte:window onkeydown={(e) => !editing && !(e.target instanceof Element && e.target.closest("input")) && pcKey(e)} onkeyup={(e) => !editing && pcKey(e)} onblur={() => !editing && pcRelease()} />
+<svelte:window onpointerdown={(e) => o.more && !(e.target instanceof Element && e.target.closest(".more-wrap")) && (o.more = false)} onkeydown={(e) => !editing && !(e.target instanceof Element && e.target.closest("input")) && pcKey(e)} onkeyup={(e) => !editing && pcKey(e)} onblur={() => !editing && pcRelease()} />
 
 {#snippet controls()}
   <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !loaded} ontoggle={toggle} onseek={seek}>
@@ -643,7 +643,90 @@
   </Transport>
 {/snippet}
 
-<div class="learn">
+{#snippet opts()}
+  <div class="toolbar opts">
+    {#if !exercise}
+      <div class="grp" title="Dificultad: {LEVELS[o.level - 1][1]}">
+        <span class="lbl">Nivel</span>
+        <div class="seg">{#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}</div>
+      </div>
+      <div class="grp" title="Qué manos tocas: la otra la toca la guía">
+        <span class="lbl">Manos</span>
+        <div class="seg">
+          <button class:on={o.hands === "both"} onclick={() => (o.hands = "both")}>Ambas</button>
+          <button class:on={o.hands === "rh"} onclick={() => (o.hands = "rh")}>Der.</button>
+          <button class:on={o.hands === "lh"} onclick={() => (o.hands = "lh")}>Izq.</button>
+        </div>
+      </div>
+    {/if}
+    <div class="grp">
+      <label title="La canción se para hasta que tocas la nota que toca, y solo sigue mientras la mantienes"><input type="checkbox" bind:checked={o.wait} onchange={() => practice.reset(time)} /> Espera</label>
+      <label title="Más lento para aprender: todo a ese tempo (de una canción, a tempo reducido suena solo la guía)">
+        <span class="lbl">Tempo</span>
+        <select value={String(o.speed)} onchange={(e) => (o.speed = +e.currentTarget.value)}>
+          {#each [1, 0.9, 0.8, 0.7, 0.6, 0.5] as v (v)}<option value={String(v)}>{Math.round(v * 100)} %</option>{/each}
+        </select>
+      </label>
+    </div>
+    <div class="grp">
+      <div class="seg">
+        <button class:on={o.view === "roll"} onclick={() => (o.view = "roll")}>Roll</button>
+        <button class:on={o.view === "score"} onclick={() => (o.view = "score")}>Partitura</button>
+      </div>
+    </div>
+    <div class="grp more-wrap">
+      <button class="ghost small" class:on={o.more} onclick={() => (o.more = !o.more)} title="Teclado, melodía, tonalidad, volúmenes…">Ajustes {o.more ? "▴" : "▾"}</button>
+      {#if o.more}
+        <div class="more-pop">
+          <div class="row opts"><InputBar /></div>
+          <div class="row opts">
+            {#if piece && !exercise}
+              <label>
+                Derecha
+                <select value={o.pieceRight ? "si" : "no"} onchange={(e) => (o.pieceRight = e.currentTarget.value === "si")}>
+                  <option value="si">la mano derecha de la pieza</option>
+                  <option value="no">acordes (solo acompañamiento)</option>
+                </select>
+              </label>
+              <button class="ghost small" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
+            {:else if !piece}
+              <label>
+                Melodía
+                <select value={o.melody} onchange={(e) => pickMelody(e.currentTarget.value)}>
+                  {#each melodyStems as st (st.name)}
+                    <option value={st.name}>{STEM_INFO[st.name]?.label ?? st.name}{st.ready ? "" : " (sacar sus notas)"}</option>
+                  {/each}
+                  <option value="none">Ninguna: solo acompañamiento</option>
+                </select>
+              </label>
+            {/if}
+            {#if !exercise}
+              <label title={keyText}>
+                Tonalidad
+                <select value={String(o.transpose)} onchange={(e) => (o.transpose = /^-?\d+$/.test(e.currentTarget.value) ? +e.currentTarget.value : (e.currentTarget.value as "orig" | "easy"))}>
+                  <option value="orig">Original ({harmony ? keyName(harmony.key, notation.latin) : ""})</option>
+                  <option value="easy">Fácil ({harmony ? fmtSemis(easyTranspose(harmony.key)) : ""})</option>
+                  {#each [-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6] as n (n)}<option value={String(n)}>{fmtSemis(n)} semitonos</option>{/each}
+                </select>
+              </label>
+            {/if}
+            {#if !piece}
+              <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
+                Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
+              </label>
+            {/if}
+            <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
+            <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
+            {#if detail && !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
+          </div>
+          {#if exercise}<p class="about">{exercise.about}</p>{/if}
+        </div>
+      {/if}
+    </div>
+  </div>
+{/snippet}
+
+<div class="learn" class:nolist={!o.list}>
   <aside>
     <header>
       {#if lessonPractice}
@@ -749,32 +832,9 @@
       <PieceEditor piece={editing} {onsessions} onclose={() => ((editing = null), void loadPieces())}
         onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
     {:else}
-    <div class="row opts top">
-      <span class="dot" class:on={!!input.connected} title={input.connected ? `Teclado: ${input.connected}` : "Sin teclado MIDI: se toca con el del ordenador (en Ajustes)"}></span>
-      {#if loaded}
-        {#if piece}<strong class="ptitle" title={piece.title}>{piece.title}</strong>{/if}
-        {#if !exercise}
-          <div class="seg" title="Dificultad: {LEVELS[o.level - 1][1]}">
-            {#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}
-          </div>
-          <div class="seg" title="Qué manos tocas: la otra la toca la guía">
-            <button class:on={o.hands === "both"} onclick={() => (o.hands = "both")}>Ambas</button>
-            <button class:on={o.hands === "rh"} onclick={() => (o.hands = "rh")}>Der.</button>
-            <button class:on={o.hands === "lh"} onclick={() => (o.hands = "lh")}>Izq.</button>
-          </div>
-        {/if}
-        <label title="La canción se para hasta que tocas la nota que toca, y solo sigue mientras la mantienes"><input type="checkbox" bind:checked={o.wait} onchange={() => practice.reset(time)} /> Espera</label>
-        <label title="Más lento para aprender: todo a ese tempo (de una canción, a tempo reducido suena solo la guía)">
-          <select value={String(o.speed)} onchange={(e) => (o.speed = +e.currentTarget.value)}>
-            {#each [1, 0.9, 0.8, 0.7, 0.6, 0.5] as v (v)}<option value={String(v)}>{Math.round(v * 100)} %</option>{/each}
-          </select>
-        </label>
-        <div class="seg">
-          <button class:on={o.view === "roll"} onclick={() => (o.view = "roll")}>Piano roll</button>
-          <button class:on={o.view === "score"} onclick={() => (o.view = "score")}>Partitura</button>
-        </div>
-        <button class="ghost small" class:on={o.more} onclick={() => (o.more = !o.more)} title="Teclado, melodía, tonalidad, volúmenes…">Ajustes {o.more ? "▴" : "▾"}</button>
-      {/if}
+    <div class="row titlebar">
+      <button class="ghost icon" onclick={() => (o.list = !o.list)} title={o.list ? "Ocultar la lista (más sitio)" : "Mostrar la lista"}>{o.list ? "⇤" : "☰"}</button>
+      {#if loaded}<strong class="ptitle" title={title}>{title}</strong>{#if keyText}<small class="muted mono">{keyText}</small>{/if}{/if}
       <span class="grow"></span>
       {#if loaded}
         <span class="mono score" title="Notas acertadas de las que ya tocaban · notas equivocadas · adelanto (−) o retraso (+) medio">
@@ -784,55 +844,9 @@
               · fuerza {stats.force > 0 ? "+" : ""}{stats.force}{stats.offForce ? ` (${stats.offForce} muy ${stats.force > 0 ? "fuertes" : "flojas"})` : ""}</span>{/if}
         </span>
       {/if}
+      <span class="dot" class:on={!!input.connected} title={input.connected ? `Teclado: ${input.connected}` : "Sin teclado MIDI: se toca con el del ordenador (en Ajustes)"}></span>
     </div>
-    {#if o.more || !loaded}
-      <div class="more">
-        <div class="row opts"><InputBar /></div>
-        {#if loaded}
-          <div class="row opts">
-            {#if piece && !exercise}
-              <label>
-                Derecha
-                <select value={o.pieceRight ? "si" : "no"} onchange={(e) => (o.pieceRight = e.currentTarget.value === "si")}>
-                  <option value="si">la mano derecha de la pieza</option>
-                  <option value="no">acordes (solo acompañamiento)</option>
-                </select>
-              </label>
-              <button class="ghost small" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
-            {:else if !piece}
-              <label>
-                Melodía
-                <select value={o.melody} onchange={(e) => pickMelody(e.currentTarget.value)}>
-                  {#each melodyStems as st (st.name)}
-                    <option value={st.name}>{STEM_INFO[st.name]?.label ?? st.name}{st.ready ? "" : " (sacar sus notas)"}</option>
-                  {/each}
-                  <option value="none">Ninguna: solo acompañamiento</option>
-                </select>
-              </label>
-            {/if}
-            {#if !exercise}
-              <label title={keyText}>
-                Tonalidad
-                <select value={String(o.transpose)} onchange={(e) => (o.transpose = /^-?\d+$/.test(e.currentTarget.value) ? +e.currentTarget.value : (e.currentTarget.value as "orig" | "easy"))}>
-                  <option value="orig">Original ({harmony ? keyName(harmony.key, notation.latin) : ""})</option>
-                  <option value="easy">Fácil ({harmony ? fmtSemis(easyTranspose(harmony.key)) : ""})</option>
-                  {#each [-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6] as n (n)}<option value={String(n)}>{fmtSemis(n)} semitonos</option>{/each}
-                </select>
-              </label>
-            {/if}
-            {#if !piece}
-              <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
-                Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
-              </label>
-            {/if}
-            <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
-            <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
-            {#if detail && !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
-          </div>
-          {#if exercise}<p class="about">{exercise.about}</p>{/if}
-        {/if}
-      </div>
-    {/if}
+    {#if !loaded}<div class="row opts"><InputBar /></div>{/if}
     {#if loaded && (stretching || (semis && !piece) || (o.melody !== "none" && melody === "none" && !piece))}
       <div class="row opts">
         {#if stretching}<small class="note-warn"><span class="spinner inline"></span> Preparando las pistas al {Math.round(o.speed * 100)} % (solo la primera vez); mientras, suena la guía.</small>
@@ -852,13 +866,14 @@
       <div class="msg"><span class="spinner"></span></div>
     {:else if loaded && arr}
       {#if o.view === "roll"}
-        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} fx {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
+        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} fx tools={opts} {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
           lit={() => pressed}
           tracks={[
             { stem: "rh", name: melody === "none" ? "Derecha: acordes" : "Derecha: melodía", color: "#f29d38", path: "rh", hidden: false, notes: rhSec },
             { stem: "lh", name: "Izquierda", color: "#74c6f0", path: "lh", hidden: false, notes: lhSec },
           ]} />
       {:else if scorePath}
+        <div class="row">{@render opts()}</div>
         {#key scorePath}
           <Score song={scoreSong} stems={[]} path={scorePath} {player} {controls} bind:follow={settings.scoreFollow} title="{title} · nivel {o.level}"
             beatAt={(t) => toBeat(slowBeats, t) - arr.start} pdfName={scoreName} />
@@ -906,6 +921,24 @@
 
 <style>
   .learn { height: 100vh; display: grid; grid-template-columns: 280px 1fr; }
+  .learn.nolist { grid-template-columns: 0 1fr; }
+  .learn.nolist > aside { visibility: hidden; overflow: hidden; }
+  .titlebar { gap: 12px; }
+  .titlebar .icon { padding: 3px 9px; }
+  .titlebar small { font-size: 11.5px; }
+  .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+  .grp { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-left: 1px solid var(--line); }
+  .grp:first-child { border-left: 0; padding-left: 0; }
+  .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+  .toolbar .seg button { padding: 3px 9px; }
+  .toolbar button.on { border-color: var(--accent); color: var(--text); }
+  .more-wrap { position: relative; }
+  .more-pop {
+    position: absolute; left: 0; top: calc(100% + 8px); z-index: 70; width: min(560px, 80vw); display: flex; flex-direction: column; gap: 10px;
+    padding: 12px 14px; border-radius: 12px; background: var(--panel-hi); border: 1px solid var(--line); box-shadow: 0 12px 32px #0009;
+  }
+  .titlebar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+  .titlebar .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; gap: 8px; padding-bottom: 8px; }
   aside header { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
   aside strong { font-family: var(--serif); font-weight: 400; font-size: 24px; }
@@ -927,7 +960,7 @@
   .piece { flex-direction: row !important; align-items: center !important; padding: 0 4px 0 0 !important; }
   .piece .open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; border: 0; background: none; color: var(--text); text-align: left; min-width: 0; }
   .piece .open small { color: var(--text-3); font-size: 11.5px; }
-  .ptitle { font-family: var(--serif); font-weight: 400; font-size: 20px; color: var(--text); }
+  .ptitle { font-family: var(--serif); font-weight: 400; font-size: 20px; color: var(--text); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .exopts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 8px; align-items: center; }
   .exopts select { font-size: 12px; padding: 4px 6px; }
   .seg.mini button { padding: 3px 7px; font-size: 11.5px; }
@@ -942,11 +975,7 @@
   .opts input[type="range"] { width: 90px; }
   .grow { flex: 1; }
   .score { font-size: 12px; color: var(--text-2); }
-  .top .ptitle { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .top .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
-  .top .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-  .top button.on { border-color: var(--accent); color: var(--text); }
-  .more { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); flex-shrink: 0; }
+
   .note-warn { color: var(--accent); display: inline-flex; align-items: center; gap: 6px; }
   .inline { width: 12px; height: 12px; }
   .force.off { color: #f6c84a; }

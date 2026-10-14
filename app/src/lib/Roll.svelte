@@ -136,7 +136,7 @@
   type Note = [start: number, end: number, pitch: number, velocity: number];
   type Track = { stem: string; name: string; color: string; path: string; hidden: boolean; notes?: Note[] }; // notes: ya en memoria
 
-  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality, lit, title = "Piano roll", fx = false }: {
+  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality, lit, title = "Piano roll", fx = false, tools }: {
     player: Player;
     tracks: Track[];
     controls: Snippet; // transporte, para la pantalla completa
@@ -148,6 +148,7 @@
     lit?: () => Map<number, string>; // teclas que se iluminan además de lo que suena (lo que toca quien practica)
     title?: string;
     fx?: boolean; // aspecto «de vídeo» (rollfx.ts): un solo color, brillo y chispas; para Aprender
+    tools?: Snippet; // controles de quien lo usa, en la barra del roll en vez del título y la leyenda (más sitio para el roll)
   } = $props();
 
   let styleOpen = $state(false);
@@ -353,6 +354,12 @@
 
 <section class="roll" class:fs={fullscreen}>
   <header>
+    {#if tools}
+      <div class="legend">
+        {@render tools()}
+        {#each tracks as t, i (t.stem)}<i class="hand" style:background={fx ? fxColor(style(), i) : t.color} title={t.name}></i>{/each}
+      </div>
+    {:else}
     <div class="legend">
       <strong>{title}</strong>
       {#each tracks as t (t.stem)}
@@ -362,6 +369,7 @@
       {/each}
       {#if !tracks.length}<small>Ninguna pista con notas suena ahora (revisa M/S).</small>{/if}
     </div>
+    {/if}
     <div class="tools">
       {#if fx}
         <div class="style-wrap">
@@ -393,12 +401,12 @@
           {/if}
         </div>
       {/if}
-      <label title="Cuántos segundos de notas se ven antes de sonar">
-        Velocidad
+      <label title="Velocidad a la que caen las notas: cuántos segundos se ven antes de sonar">
+        Caída
         <input type="range" min="1" max="6" step="0.5" value={7 - windowSec} oninput={(e) => (windowSec = 7 - +e.currentTarget.value)} />
       </label>
-      <button class="ghost" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? "Salir (Esc)" : "Pantalla completa"}>
-        {fullscreen ? "Salir" : "Pantalla completa"}
+      <button class="ghost icon" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}>
+        {fullscreen ? "✕" : "⛶"}
       </button>
     </div>
   </header>
@@ -422,7 +430,9 @@
   .legend small { color: var(--text-3); }
   .tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .tools label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
-  .tools label input { width: 90px; }
+  .tools label input { width: 70px; }
+  .tools .icon { padding: 4px 9px; font-size: 14px; }
+  .hand { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
   .tools button { padding: 5px 12px; }
   .tools button.on { border-color: var(--accent); color: var(--text); }
   .style-wrap { position: relative; }
