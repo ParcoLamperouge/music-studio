@@ -1,9 +1,10 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, untrack } from "svelte";
-  import { arrange, easyTranspose, LEVELS, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
+  import { arrange, easyTranspose, fromBeat, LEVELS, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
+  import { accuracy, hardZones, tally, wrongAt, type Bars, type Zone } from "./zones";
   import { loadNotation } from "./ChordsTab.svelte";
-  import { enqueue, paths, readJson, songDetail, STEM_INFO, writeBytes, type Detail, type Song } from "./engine";
+  import { enqueue, paths, readJson, songDetail, STEM_INFO, writeBytes, writeJson, type Detail, type Song } from "./engine";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
   import InputBar from "./InputBar.svelte";
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
@@ -206,6 +207,7 @@
       [loop, loopA, loopB] = [false, null, null];
       seek(at);
       void loadStems(sp);
+      if (activeZone) applyZone(activeZone); // practicando un pasaje: el mismo, a la nueva velocidad
     });
   });
 
@@ -297,6 +299,7 @@
     if (kind === 0x90 && v > 0) {
       // la fuerza solo cuenta con teclado MIDI (el del ordenador siempre toca igual)
       const hit = practice.press(p, player.time(), waiting, input.connected ? v / 127 : undefined);
+      if (!hit && arr) ((wrongAt(bars(), barAt(player.time())), (zonesDirty = true)));
       const forceOff = hit?.vel != null && hit.v != null && Math.abs(hit.vel - hit.v) > VEL_TOL;
       pressed.set(p, !hit ? "#ff7a6b" : forceOff ? "#f6c84a" : "#9bd37f");
       if (!input.connected) voices.set(p, voice(player.ctx, p, v / 127)); // sin piano, que suene aquí
@@ -331,6 +334,7 @@
   }
 
   function setLoop(which: "a" | "b") {
+    activeZone = null;
     if (which === "a") loopA = time;
     else loopB = time;
     if (loopA != null && loopB != null && loopB > loopA) loop = true;
@@ -354,7 +358,13 @@
     const tick = () => {
       time = player.time();
       if (player.playing) {
-        if (loop && loopA != null && loopB != null && time >= loopB) seek(loopA);
+        if (loop && loopA != null && loopB != null && time >= loopB) {
+          // una pasada del bucle: si ha salido bien y va más lento que el original, se propone subir el tempo
+          const inLoop = practice.targets.filter((x) => x.t >= loopA! && x.t < loopB! && !x.skipped);
+          const acc = inLoop.length ? inLoop.filter((x) => x.hit).length / inLoop.length : 0;
+          suggestUp = acc >= 0.9 && o.speed < 1;
+          seek(loopA);
+        }
         // modo espera: se para en la primera nota sin tocar que ya debería sonar
         const block = o.wait ? practice.blocking(time) : null;
         if (block != null) {
@@ -368,6 +378,7 @@
         }
       }
       stats = practice.stats(time);
+      if (arr && tally(bars(), practice.targets, time, practice.tol, barAt)) zonesDirty = true;
       raf = requestAnimationFrame(tick);
     };
     tick();
@@ -378,6 +389,77 @@
       void player.ctx.close();
     };
   });
+
+  // ---------------------------------------------------------------- zonas difíciles
+
+  // por canción o pieza, lo que sale cada compás, separado por nivel, melodía y manos (cada combinación es otra música)
+  let zoneBook: Record<string, Bars> = {};
+  let zonesDirty = false;
+  let zonesRev = $state(0); // para repintar el mapa y la lista (cada medio segundo como mucho)
+  let activeZone = $state<Zone | null>(null);
+  let suggestUp = $state(false);
+  const zonePath = () => `${learnDir}/zonas/${safe}.json`;
+  const zoneKey = $derived(`${o.level}/${melody}/${o.hands}`);
+  const bars = () => (zoneBook[zoneKey] ??= {});
+  /** El compás (desde 0, el primero completo tras la anacrusa) de un instante. */
+  const barAt = (t: number) => (arr ? Math.floor((toBeat(slowBeats, t) - arr.start) / arr.meter) : 0);
+  const barTime = (i: number) => (arr ? fromBeat(slowBeats, arr.start + i * arr.meter) : 0);
+
+  async function loadZones() {
+    if (!safe) return;
+    zoneBook = await readJson<Record<string, Bars>>(zonePath(), {});
+    zonesRev++;
+  }
+  async function saveZones() {
+    if (!zonesDirty || !safe) return;
+    zonesDirty = false;
+    await writeJson(zonePath(), zoneBook);
+  }
+  $effect(() => {
+    void safe; // otra canción o pieza: se guarda lo de la anterior y se carga lo suyo
+    untrack(() => void saveZones().then(loadZones));
+  });
+  onMount(() => {
+    const t = setInterval(() => {
+      if (zonesDirty) zonesRev++;
+      void saveZones();
+    }, 5000);
+    const r = setInterval(() => zonesDirty && zonesRev++, 500);
+    return () => {
+      clearInterval(t);
+      clearInterval(r);
+      void saveZones();
+    };
+  });
+
+  const nBars = $derived(arr ? Math.max(1, Math.ceil((toBeat(slowBeats, duration) - arr.start) / arr.meter)) : 0);
+  const barMap = $derived.by(() => {
+    void zonesRev;
+    void zoneKey;
+    const b = bars();
+    return Array.from({ length: nBars }, (_, i) => accuracy(b[i]));
+  });
+  const zones = $derived.by(() => {
+    void zonesRev;
+    void zoneKey;
+    return hardZones(bars(), 0.8, 4, 3);
+  });
+  const nowBar = $derived(barAt(time));
+  const barColor = (a: number | null) => (a == null ? "var(--line)" : a >= 0.9 ? "#9bd37f" : a >= 0.75 ? "#e8c45a" : a >= 0.5 ? "#f29d38" : "#ff7a6b");
+
+  /** Practicar un pasaje: en bucle con un compás antes, en espera y como mucho al 70 %. */
+  function practiceZone(z: Zone) {
+    activeZone = z;
+    suggestUp = false;
+    o.wait = true;
+    if (o.speed > 0.7) o.speed = 0.7; // el cambio de velocidad pone el bucle (applyZone)
+    else applyZone(z);
+  }
+  function applyZone(z: Zone) {
+    [loopA, loopB] = [barTime(Math.max(0, z.from - 1)), barTime(z.to + 1)];
+    loop = true;
+    seek(loopA);
+  }
 
   // ---------------------------------------------------------------- partitura
 
@@ -559,7 +641,31 @@
             beatAt={(t) => toBeat(slowBeats, t) - arr.start} pdfName={scoreName} />
         {/key}
       {/if}
-      <div class="bottom">{@render controls()}</div>
+      <div class="bottom">
+        {#if nBars > 1}
+          <div class="zonemap" title="Cómo sale cada compás (verde bien, rojo mal; gris sin practicar). Clic: ir ahí">
+            {#each barMap as a, i (i)}<button style:background={barColor(a)} class:now={i === nowBar} class:loop={activeZone && i >= activeZone.from && i <= activeZone.to}
+                onclick={() => seek(barTime(i))} aria-label="Compás {i + 1}"></button>{/each}
+          </div>
+        {/if}
+        {#if zones.length || activeZone}
+          <div class="row zones">
+            {#if activeZone}
+              <span>Practicando c. {activeZone.from + 1}{activeZone.to > activeZone.from ? `–${activeZone.to + 1}` : ""} al {Math.round(o.speed * 100)} %</span>
+              {#if suggestUp}<button class="primary small" onclick={() => ((o.speed = Math.min(1, Math.round((o.speed + 0.1) * 10) / 10)), (suggestUp = false))}>Te sale: subir a {Math.round(Math.min(1, o.speed + 0.1) * 100)} %</button>{/if}
+              <button class="ghost small" onclick={() => ((activeZone = null), (loop = false), (suggestUp = false))}>Dejar el pasaje</button>
+            {:else}
+              <span class="muted">Zonas difíciles:</span>
+              {#each zones as z (z.from)}
+                <button class="ghost small" onclick={() => practiceZone(z)} title="{z.tries} notas tocadas ahí">
+                  c. {z.from + 1}{z.to > z.from ? `–${z.to + 1}` : ""} · {Math.round(z.acc * 100)} % · Practicar
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+        {@render controls()}
+      </div>
     {:else if !error}
       <div class="welcome"><h1>Elige una canción<br />y <em>tócala</em>.</h1>
         <p class="muted">Melodía y acompañamiento para piano, del nivel 1 al 5. Con el teclado MIDI o el del ordenador.</p></div>
@@ -601,6 +707,11 @@
   .note-warn { color: var(--accent); display: inline-flex; align-items: center; gap: 6px; }
   .inline { width: 12px; height: 12px; }
   .force.off { color: #f6c84a; }
+  .zonemap { display: flex; gap: 1px; height: 10px; margin-bottom: 6px; }
+  .zonemap button { flex: 1; min-width: 2px; padding: 0; border: 0; border-radius: 2px; opacity: 0.75; cursor: pointer; }
+  .zonemap button:hover, .zonemap button.now { opacity: 1; outline: 1px solid var(--text); }
+  .zonemap button.loop { opacity: 1; box-shadow: 0 -3px 0 var(--accent); }
+  .zones { margin-bottom: 6px; font-size: 12.5px; }
   .small { padding: 3px 10px; font-size: 12px; }
   .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
   .seg button { padding: 4px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12px; }

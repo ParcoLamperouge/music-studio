@@ -399,7 +399,7 @@ export function toMusicXML(a: Arrangement, title: string) {
 // ---------------------------------------------------------------- práctica
 
 /** Una nota que tocar; `v` la fuerza que pide (0-1) y `vel` la que se tocó (con teclado MIDI). */
-export type Target = { t: number; p: number; v?: number; hand: Hand; hit: boolean; skipped?: boolean; err?: number; vel?: number };
+export type Target = { t: number; p: number; v?: number; hand: Hand; hit: boolean; skipped?: boolean; err?: number; vel?: number; counted?: boolean }; // counted: ya apuntada en las zonas (zones.ts)
 /** Diferencia de fuerza a partir de la que se avisa (en 0-1; unas 30 de 127). */
 export const VEL_TOL = 0.25;
 
@@ -441,7 +441,7 @@ export class Practice {
    * sin tocar se da por saltado (si no, la espera volvería atrás a buscarlo). */
   reset(from = 0) {
     for (const x of this.targets) {
-      if (x.t >= from - 0.01) [x.hit, x.skipped, x.err, x.vel] = [false, false, undefined, undefined];
+      if (x.t >= from - 0.01) [x.hit, x.skipped, x.err, x.vel, x.counted] = [false, false, undefined, undefined, false];
       else if (!x.hit) x.skipped = true;
     }
   }
