@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import { listDir, paths, readJson, removeFile, writeBytes, writeJson } from "./engine";
 import { Live } from "./live";
-import { importPiece, pieceEvents, pieceLength, type Piece } from "./piece";
+import { importPiece, pieceDuration, pieceEvents, type Piece } from "./piece";
 
 export const pieces = $state({ list: [] as Piece[] });
 export const pieceDir = () => `${paths.data}/piezas`;
@@ -47,7 +47,7 @@ export async function pieceToSession(pc: Piece, latin = true, started = new Date
   const live = new Live();
   const t0 = 1000;
   for (const [t, msg] of pieceEvents(pc)) live.midi(msg, t0 + t);
-  const { json, mid } = live.snapshot(t0 + (pieceLength(pc) * 60) / pc.bpm, pc.title, started, latin);
+  const { json, mid } = live.snapshot(t0 + pieceDuration(pc), pc.title, started, latin);
   const z = (n: number) => String(n).padStart(2, "0");
   const base = `${paths.data}/sesiones/${started.getFullYear()}-${z(started.getMonth() + 1)}-${z(started.getDate())}_${z(started.getHours())}-${z(started.getMinutes())}-${z(started.getSeconds())}`;
   await writeBytes(`${base}.mid`, mid);

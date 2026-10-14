@@ -5,18 +5,52 @@ import type { ANote, Arrangement, Hand } from "./arrange.ts";
 import type { Key, Note } from "./harmony.ts";
 
 export type PNote = ANote & { hand: Hand };
-export type Piece = { id: string; title: string; bpm: number; meter: number; key?: Key; notes: PNote[]; modified?: number; exercise?: boolean }; // exercise: de exercises.ts (se toca tal cual)
+/** Cambio de tempo: desde la negra `beat`, a `bpm`. */
+export type Tempo = [beat: number, bpm: number];
+export type Piece = {
+  id: string; title: string; bpm: number; meter: number; key?: Key; notes: PNote[]; modified?: number;
+  exercise?: boolean; // de exercises.ts (se toca tal cual)
+  tempos?: Tempo[]; // si cambia de tempo (un MIDI con introducción lenta…); el primero es `bpm`
+};
 
 export const newPiece = (title = "Sin título"): Piece => ({ id: `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title, bpm: 90, meter: 4, notes: [] });
 /** La mano por defecto de una nota: la izquierda por debajo del Do central. */
 export const handOf = (p: number): Hand => (p < 60 ? "lh" : "rh");
 export const pieceLength = (pc: Piece) => pc.notes.reduce((m, n) => Math.max(m, n.b + n.d), 0);
 
+const tempoMap = (pc: Piece): Tempo[] => (pc.tempos?.length ? pc.tempos : [[0, pc.bpm]]);
+
+/** Negra → segundo, con los cambios de tempo. */
+export function beatToSec(pc: Piece, b: number) {
+  const map = tempoMap(pc);
+  let t = 0, at = 0, bpm = map[0][1];
+  for (const [tb, tbpm] of map.slice(1)) {
+    if (b <= tb) break;
+    t += ((tb - at) * 60) / bpm;
+    [at, bpm] = [tb, tbpm];
+  }
+  return t + ((b - at) * 60) / bpm;
+}
+
+/** Segundo → negra, la inversa. */
+export function secToBeat(pc: Piece, s: number) {
+  const map = tempoMap(pc);
+  let t = 0, at = 0, bpm = map[0][1];
+  for (const [tb, tbpm] of map.slice(1)) {
+    const next = t + ((tb - at) * 60) / bpm;
+    if (s <= next) break;
+    [t, at, bpm] = [next, tb, tbpm];
+  }
+  return at + ((s - t) * bpm) / 60;
+}
+
 /** Notas de una mano en segundos ([inicio, fin, nota, velocidad]). */
 export const pieceSeconds = (pc: Piece, hand?: Hand): Note[] =>
-  pc.notes.filter((n) => !hand || n.hand === hand).map((n) => [(n.b * 60) / pc.bpm, ((n.b + n.d) * 60) / pc.bpm, n.p, n.v]);
-/** Pulsos de la pieza en segundos (tempo fijo), hasta un poco después del final. */
-export const pieceBeats = (pc: Piece) => Array.from({ length: Math.ceil(pieceLength(pc)) + 9 }, (_, i) => (i * 60) / pc.bpm);
+  pc.notes.filter((n) => !hand || n.hand === hand).map((n) => [beatToSec(pc, n.b), beatToSec(pc, n.b + n.d), n.p, n.v]);
+/** Pulsos de la pieza en segundos, hasta un poco después del final. */
+export const pieceBeats = (pc: Piece) => Array.from({ length: Math.ceil(pieceLength(pc)) + 9 }, (_, i) => beatToSec(pc, i));
+/** Lo que dura, en segundos. */
+export const pieceDuration = (pc: Piece) => beatToSec(pc, pieceLength(pc));
 
 /** La pieza tal cual como arreglo (el nivel 5 de una pieza), con transporte. */
 export function pieceArrangement(pc: Piece, key: Key, transpose = 0): Arrangement {
@@ -29,7 +63,7 @@ export function pieceEvents(pc: Piece): [number, number[]][] {
   const ev: [number, number[]][] = [];
   for (const n of pc.notes) {
     const v = Math.max(1, Math.min(127, Math.round(n.v * 127)));
-    ev.push([(n.b * 60) / pc.bpm, [0x90, n.p, v]], [((n.b + n.d) * 60) / pc.bpm, [0x80, n.p, 0]]);
+    ev.push([beatToSec(pc, n.b), [0x90, n.p, v]], [beatToSec(pc, n.b + n.d), [0x80, n.p, 0]]);
   }
   // a igual instante, primero los que sueltan (una nota repetida no se come a la siguiente)
   return ev.sort((a, b) => a[0] - b[0] || (a[1][0] === 0x80 ? -1 : 1) - (b[1][0] === 0x80 ? -1 : 1));
@@ -53,7 +87,8 @@ export function fromMidi(bytes: Uint8Array, title = "MIDI"): Piece {
   const division = dv.getUint16(12);
   if (division & 0x8000) throw new Error("MIDI con tiempo SMPTE: no se puede leer");
   let pos = 8 + dv.getUint32(4);
-  let bpm = 0, meter = 0, name = "";
+  let meter = 0, name = "";
+  const tempoAt: [number, number][] = []; // [tick, bpm] de todas las pistas
   const tracks: { b: number; d: number; p: number; v: number }[][] = [];
   for (let t = 0; t < ntrks && pos + 8 <= bytes.length; t++) {
     if (str(pos) !== "MTrk") break;
@@ -80,7 +115,7 @@ export function fromMidi(bytes: Uint8Array, title = "MIDI"): Piece {
       else st = status; // running status
       if (st === 0xff) {
         const type = bytes[i++], len = vlq();
-        if (type === 0x51 && !bpm) bpm = 60e6 / ((bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]);
+        if (type === 0x51) tempoAt.push([tick, 60e6 / ((bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2])]);
         if (type === 0x58 && !meter) meter = Math.round((bytes[i] * 4) / 2 ** bytes[i + 1]);
         if (type === 0x03 && !name && t === 0) name = new TextDecoder().decode(bytes.slice(i, i + len)).trim();
         i += len;
@@ -109,7 +144,19 @@ export function fromMidi(bytes: Uint8Array, title = "MIDI"): Piece {
     ranked.length >= 2
       ? ranked.flatMap((ns, i) => ns.map((n) => ({ ...n, hand: i === 0 ? ("rh" as Hand) : avg(ns) >= 60 && i < ranked.length - 1 ? ("rh" as Hand) : ("lh" as Hand) })))
       : (ranked[0] ?? []).map((n) => ({ ...n, hand: handOf(n.p) }));
-  return { ...newPiece(name || title), bpm: Math.round(bpm || 120), meter: meter >= 2 && meter <= 12 ? meter : 4, notes: notes.sort((x, y) => x.b - y.b) };
+  // el mapa de tempos, sin repetidos (cada pista suele repetir los de la primera)
+  const tempos: Tempo[] = [];
+  for (const [tick, bpm] of tempoAt.sort((a, b) => a[0] - b[0])) {
+    const b = tick / division, last = tempos[tempos.length - 1];
+    if (last && Math.abs(last[0] - b) < 1e-6) last[1] = bpm;
+    else if (!last || Math.abs(last[1] - bpm) > 0.01) tempos.push([b, bpm]);
+  }
+  if (tempos.length && tempos[0][0] > 0) tempos.unshift([0, tempos[0][1]]);
+  const bpm = Math.round((tempos[0]?.[1] ?? 120) * 100) / 100;
+  return {
+    ...newPiece(name || title), bpm, meter: meter >= 2 && meter <= 12 ? meter : 4, notes: notes.sort((x, y) => x.b - y.b),
+    ...(tempos.length > 1 ? { tempos } : {}),
+  };
 }
 
 // ---------------------------------------------------------------- MusicXML

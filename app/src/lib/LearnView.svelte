@@ -12,7 +12,7 @@
   import { loadPiano } from "./piano";
   import { EX_LEVELS, EXERCISES, exercisePiece, type Exercise, type Hands } from "./exercises";
   import PieceEditor from "./PieceEditor.svelte";
-  import { newPiece, pieceArrangement, pieceBeats, pieceLength, pieceSeconds, type Piece } from "./piece";
+  import { newPiece, pieceArrangement, pieceBeats, pieceDuration, pieceSeconds, type Piece } from "./piece";
   import { deletePiece, importPieces, loadPieces, pieces, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
   import Score from "./Score.svelte";
@@ -93,7 +93,7 @@
     exercise = null;
     const ns = [{ stem: "piano", notes: pieceSeconds(pc, "rh") }, { stem: "bass", notes: pieceSeconds(pc, "lh") }].filter((t) => t.notes.length);
     const bs = pieceBeats(pc);
-    const len = (pieceLength(pc) * 60) / pc.bpm;
+    const len = pieceDuration(pc);
     const h = analyze(ns, bs, len);
     [notes, beats, harmony, piece] = [ns, bs, { ...h, key: pc.key ?? h.key }, pc];
     baseDuration = len + 2;

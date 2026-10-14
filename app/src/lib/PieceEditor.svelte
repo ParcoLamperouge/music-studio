@@ -8,7 +8,7 @@
   import InputBar from "./InputBar.svelte";
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { toMidi } from "./live";
-  import { handOf, pieceArrangement, pieceBeats, pieceEvents, pieceLength, pieceSeconds, type Piece, type PNote } from "./piece";
+  import { beatToSec, handOf, pieceArrangement, pieceBeats, pieceDuration, pieceEvents, pieceLength, pieceSeconds, secToBeat, type Piece, type PNote } from "./piece";
   import { pieceDir, pieceToSession, savePiece } from "./pieces.svelte";
   import { loadPiano } from "./piano";
   import { Player, synth, voice } from "./player";
@@ -76,7 +76,7 @@
     const t = setTimeout(async () => {
       await savePiece(pc);
       const tracks = [{ stem: "piano", notes: pieceSeconds(pc, "rh") }, { stem: "bass", notes: pieceSeconds(pc, "lh") }].filter((x) => x.notes.length);
-      keyLabel = tracks.length && notes.length >= 6 ? keyName(analyze(tracks, pieceBeats(pc), pieceLength(pc) * spb + 1).key, latin) : "";
+      keyLabel = tracks.length && notes.length >= 6 ? keyName(analyze(tracks, pieceBeats(pc), pieceDuration(pc) + 1).key, latin) : "";
     }, 700);
     return () => clearTimeout(t);
   });
@@ -92,11 +92,11 @@
   async function prepare(extra = 4) {
     const sig = `${snap()}|${meta.bpm}|${metronome}|${extra}`;
     if (sig === renderedFor) return;
-    const len = Math.max(pieceLength(current()), playhead) * spb + extra;
+    const len = beatToSec(current(), Math.max(pieceLength(current()), playhead)) + extra;
     player.buffers.clear();
     player.duration = 0;
     player.setBuffer("pieza", await synth(pieceSeconds(current()), len));
-    const beats = Array.from({ length: Math.ceil(len / spb) + 1 }, (_, i) => i * spb);
+    const beats = Array.from({ length: Math.ceil(secToBeat(current(), len)) + 1 }, (_, i) => beatToSec(current(), i));
     player.setClicks(beats, (i) => i % meta.meter === 0);
     player.setGain("__click", metronome ? 0.5 : 0);
     renderedFor = sig;
@@ -105,7 +105,7 @@
   async function play() {
     if (playing || recording) return stop();
     await prepare();
-    player.seek(playhead * spb);
+    player.seek(beatToSec(current(), playhead));
     player.play();
     playing = true;
   }
@@ -123,7 +123,7 @@
   let pedal = false;
   let stepAt = 0, stepMax = 0;
   const voices = new Map<number, () => void>();
-  const nowBeat = () => (recording && player.playing ? player.time() / spb : playhead);
+  const nowBeat = () => (recording && player.playing ? secToBeat(current(), player.time()) : playhead);
   const q = (x: number) => Math.round(x / grid) * grid;
   const handFor = (p: number) => (handMode === "auto" ? handOf(p) : handMode);
 
@@ -209,7 +209,7 @@
     setTimeout(() => {
       if (!recording) return;
       message = "Grabando";
-      player.seek(playhead * spb);
+      player.seek(beatToSec(current(), playhead));
       player.play();
     }, (meta.meter * spb + 0.1) * 1000);
   }
@@ -229,7 +229,7 @@
     let raf = 0;
     const tick = () => {
       if (player.playing) {
-        playhead = player.time() / spb;
+        playhead = secToBeat(current(), player.time());
         if (!recording && player.time() >= player.duration - 0.01) stop();
         follow();
       }
@@ -399,7 +399,7 @@
     canvas.setPointerCapture(e.pointerId);
     if (y < RULER_H) {
       playhead = Math.max(0, e.shiftKey ? toB(x) : q(toB(x)));
-      if (player.playing && !recording) player.seek(playhead * spb);
+      if (player.playing && !recording) player.seek(beatToSec(current(), playhead));
       drag = { mode: "ruler", x0: x, y0: y, x, y };
       return;
     }
@@ -727,7 +727,7 @@
   {#if showScore && scorePath}
     <div class="score">
       {#key scorePath}
-        <Score song={scoreSong} stems={[]} path={scorePath.split("?")[0]} {player} controls={noControls} bind:follow={settings.scoreFollow} title={meta.title} beatAt={(t) => t / spb} pdfName={safeName} />
+        <Score song={scoreSong} stems={[]} path={scorePath.split("?")[0]} {player} controls={noControls} bind:follow={settings.scoreFollow} title={meta.title} beatAt={(t) => secToBeat(current(), t)} pdfName={safeName} />
       {/key}
     </div>
   {/if}

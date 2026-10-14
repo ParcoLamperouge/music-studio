@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { toMusicXML } from "./arrange.ts";
 import { toMidi } from "./live.ts";
-import { fromMidi, fromMusicXML, fromSession, playOrder, type Bar, importPiece, newPiece, parseXml, pieceArrangement, pieceEvents, unzipMxl, type Piece } from "./piece.ts";
+import { beatToSec, fromMidi, fromMusicXML, fromSession, secToBeat, playOrder, type Bar, importPiece, newPiece, parseXml, pieceArrangement, pieceEvents, unzipMxl, type Piece } from "./piece.ts";
 
 const pc: Piece = { ...newPiece("Prueba"), bpm: 100, notes: [
   { b: 0, d: 1, p: 72, v: 0.8, hand: "rh" }, { b: 1, d: 0.5, p: 74, v: 0.8, hand: "rh" }, { b: 1.5, d: 0.5, p: 74, v: 0.8, hand: "rh" },
@@ -99,4 +99,8 @@ ${bar(3, '<barline location="left"><ending number="2" type="start"/></barline><b
 </part></score-partwise>`;
 const r = fromMusicXML(rep);
 assert.deepEqual(r.notes.map((n) => [n.b, n.p]), [[0, 67], [1, 72], [5, 74], [9, 72], [13, 76]], "anacrusa, A, 1.ª, A, 2.ª");
+// cambios de tempo: 2 negras a 60 (2 s) y luego a 120 (medio segundo cada una)
+const tm: Piece = { ...newPiece("t"), bpm: 60, tempos: [[0, 60], [2, 120]] };
+assert.deepEqual([beatToSec(tm, 1), beatToSec(tm, 2), beatToSec(tm, 4)], [1, 2, 3]);
+assert.deepEqual([secToBeat(tm, 1), secToBeat(tm, 2), secToBeat(tm, 3)], [1, 2, 4]);
 console.log("piezas ok");
