@@ -5,7 +5,7 @@ import type { ANote, Arrangement, Hand } from "./arrange.ts";
 import type { Key, Note } from "./harmony.ts";
 
 export type PNote = ANote & { hand: Hand };
-export type Piece = { id: string; title: string; bpm: number; meter: number; key?: Key; notes: PNote[]; modified?: number };
+export type Piece = { id: string; title: string; bpm: number; meter: number; key?: Key; notes: PNote[]; modified?: number; exercise?: boolean }; // exercise: de exercises.ts (se toca tal cual)
 
 export const newPiece = (title = "Sin título"): Piece => ({ id: `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title, bpm: 90, meter: 4, notes: [] });
 /** La mano por defecto de una nota: la izquierda por debajo del Do central. */

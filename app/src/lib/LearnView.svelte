@@ -10,6 +10,7 @@
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { Player, synth, voice } from "./player";
   import { loadPiano } from "./piano";
+  import { EX_LEVELS, EXERCISES, exercisePiece, type Exercise, type Hands } from "./exercises";
   import PieceEditor from "./PieceEditor.svelte";
   import { newPiece, pieceArrangement, pieceBeats, pieceLength, pieceSeconds, type Piece } from "./piece";
   import { deletePiece, importPieces, loadPieces, pieces, savePiece } from "./pieces.svelte";
@@ -24,8 +25,8 @@
    * (escrita en el editor o importada de MIDI / MusicXML): el nivel 5 es la pieza tal cual. */
   let { onback, onsessions }: { onback: () => void; onsessions: () => void } = $props();
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas"; speed: number };
-  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1 };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios"; speed: number; exKey: number; exMinor: boolean; exHands: Hands };
+  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh" };
   const saved = (() => {
     try {
       return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("estudio.aprender") ?? "{}") } as Opts;
@@ -89,6 +90,7 @@
   function openPiece(pc: Piece) {
     key = null;
     reset();
+    exercise = null;
     const ns = [{ stem: "piano", notes: pieceSeconds(pc, "rh") }, { stem: "bass", notes: pieceSeconds(pc, "lh") }].filter((t) => t.notes.length);
     const bs = pieceBeats(pc);
     const len = (pieceLength(pc) * 60) / pc.bpm;
@@ -96,6 +98,22 @@
     [notes, beats, harmony, piece] = [ns, bs, { ...h, key: pc.key ?? h.key }, pc];
     baseDuration = len + 2;
   }
+
+  // ---------------------------------------------------------------- ejercicios
+
+  let exercise = $state.raw<Exercise | null>(null);
+  const exKey = $derived({ tonic: o.exKey, minor: o.exMinor });
+  function openExercise(ex: Exercise) {
+    openPiece(exercisePiece(ex, exKey, o.exHands, notation.latin));
+    exercise = ex;
+  }
+  // otra tonalidad o manos con el ejercicio abierto: el mismo ejercicio, en las nuevas
+  $effect(() => {
+    void [o.exKey, o.exMinor, o.exHands];
+    const ex = untrack(() => exercise);
+    if (ex) untrack(() => openExercise(ex));
+  });
+  const exShown = $derived(EXERCISES.filter((e) => `${e.title} ${e.concept}`.toLowerCase().includes(query.trim().toLowerCase())));
 
   async function newOrImport(kind: "new" | "import") {
     try {
@@ -179,7 +197,7 @@
   const semis = $derived(!harmony ? 0 : o.transpose === "orig" ? 0 : o.transpose === "easy" ? easyTranspose(harmony.key) : o.transpose);
   const arr = $derived.by<Arrangement | null>(() => {
     if (!harmony || !loaded) return null;
-    if (piece && o.level === 5) return pieceArrangement(piece, harmony.key, semis); // la pieza tal cual
+    if (piece && (o.level === 5 || piece.exercise)) return pieceArrangement(piece, harmony.key, semis); // la pieza tal cual (un ejercicio, siempre)
     return arrange({
       melody: melody === "none" ? null : (notes.find((t) => t.stem === melody)?.notes ?? null),
       piano: notes.find((t) => t.stem === "piano")?.notes,
@@ -501,10 +519,38 @@
     <div class="tabs">
       <button class:on={o.tab === "canciones"} onclick={() => (o.tab = "canciones")}>Canciones</button>
       <button class:on={o.tab === "piezas"} onclick={() => (o.tab = "piezas")}>Mis piezas</button>
+      <button class:on={o.tab === "ejercicios"} onclick={() => (o.tab = "ejercicios")}>Ejercicios</button>
     </div>
     <input type="search" placeholder="Buscar…" bind:value={query} />
     <div class="list">
-      {#if o.tab === "piezas"}
+      {#if o.tab === "ejercicios"}
+        <div class="exopts">
+          <select value={o.exKey} onchange={(e) => (o.exKey = +e.currentTarget.value)} title="Tonalidad de los ejercicios">
+            {#each Array.from({ length: 12 }, (_, i) => i) as t (t)}<option value={t}>{keyName({ tonic: t, minor: o.exMinor }, notation.latin).split(" ")[0]}</option>{/each}
+          </select>
+          <div class="seg mini">
+            <button class:on={!o.exMinor} onclick={() => (o.exMinor = false)}>mayor</button>
+            <button class:on={o.exMinor} onclick={() => (o.exMinor = true)}>menor</button>
+          </div>
+          <div class="seg mini" title="Con qué mano (los de dos manos, siempre juntas)">
+            <button class:on={o.exHands === "rh"} onclick={() => (o.exHands = "rh")}>Der.</button>
+            <button class:on={o.exHands === "lh"} onclick={() => (o.exHands = "lh")}>Izq.</button>
+            <button class:on={o.exHands === "both"} onclick={() => (o.exHands = "both")}>Juntas</button>
+          </div>
+        </div>
+        {#each EX_LEVELS as [lv, label] (lv)}
+          {@const list = exShown.filter((e) => e.level === lv)}
+          {#if list.length}
+            <span class="kicker lvl">{lv} · {label}</span>
+            {#each list as ex (ex.id)}
+              <button class="item" class:on={exercise?.id === ex.id} onclick={() => openExercise(ex)}>
+                <span>{ex.title}</span>
+                <small>{ex.concept}{ex.oneHand ? "" : " · dos manos"}</small>
+              </button>
+            {/each}
+          {/if}
+        {/each}
+      {:else if o.tab === "piezas"}
         <div class="add">
           <button class="ghost" onclick={() => newOrImport("new")} title="Escribirla en el editor (con el piano o el ratón)">＋ Nueva</button>
           <button class="ghost" onclick={() => newOrImport("import")} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl)">Importar…</button>
@@ -553,7 +599,9 @@
     </div>
     {#if loaded}
       <div class="row opts">
-        {#if piece}
+        {#if exercise && piece}
+          <strong class="ptitle">{piece.title}</strong>
+        {:else if piece}
           <strong class="ptitle">{piece.title}</strong>
           <label>
             Derecha
@@ -574,10 +622,12 @@
           </select>
         </label>
         {/if}
-        <div class="seg" title="Dificultad">
-          {#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}
-        </div>
-        <small class="muted">{LEVELS[o.level - 1][1]}</small>
+        {#if !exercise}
+          <div class="seg" title="Dificultad">
+            {#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}
+          </div>
+          <small class="muted">{LEVELS[o.level - 1][1]}</small>
+        {/if}
         <label title={keyText}>
           Tonalidad
           <select value={String(o.transpose)} onchange={(e) => (o.transpose = /^-?\d+$/.test(e.currentTarget.value) ? +e.currentTarget.value : (e.currentTarget.value as "orig" | "easy"))}>
@@ -597,6 +647,7 @@
           <button class:on={o.view === "score"} onclick={() => (o.view = "score")}>Partitura</button>
         </div>
       </div>
+      {#if exercise}<p class="about">{exercise.about}</p>{/if}
       <div class="row opts">
         {#if !piece}
           <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
@@ -695,6 +746,11 @@
   .piece .open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; border: 0; background: none; color: var(--text); text-align: left; min-width: 0; }
   .piece .open small { color: var(--text-3); font-size: 11.5px; }
   .ptitle { font-family: var(--serif); font-weight: 400; font-size: 20px; color: var(--text); }
+  .exopts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 8px; align-items: center; }
+  .exopts select { font-size: 12px; padding: 4px 6px; }
+  .seg.mini button { padding: 3px 7px; font-size: 11.5px; }
+  .lvl { padding: 10px 8px 4px; }
+  .about { margin: 0; max-width: 900px; font-size: 13px; color: var(--text-2); line-height: 1.5; flex-shrink: 0; }
 
   main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 24px 16px; }
   .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
