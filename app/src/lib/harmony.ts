@@ -46,6 +46,20 @@ function profile(tracks: { stem: string; notes: Note[] }[], a: number, b: number
   return { pc, bass };
 }
 
+/** Cuánto explica un acorde un perfil normalizado `w` (suma 1): lo que suena dentro suma, lo de fuera resta, cada nota de
+ * más (séptimas…) tiene que ganarse su sitio, y el bajo en la fundamental ayuda. */
+function chordScore(w: number[], root: number, kind: string, bass: number, scale?: Set<number>) {
+  const iv = tonesOf(kind);
+  const tones = new Set(iv.map((i) => (root + i) % 12));
+  let inside = 0;
+  for (let p = 0; p < 12; p++) if (tones.has(p)) inside += w[p];
+  const fit = scale ? [...tones].filter((t) => scale.has(t)).length / tones.size : 1;
+  return (
+    inside - 0.7 * (1 - inside) - 0.15 * (iv.length - 3) - (EXOTIC.has(kind) ? 0.06 : 0) + 0.08 * fit +
+    (bass === root ? 0.12 : tones.has(bass) ? 0.03 : 0) + (w[root] > 0.08 ? 0 : -0.3)
+  );
+}
+
 /** El acorde que mejor explica un perfil, o null si casi no suena nada. `scale`: notas de la tonalidad (lo que
  * encaja en ella gana en los empates que deja una transcripción con ruido). */
 export function bestChord(pc: number[], bass: number, scale?: Set<number>): Omit<Chord, "t" | "end"> | null {
@@ -54,20 +68,44 @@ export function bestChord(pc: number[], bass: number, scale?: Set<number>): Omit
   const w = pc.map((x) => x / total);
   let best: { score: number; root: number; kind: string } | null = null;
   for (let root = 0; root < 12; root++) {
-    for (const [kind, iv] of KINDS) {
-      const tones = new Set(iv.map((i) => (root + i) % 12));
-      let inside = 0;
-      for (let p = 0; p < 12; p++) if (tones.has(p)) inside += w[p];
-      // lo que suena fuera del acorde resta; cada nota de más (séptimas…) tiene que ganarse su sitio
-      const fit = scale ? [...tones].filter((t) => scale.has(t)).length / tones.size : 1;
-      const score =
-        inside - 0.7 * (1 - inside) - 0.15 * (iv.length - 3) - (EXOTIC.has(kind) ? 0.06 : 0) + 0.08 * fit +
-        (bass === root ? 0.12 : tones.has(bass) ? 0.03 : 0) + (w[root] > 0.08 ? 0 : -0.3);
+    for (const [kind] of KINDS) {
+      const score = chordScore(w, root, kind, bass, scale);
       if (!best || score > best.score + 1e-9) best = { score, root, kind };
     }
   }
   return best && { root: best.root, kind: best.kind, bass: bass >= 0 ? bass : best.root };
 }
+
+/** Los acordes del modelo (lv-chordia, del audio) revisados con las notas transcritas de los instrumentos: solo el tipo
+ * sobre la misma fundamental (tercera mayor o menor, séptima sí o no), que depende de una nota concreta que se ve en
+ * las notas (Rem→Re7 cuando suena Fa#: el V7 de Sol menor). Cambiar de fundamental o a sus/aum/dism lo inventa a menudo
+ * la transcripción (pads, notas de paso), así que manda el modelo; y también con pocas notas o poca diferencia. */
+export function refineChords(chords: Chord[], tracks: { stem: string; notes: Note[] }[], key: Key, margin = REFINE.margin, minEnergy = REFINE.energy) {
+  const scale = new Set((key.minor ? MINOR_SCALE : MAJOR_SCALE).map((i) => (key.tonic + i) % 12));
+  // la voz es melodía: sus notas de paso no son del acorde
+  const harmonic = tracks.filter((t) => t.stem !== "vocals");
+  return chords.map((c): Chord & { model?: string } => {
+    const { pc, bass } = profile(harmonic, c.t, c.end);
+    const total = pc.reduce((x, y) => x + y, 0);
+    if (total / (c.end - c.t) < minEnergy) return c;
+    const w = pc.map((x) => x / total);
+    const now = chordScore(w, c.root, c.kind, bass, scale);
+    let best = { kind: c.kind, score: now };
+    for (const kind of PLAIN) {
+      const score = chordScore(w, c.root, kind, bass, scale);
+      if (score > best.score + 1e-9) best = { kind, score };
+    }
+    return best.kind !== c.kind && best.score - now > margin ? { ...c, kind: best.kind, model: c.kind } : c;
+  });
+}
+export const REFINE = { margin: 0.25, energy: 1 };
+
+/** Acordes del modelo con su tonalidad; con notas transcritas, el bajo ayuda a la tonalidad y se revisan los acordes. */
+export function fromModel(chords: Chord[], tracks: { stem: string; notes: Note[] }[] = []): Harmony {
+  const key = keyFromChords(chords, tracks.filter((t) => t.stem === "bass").flatMap((t) => t.notes));
+  return { chords: tracks.length ? refineChords(chords, tracks, key) : chords, key };
+}
+const PLAIN = ["", "m", "7", "m7", "maj7", "mmaj7"];
 
 const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];
 const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];

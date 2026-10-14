@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { analyze, bestChord, chordName, degree, findKey, keyFromChords, keyName, leadSheet, named, scaleNotes, type Note } from "./harmony.ts";
+import { analyze, bestChord, chordName, degree, findKey, keyFromChords, keyName, leadSheet, named, refineChords, scaleNotes, type Note } from "./harmony.ts";
 
 const pc = (...ps: number[]) => {
   const w = new Array(12).fill(0);
@@ -88,3 +88,13 @@ assert.equal(degree(cd(6, "dim"), C), "#iv°");
 assert.equal(degree(cd(6, "m"), { tonic: 9, minor: true }), "#vi", "sexta dórica en La menor");
 assert.deepEqual(scaleNotes(Dm, true), ["Re", "Mi", "Fa", "Sol", "La", "Sib", "Do"]);
 console.log("tonalidad ok");
+
+// acordes del modelo revisados con las notas: solo el tipo sobre la misma fundamental, y solo si las notas lo dicen claro
+const rem = [{ t: 0, end: 2, root: 2, kind: "m", bass: 2 }];
+const notesD7 = (third: number): Note[] => [[0, 2, 50, 0.8], [0, 2, 54 + third, 0.8], [0, 2, 57, 0.8], [0, 2, 60, 0.8]];
+assert.equal(refineChords(rem, [{ stem: "piano", notes: notesD7(0) }], { tonic: 7, minor: true })[0].kind, "7", "Re-Fa#-La-Do: V7 de Sol menor, no Rem");
+assert.equal(refineChords(rem, [{ stem: "piano", notes: notesD7(-1) }], { tonic: 7, minor: true })[0].kind, "m7", "con Fa natural sigue menor");
+assert.equal(refineChords(rem, [{ stem: "vocals", notes: notesD7(0) }], { tonic: 7, minor: true })[0].kind, "m", "la voz no cuenta");
+assert.equal(refineChords(rem, [{ stem: "piano", notes: [[0, 0.1, 54, 0.5]] }], { tonic: 7, minor: true })[0].kind, "m", "con casi nada manda el modelo");
+assert.equal(refineChords(rem, [{ stem: "piano", notes: [[0, 2, 47, 0.8], [0, 2, 50, 0.8], [0, 2, 53, 0.8]] }], { tonic: 7, minor: true })[0].root, 2, "nunca cambia la fundamental");
+console.log("revisión ok");

@@ -6,7 +6,7 @@
   } from "./engine";
   import ChordsTab, { loadNotation } from "./ChordsTab.svelte";
   import EditsTab from "./EditsTab.svelte";
-  import { analyze, degree, keyFromChords, keyName, named, type Harmony, type Note } from "./harmony";
+  import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
   import Leds from "./Leds.svelte";
   import LyricsTab from "./LyricsTab.svelte";
   import MiniMixer from "./MiniMixer.svelte";
@@ -237,7 +237,7 @@
   // acordes del modelo (lv-chordia, del audio): mandan; los de las notas quedan de respaldo
   const modelHarmony = $derived.by<Harmony | null>(() => {
     const cs = detail?.chordData?.chords;
-    return cs?.length ? { chords: cs, key: keyFromChords(cs) } : null;
+    return cs?.length ? fromModel(cs, noteTracks) : null; // revisados con las notas en cuanto se cargan
   });
   const chordsJob = $derived(jobOf(key, "chords"));
   $effect(() => {
@@ -246,7 +246,7 @@
   const notesSig = $derived(noted.map((s) => `${s.name}@${s.version ?? 0}`).join(","));
   $effect(() => {
     const sig = notesSig;
-    if (!noted.length || (modelHarmony && src === "mix") || (tab !== "chords" && tab !== "roll") || sig === tracksSig) return;
+    if (!noted.length || (tab !== "chords" && tab !== "roll") || sig === tracksSig) return;
     tracksSig = sig;
     untrack(async () => {
       const dir = stemlab!.dir;

@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { loadNotation } from "./ChordsTab.svelte";
   import { readJson, songDetail, STEM_INFO, viewPath, type Detail } from "./engine";
-  import { degree, keyFromChords, keyName, named } from "./harmony";
+  import { degree, fromModel, keyName, named, type Note } from "./harmony";
   import MiniMixer from "./MiniMixer.svelte";
   import { Player } from "./player";
   import Roll from "./Roll.svelte";
@@ -55,9 +55,12 @@
         duration = player.duration;
         const cs = d.chordData?.chords;
         if (cs?.length) {
-          const k = keyFromChords(cs);
-          chords = named(cs, k, loadNotation()).map((c) => ({ ...c, deg: degree(c, k) }));
-          keyLabel = keyName(k, loadNotation().latin);
+          // revisados con las notas de cada pista (el V7 que el modelo dio como v menor…)
+          const dir = d.stemlab.dir;
+          const tracks = await Promise.all(d.stemlab.stems.filter((s) => s.roll).map(async (s) => ({ stem: s.name, notes: await readJson<Note[]>(`${dir}/${s.roll}`, []) })));
+          const h = fromModel(cs, tracks);
+          chords = named(h.chords, h.key, loadNotation()).map((c) => ({ ...c, deg: degree(c, h.key) }));
+          keyLabel = keyName(h.key, loadNotation().latin);
         } else [chords, keyLabel] = [[], ""];
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);

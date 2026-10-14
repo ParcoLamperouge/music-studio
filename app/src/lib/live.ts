@@ -172,7 +172,7 @@ export function songForAI(
     duration: r3(song.duration),
     format:
       "instruments: notas transcritas del audio de cada pista separada (pueden sobrar o faltar notas): inicio y fin en s, " +
-      "nota MIDI (60 = Do central), velocidad 0-1; chords: acordes sacados del audio por un modelo, con su grado en la tonalidad; " +
+      "nota MIDI (60 = Do central), velocidad 0-1; chords: acordes sacados del audio por un modelo y revisados con las notas, con su grado en la tonalidad; " +
       "lyrics: cada verso con su inicio en s",
     instruments: Object.fromEntries(tracks.map((t) => [t.name, t.notes.map(noteRow)])),
     chords: chords.map((c) => ({ t: r3(c.t), end: r3(c.end), name: c.name, deg: c.deg ?? "" })),
