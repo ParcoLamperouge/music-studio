@@ -10,7 +10,7 @@
   import Roll from "./Roll.svelte";
   import Score from "./Score.svelte";
   import { settings } from "./settings.svelte";
-  import { jobOf, store } from "./store.svelte";
+  import { jobOf, jobText, store } from "./store.svelte";
   import Transport from "./Transport.svelte";
 
   /** Modo Aprender: una canción separada como arreglo para piano (arrange.ts), del nivel 1 al 5, para tocarla encima de
@@ -76,7 +76,6 @@
       await player.load(d.stemlab.stems.map((s) => ({ name: s.name, path: `${dir}/${s.file}` })));
       if (key !== k) return;
       [notes, beats, harmony, detail] = [ns, bs, cs?.length ? fromModel(cs, ns) : analyze(ns, bs, d.duration), d];
-      if (!ns.some((t) => t.stem === o.melody) && o.melody !== "none") o.melody = ns.find((t) => t.stem === "vocals")?.stem ?? "none";
       duration = player.duration;
       time = 0;
     } catch (e) {
@@ -88,11 +87,35 @@
 
   // ---------------------------------------------------------------- arreglo
 
+  // la melodía que se usa: la elegida si ya tiene notas; si no (la voz sin transcribir), acordes mientras se sacan
+  const melody = $derived(o.melody !== "none" && notes.some((t) => t.stem === o.melody) ? o.melody : "none");
+  /** Pistas que pueden llevar la melodía: las que tienen notas y las que aún no (se sacan al elegirlas). */
+  const melodyStems = $derived(
+    (detail?.stemlab?.stems ?? []).filter((s) => s.name !== "drums" && s.present).map((s) => ({ name: s.name, ready: notes.some((t) => t.stem === s.name) })),
+  );
+  const notesJob = $derived(key && o.melody !== "none" && melody === "none" ? jobOf(key, "notes", o.melody) : undefined);
+  function pickMelody(stem: string) {
+    o.melody = stem;
+    // sin notas todavía: a la cola (como en Analizar); al acabar la canción se recarga sola
+    if (key && stem !== "none" && !notes.some((t) => t.stem === stem) && !jobOf(key, "notes", stem))
+      void enqueue("notes", [key], [stem, ...(settings.notes === "precise" ? ["precise"] : [])]);
+  }
+  // cuando la cola cambia algo de esta canción (notas nuevas, acordes del audio), se vuelve a cargar
+  let rev = 0;
+  $effect(() => {
+    const r = key ? (store.rev[key] ?? 0) : 0;
+    if (r !== rev && key && untrack(() => !loading)) {
+      const at = untrack(() => time);
+      void open(key).then(() => seek(at));
+    }
+    rev = r;
+  });
+
   const semis = $derived(!harmony ? 0 : o.transpose === "orig" ? 0 : o.transpose === "easy" ? easyTranspose(harmony.key) : o.transpose);
   const arr = $derived.by<Arrangement | null>(() => {
     if (!harmony || !detail) return null;
     return arrange({
-      melody: o.melody === "none" ? null : (notes.find((t) => t.stem === o.melody)?.notes ?? null),
+      melody: melody === "none" ? null : (notes.find((t) => t.stem === melody)?.notes ?? null),
       piano: notes.find((t) => t.stem === "piano")?.notes,
       chords: harmony.chords,
       beats,
@@ -133,13 +156,13 @@
   function applyGains() {
     if (!detail?.stemlab) return;
     for (const s of detail.stemlab.stems) {
-      const off = (semis !== 0 && s.name !== "drums") || (s.name === o.melody && plays("rh"));
+      const off = (semis !== 0 && s.name !== "drums") || (s.name === melody && plays("rh"));
       player.setGain(s.name, off ? 0 : o.song);
     }
     for (const h of ["rh", "lh"] as const) player.setGain(`guia-${h}`, plays(h) ? (o.hearMine ? o.guide * 0.6 : 0) : o.guide);
   }
   $effect(() => {
-    JSON.stringify([o.song, o.guide, o.hearMine, o.hands, o.melody, semis]);
+    JSON.stringify([o.song, o.guide, o.hearMine, o.hands, melody, semis]);
     untrack(applyGains);
   });
   $effect(() => player.setMaster(settings.masterVolume));
@@ -241,7 +264,7 @@
 
   const learnDir = `${paths.data}/aprender`;
   const safe = $derived((key ?? "").replace(/[/:]/g, "_"));
-  const scoreName = $derived(`${safe}__nivel${o.level}_${o.melody}${semis ? `_${semis > 0 ? "+" : ""}${semis}` : ""}`);
+  const scoreName = $derived(`${safe}__nivel${o.level}_${melody}${semis ? `_${semis > 0 ? "+" : ""}${semis}` : ""}`);
   let scorePath = $state("");
   $effect(() => {
     if (o.view !== "score" || !arr || !detail) return;
@@ -301,8 +324,10 @@
       <div class="row opts">
         <label>
           Melodía
-          <select bind:value={o.melody}>
-            {#each notes as t (t.stem)}<option value={t.stem}>{STEM_INFO[t.stem]?.label ?? t.stem}</option>{/each}
+          <select value={o.melody} onchange={(e) => pickMelody(e.currentTarget.value)}>
+            {#each melodyStems as st (st.name)}
+              <option value={st.name}>{STEM_INFO[st.name]?.label ?? st.name}{st.ready ? "" : " (sacar sus notas)"}</option>
+            {/each}
             <option value="none">Ninguna: solo acompañamiento</option>
           </select>
         </label>
@@ -336,6 +361,13 @@
         <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
         <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
         {#if semis}<small class="muted">Transportada {fmtSemis(semis)}: de la canción solo suena la batería.</small>{/if}
+        {#if o.melody !== "none" && melody === "none"}
+          <small class="note-warn">
+            {STEM_INFO[o.melody]?.label ?? o.melody} sin notas todavía:
+            {#if notesJob}sacándolas ({jobText(notesJob)}); la derecha lleva acordes mientras{:else}la derecha lleva acordes{/if}
+          </small>
+          {#if !notesJob}<button class="ghost small" onclick={() => pickMelody(o.melody)}>Sacar sus notas</button>{/if}
+        {/if}
         {#if !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
       </div>
     {/if}
@@ -348,7 +380,7 @@
         <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
           lit={() => pressed}
           tracks={[
-            { stem: "rh", name: o.melody === "none" ? "Derecha: acordes" : "Derecha: melodía", color: "#f29d38", path: "rh", hidden: false, notes: rhSec },
+            { stem: "rh", name: melody === "none" ? "Derecha: acordes" : "Derecha: melodía", color: "#f29d38", path: "rh", hidden: false, notes: rhSec },
             { stem: "lh", name: "Izquierda", color: "#74c6f0", path: "lh", hidden: false, notes: lhSec },
           ]} />
       {:else if scorePath}
@@ -386,6 +418,8 @@
   .opts input[type="range"] { width: 90px; }
   .grow { flex: 1; }
   .score { font-size: 12px; color: var(--text-2); }
+  .note-warn { color: var(--accent); }
+  .small { padding: 3px 10px; font-size: 12px; }
   .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
   .seg button { padding: 4px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12px; }
   .seg button.on { background: var(--panel-hi); color: var(--text); }
