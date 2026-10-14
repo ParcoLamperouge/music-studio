@@ -135,4 +135,11 @@ assert.equal(accLeft(4).filter((n) => n.b < 4).length, 4, "4: bajo en cada pulso
 assert.deepEqual(accLeft(5).map((n) => n.p), [36, 43, 31], "5: la línea real del bajo");
 // la línea del bajo se queda con la grave si dos notas se pisan
 assert.deepEqual(arrange({ ...base, melody: null, level: 5, bass: [[1, 2, 40, 0.8], [1.2, 1.8, 47, 0.5]] }).lh.map((n) => n.p), [40]);
+// la espera no vuelve atrás a por lo que quedó sin tocar (se tocó sin espera): solo para en lo de ahora
+{
+  const pr = new Practice([{ t: 0, p: 60, hand: "rh" }, { t: 5, p: 62, hand: "rh" }]);
+  assert.equal(pr.blocking(3), null);
+  assert.equal(pr.blocking(5.01), 5);
+  assert.ok(pr.targets[0].skipped);
+}
 console.log("acompañamiento ok");

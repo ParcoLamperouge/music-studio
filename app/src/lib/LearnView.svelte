@@ -73,7 +73,6 @@
   let stemSrcs: { name: string; path: string }[] = [];
   let audioSpeed = $state(1);
   let stretching = $state(false);
-  let guideBufs: { rh?: AudioBuffer; lh?: AudioBuffer } = {};
   /** A tempo reducido todo se estira: pulsos, notas, acordes y la duración. */
   const duration = $derived(baseDuration / o.speed);
 
@@ -293,15 +292,10 @@
     try {
       const paths = sp === 1 ? stemSrcs.map((x) => x.path) : await invoke<string[]>("stretch_stems", { key: k, files: stemSrcs.map((x) => x.path), speed: sp });
       if (v !== stemsVersion || key !== k) return;
-      const [at, was] = [player.time(), player.playing];
-      await player.load(stemSrcs.map((x, i) => ({ name: x.name, path: paths[i] })));
+      await player.swap(stemSrcs.map((x, i) => ({ name: x.name, path: paths[i] })));
       if (v !== stemsVersion || key !== k) return;
-      if (guideBufs.rh) player.setBuffer("guia-rh", guideBufs.rh);
-      if (guideBufs.lh) player.setBuffer("guia-lh", guideBufs.lh);
       audioSpeed = sp;
       applyGains();
-      player.seek(at);
-      if (was) player.play();
     } catch (e) {
       error = `No se pudieron preparar las pistas más lentas: ${e}`;
     } finally {
@@ -323,13 +317,31 @@
     const [rh, lh] = [rhSec, lhSec];
     const v = ++guideVersion;
     const len = untrack(() => duration);
+    // la guía de antes (otro tempo u otro arreglo) se calla ya: mejor un momento sin guía que desincronizada
+    untrack(() => (player.dropBuffer("guia-rh"), player.dropBuffer("guia-lh")));
     if (!len) return;
-    void Promise.all([synth(rh, len), synth(lh, len)]).then(([a, b]) => {
-      if (v !== guideVersion) return;
-      guideBufs = { rh: a, lh: b };
-      player.setBuffer("guia-rh", a);
-      player.setBuffer("guia-lh", b);
-      applyGains();
+    void Promise.all([synth(rh, len), synth(lh, len)])
+      .then(([a, b]) => {
+        if (v !== guideVersion) return;
+        player.setBuffer("guia-rh", a);
+        player.setBuffer("guia-lh", b);
+        applyGains();
+      })
+      .catch((e) => (error = `No se pudo preparar el sonido de la guía: ${e}`));
+  });
+
+  // el reloj del reproductor corre lo que dura el arreglo aunque la guía aún no esté sintetizada
+  $effect(() => {
+    player.minDuration = duration;
+  });
+
+  // sin espera, nada se queda esperando: si estaba parado en una nota, sigue
+  $effect(() => {
+    if (o.wait || untrack(() => waiting) == null) return;
+    untrack(() => {
+      waiting = null;
+      player.play();
+      playing = true;
     });
   });
 
@@ -406,6 +418,8 @@
     if (loading || !loaded) return;
     if (player.playing) player.pause();
     else {
+      // con espera, se sigue desde aquí: lo de antes sin tocar no hace volver atrás
+      if (o.wait && waiting == null) practice.reset(player.time());
       waiting = null;
       player.play();
     }

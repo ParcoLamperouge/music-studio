@@ -26,6 +26,11 @@ export class Player {
   private offset = 0;
   playing = false;
   duration = 0;
+  /** Lo que dura como mínimo aunque aún no haya pistas (una pieza cuya guía se está sintetizando): el reloj avanza igual. */
+  minDuration = 0;
+  private get end() {
+    return Math.max(this.duration, this.minDuration);
+  }
 
   /** Lanza DecodeError si alguna pista no se puede decodificar (se arregla convirtiéndola). */
   async load(tracks: { name: string; path: string }[]) {
@@ -43,6 +48,39 @@ export class Player {
     }
     this.duration = Math.max(0, ...[...this.buffers.values()].map((b) => b.duration));
     this.offset = 0;
+  }
+
+  /** Cambia las pistas `tracks` por otras (las mismas, más lentas) sin perder el sitio: lo de ahora sigue sonando mientras
+   * se decodifican, y el cambio es en el mismo punto, sonando si sonaba. El resto de pistas (guía, metrónomo) se queda. */
+  async swap(tracks: { name: string; path: string }[]) {
+    const fresh = new Map<string, AudioBuffer>();
+    const all = tracks.map(({ path }) => readBytes(path));
+    for (const [i, { name }] of tracks.entries()) {
+      const buf = await this.ctx.decodeAudioData(await all[i]).catch(() => {
+        throw new DecodeError(name);
+      });
+      fresh.set(name, buf);
+    }
+    const [at, was] = [this.time(), this.playing];
+    this.stopSources();
+    for (const [name, buf] of fresh) {
+      this.buffers.set(name, buf);
+      if (!this.gains.has(name)) this.gains.set(name, this.gainNode());
+    }
+    this.duration = Math.max(0, ...[...this.buffers.values()].map((b) => b.duration));
+    this.offset = Math.min(at, this.end);
+    if (was) this.play();
+  }
+
+  /** Quita una pista en memoria (la guía de otro tempo) sin cortar el resto. */
+  dropBuffer(name: string) {
+    if (!this.buffers.has(name)) return;
+    const [at, was] = [this.time(), this.playing];
+    this.stopSources();
+    this.buffers.delete(name);
+    this.duration = Math.max(0, ...[...this.buffers.values()].map((b) => b.duration));
+    this.offset = Math.min(at, this.end);
+    if (was) this.play();
   }
 
   private gainNode() {
@@ -89,12 +127,12 @@ export class Player {
 
   time() {
     const t = this.playing ? this.ctx.currentTime - this.startedAt : this.offset;
-    return Math.min(t, this.duration);
+    return Math.max(this.playing ? this.offset : 0, Math.min(t, this.end)); // arranca 50 ms después: sin ir hacia atrás
   }
 
   play() {
     if (this.playing) return;
-    if (this.offset >= this.duration) this.offset = 0;
+    if (this.offset >= this.end) this.offset = 0;
     void this.ctx.resume();
     const at = this.ctx.currentTime + 0.05;
     this.sources = [...this.buffers].map(([name, buf]) => {
@@ -122,7 +160,7 @@ export class Player {
   seek(t: number) {
     const was = this.playing;
     this.stopSources();
-    this.offset = Math.max(0, Math.min(t, this.duration));
+    this.offset = Math.max(0, Math.min(t, this.end));
     if (was) this.play();
   }
 
