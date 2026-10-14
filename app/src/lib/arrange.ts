@@ -5,9 +5,17 @@
 
 import { noteName, tonesOf, usesFlats, type Chord, type Key, type Note } from "./harmony.ts";
 
-export type Level = 1 | 2 | 3 | 4 | 5;
-/** 1-4: arreglos de menos a más difícil; 5 no es «más difícil», es el original tal cual (la pieza, o lo transcrito). */
-export const LEVELS: [Level, string][] = [[1, "Principiante"], [2, "Fácil"], [3, "Intermedio"], [4, "Avanzado"], [5, "Original: tal cual, sin arreglar (puede ser más fácil o más difícil que el 4)"]];
+export type Level = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+/** 1-4, 6 y 7: arreglos de menos a más difícil; 5 no es un escalón más, es el original tal cual (la pieza, o lo
+ * transcrito), que puede ser más fácil o más difícil que cualquiera. Se llama 5 por lo ya guardado y las lecciones. */
+export const LEVELS: [Level, string][] = [
+  [1, "Principiante"], [2, "Fácil"], [3, "Intermedio"], [4, "Avanzado"],
+  [5, "Original: tal cual, sin arreglar (puede ser más fácil o más difícil que los arreglos)"],
+  [6, "Experto: melodía armonizada en cada pulso y arpegios en semicorcheas"], [7, "Virtuoso: acordes y octavas en la melodía, arpegios en semicorcheas"],
+];
+/** Los arreglos en orden de dificultad, y cómo se llaman (el 6 y el 7 se ven como 5 y 6). */
+export const ARRANGED: Level[] = [1, 2, 3, 4, 6, 7];
+export const levelLabel = (l: Level) => (l === 5 ? "original" : String(l > 5 ? l - 1 : l));
 /** Nota del arreglo: inicio y duración en pulsos, nota MIDI, velocidad 0-1. */
 export type ANote = { b: number; d: number; p: number; v: number };
 export type Hand = "rh" | "lh";
@@ -59,7 +67,7 @@ export function easyTranspose(k: Key) {
 // ---------------------------------------------------------------- melodía
 
 /** Cuadrícula de cada nivel (en pulsos): la melodía cuadra a negras, corcheas o semicorcheas. */
-const GRID: Record<Level, number> = { 1: 1, 2: 0.5, 3: 0.25, 4: 0.25, 5: 0 };
+const GRID: Record<Level, number> = { 1: 1, 2: 0.5, 3: 0.25, 4: 0.25, 5: 0, 6: 0.25, 7: 0 };
 
 /** Melodía limpia en pulsos: una sola voz (en cada casilla de la cuadrícula, la nota que más suena), sin notas sueltas
  * muy cortas, y las casillas seguidas de la misma nota cantada unidas en una. Con `grid` 0, tal cual (`lowest`: si se
@@ -206,22 +214,82 @@ function accompaniment(segs: Seg[], level: Level, hand: Hand): ANote[] {
   return out;
 }
 
-/** Nivel 4: en los tiempos fuertes, una nota del acorde por debajo de la melodía (a 3-9 semitonos) en la derecha. */
-function harmonize(mel: ANote[], segs: Seg[], meter: number, start: number): ANote[] {
+/** Notas del acorde por debajo de la melodía en la derecha. Nivel 4: una (a 3-9 semitonos) en los tiempos fuertes;
+ * 6: una en cada pulso; 7: dos en cada pulso (acorde de tres dentro de la octava) y la octava de abajo en los fuertes. */
+function harmonize(mel: ANote[], segs: Seg[], meter: number, start: number, level: Level = 4): ANote[] {
   const extra: ANote[] = [];
+  const unit = level === 4 ? meter : 1, voices = level === 7 ? 2 : 1, maxGap = level === 7 ? 11 : 9;
+  const on = (b: number, u: number) => Math.abs((((b - start) % u) + u) % u) < 1e-6;
   for (const n of mel) {
-    if (Math.abs(((n.b - start) % meter + meter) % meter) > 1e-6) continue;
+    if (!on(n.b, unit)) continue;
     const seg = segs.find((s) => s.b <= n.b + 1e-6 && n.b < s.e);
     if (!seg) continue;
     const tones = new Set(tonesOf(seg.c.kind).slice(0, 3).map((i) => (seg.c.root + i) % 12));
-    for (let gap = 3; gap <= 9; gap++) {
-      if (tones.has((n.p - gap + 120) % 12)) {
-        extra.push({ ...n, p: n.p - gap, v: n.v * 0.8 });
-        break;
+    let added = 0;
+    for (let gap = 3; gap <= maxGap && added < voices; gap++) {
+      if (tones.has((n.p - gap + 120) % 12)) (extra.push({ ...n, p: n.p - gap, v: n.v * 0.8 }), added++);
+    }
+    if (level === 7 && on(n.b, meter)) extra.push({ ...n, p: n.p - 12, v: n.v * 0.85 });
+  }
+  return [...mel, ...extra];
+}
+
+/** Niveles 6 y 7: el acorde arpegiado en semicorcheas. Izquierda: abierto desde el bajo (fundamental, quinta, octava,
+ * décima; en el 7 hasta la doceava y con la octava grave en cada cambio). Derecha (sin melodía): la tríada y su octava. */
+function arpeggios(segs: Seg[], level: Level, hand: Hand): ANote[] {
+  const out: ANote[] = [];
+  const step = 0.25;
+  let prev: number[] | null = null;
+  for (const { b, e, c } of segs) {
+    const root = inRange(c.bass ?? c.root, 36); // Do2…Si2
+    let tones: number[];
+    if (hand === "lh") {
+      const third = inRange(pcOf(c, 1), root + 12), fifth = inRange(pcOf(c, 2), root + 1);
+      tones = level === 7 ? [root, fifth, root + 12, third, fifth + 12] : [root, fifth, root + 12, third];
+      if (level === 7 && root - 12 >= 24) out.push({ b, d: Math.min(1, e - b), p: root - 12, v: 0.7 });
+    } else {
+      const vo: number[] = (prev = voicing(c, 60, prev));
+      tones = [...vo, vo[0] + 12, ...(level === 7 ? [vo[1] + 12] : [])];
+    }
+    const path = [...tones, ...tones.slice(1, -1).reverse()]; // sube y baja
+    let i = 0;
+    for (let x = b; x < e - 1e-6; x += step) out.push({ b: x, d: Math.min(step, e - x) * 0.95, p: path[i++ % path.length], v: 0.55 });
+  }
+  return out;
+}
+
+/** Estilo pop: el acompañamiento con el ritmo 3+3+2 (golpes en el 1, el «y» del 2 y el 4; en otros compases, cada
+ * pulso) y el bajo en octavas. Izquierda: la fundamental (1), en octava (2-4), octavas partidas en corcheas (6) o en
+ * semicorcheas con la quinta (7). Derecha sin melodía: acordes en esos golpes (1-3), en corcheas seguidas (4 y más). */
+function pop(segs: Seg[], level: Level, hand: Hand, meter: number, start: number): ANote[] {
+  const out: ANote[] = [];
+  const PATTERN = meter === 4 ? [0, 1.5, 3] : Array.from({ length: meter }, (_, i) => i);
+  let prev: number[] | null = null;
+  for (const { b, e, c } of segs) {
+    const bar = start + Math.floor((b - start) / meter + 1e-6) * meter;
+    const hits = [b, ...PATTERN.map((x) => bar + x).filter((x) => x > b + 1e-6 && x < e - 1e-6)];
+    const root = inRange(c.bass ?? c.root, 36); // Do2…Si2
+    const len = (i: number) => (hits[i + 1] ?? e) - hits[i];
+    if (hand === "lh") {
+      if (level === 1) out.push({ b, d: e - b, p: root + 12 <= 52 ? root + 12 : root, v: 0.65 });
+      else if (level <= 4 || level === 5) hits.forEach((x, i) => out.push({ b: x, d: len(i) * 0.95, p: root, v: 0.7 }, { b: x, d: len(i) * 0.95, p: root + 12, v: 0.6 }));
+      else {
+        const step = level === 7 ? 0.25 : 0.5, fifth = inRange(pcOf(c, 2), root + 1);
+        const path = level === 7 ? [root, root + 12, fifth, root + 12] : [root, root + 12];
+        let i = 0;
+        for (let x = b; x < e - 1e-6; x += step) out.push({ b: x, d: Math.min(step, e - x) * 0.9, p: path[i++ % path.length], v: i % 2 ? 0.7 : 0.6 });
+      }
+    } else {
+      const vo: number[] = (prev = voicing(c, 60, prev));
+      const top = level >= 6 ? [vo[0] + 12] : [];
+      if (level <= 3) hits.forEach((x, i) => vo.forEach((p) => out.push({ b: x, d: len(i) * 0.9, p, v: 0.55 })));
+      else for (let x = b; x < e - 1e-6; x += 0.5) {
+        const accent = hits.some((h) => Math.abs(h - x) < 1e-6);
+        for (const p of [...vo, ...(accent ? top : [])]) out.push({ b: x, d: Math.min(0.5, e - x) * 0.85, p, v: accent ? 0.62 : 0.45 });
       }
     }
   }
-  return [...mel, ...extra];
+  return out;
 }
 
 // ---------------------------------------------------------------- el arreglo
@@ -237,6 +305,7 @@ export function arrange(o: {
   key: Key;
   level: Level;
   transpose?: number;
+  style?: "clasico" | "pop"; // cómo acompaña: arpegios y bajo-acorde clásicos, o el ritmo y las octavas del pop
 }): Arrangement {
   const { beats, level } = o;
   const meter = o.meter && o.meter >= 2 && o.meter <= 7 ? o.meter : 4;
@@ -247,13 +316,21 @@ export function arrange(o: {
   let rh: ANote[];
   let lh: ANote[];
   if (o.melody) {
-    rh = fold(melodyLine(o.melody, beats, GRID[level]), 60, level <= 2 ? 79 : 84);
-    if (level === 4) rh = harmonize(rh, segs, meter, start);
-    lh = level === 5 ? transcribedLeft(o.piano ?? [], o.bass ?? [], segs, beats) : accompaniment(segs, level, "lh");
+    rh = fold(melodyLine(o.melody, beats, GRID[level]), level === 7 ? 64 : 60, level <= 2 ? 79 : level >= 6 ? 88 : 84);
+    if (level === 4 || level >= 6) rh = harmonize(rh, segs, meter, start, level);
+    lh = level === 5 ? transcribedLeft(o.piano ?? [], o.bass ?? [], segs, beats)
+      : o.style === "pop" ? pop(segs, level, "lh", meter, start)
+      : level >= 6 ? arpeggios(segs, level, "lh") : accompaniment(segs, level, "lh");
   } else {
     // solo acompañamiento: la derecha, los acordes; la izquierda, el bajo, cada vez más cerca del de la canción
-    rh = accompaniment(segs, level, "rh");
-    lh = level <= 2 ? accompaniment(segs, 1, "lh") : level === 3 ? accompaniment(segs, 2, "lh") : level === 4 ? bassOnBeats(segs) : (realBass(o.bass ?? [], beats) ?? bassOnBeats(segs));
+    if (o.style === "pop" && level !== 5) {
+      [rh, lh] = [pop(segs, level, "rh", meter, start), pop(segs, level, "lh", meter, start)];
+      const t = o.transpose ?? 0;
+      const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));
+      return { rh: shift(rh), lh: shift(lh), key: { tonic: (o.key.tonic + t + 12) % 12, minor: o.key.minor }, transpose: t, meter, start };
+    }
+    rh = level >= 6 ? arpeggios(segs, level, "rh") : accompaniment(segs, level, "rh");
+    lh = level >= 6 ? arpeggios(segs, 6, "lh").filter((n) => n.p < 52) : level <= 2 ? accompaniment(segs, 1, "lh") : level === 3 ? accompaniment(segs, 2, "lh") : level === 4 ? bassOnBeats(segs) : (realBass(o.bass ?? [], beats) ?? bassOnBeats(segs));
   }
   const t = o.transpose ?? 0;
   const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));

@@ -168,4 +168,25 @@ assert.deepEqual(arrange({ ...base, melody: null, level: 5, bass: [[1, 2, 40, 0.
   assert.ok(pr.press(60, 2.2));
   assert.equal(pr.wrong, 0);
 }
+// cada nivel de arreglo, más notas que el anterior (más difícil); 6 y 7 con arpegios en la izquierda
+{
+  const count = (level: 1 | 2 | 3 | 4 | 6 | 7) => {
+    const a = arrange({ ...base, melody: sung, level });
+    return a.rh.length + a.lh.length;
+  };
+  const ns = ([1, 2, 3, 4, 6, 7] as const).map(count);
+  for (let i = 1; i < ns.length; i++) assert.ok(ns[i] >= ns[i - 1], `nivel ${[1, 2, 3, 4, 6, 7][i]}: ${ns}`);
+  assert.ok(ns[5] > ns[3] * 1.5, `el virtuoso bastante más que el 4: ${ns}`);
+  const acc7 = arrange({ ...base, melody: null, level: 7 });
+  assert.ok(acc7.rh.length > arrange({ ...base, melody: null, level: 4 }).rh.length);
+}
+// estilo pop: el ritmo 3+3+2 en 4/4 (golpes en 0, 1.5 y 3 de cada compás) y el bajo en octavas
+{
+  const p = arrange({ ...base, melody: sung, level: 3, style: "pop" });
+  const byTime = new Map<number, number[]>();
+  for (const n of p.lh) byTime.set(n.b, [...(byTime.get(n.b) ?? []), n.p]);
+  assert.ok([...byTime.values()].some((ps) => ps.length === 2 && Math.abs(ps[0] - ps[1]) === 12), "octavas en el bajo");
+  const acc = arrange({ ...base, melody: null, level: 4, style: "pop" });
+  assert.ok(acc.rh.every((n) => Math.abs(((n.b - acc.start) * 2) % 1) < 1e-6), "acordes en corcheas");
+}
 console.log("acompañamiento ok");

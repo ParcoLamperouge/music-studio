@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, untrack } from "svelte";
-  import { arrange, easyTranspose, fromBeat, LEVELS, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
+  import { ARRANGED, arrange, easyTranspose, fromBeat, levelLabel, LEVELS, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
   import { accuracy, hardZones, tally, wrongAt, type Bars, type Zone } from "./zones";
   import { loadNotation } from "./ChordsTab.svelte";
   import { enqueue, paths, readJson, songDetail, STEM_INFO, writeBytes, writeJson, type Detail, type Song } from "./engine";
@@ -30,8 +30,8 @@
   let { onback, onsessions, oncourse }: { onback: () => void; onsessions: () => void; oncourse: (lesson: string, step: number) => void } = $props();
   const backToLesson = () => lessonPractice && oncourse(lessonPractice.lesson, lessonPractice.step);
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands; more: boolean; list: boolean };
-  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh", more: false, list: true };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands; more: boolean; list: boolean; style: "clasico" | "pop" };
+  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh", more: false, list: true, style: "clasico" };
   const saved = (() => {
     try {
       return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("estudio.aprender") ?? "{}") } as Opts;
@@ -264,6 +264,7 @@
       meter: piece ? piece.meter : detail?.beatData?.meter,
       key: harmony.key,
       level: o.level,
+      style: o.style,
       transpose: semis,
     });
   });
@@ -531,7 +532,7 @@
   let activeZone = $state<Zone | null>(null);
   let suggestUp = $state(false);
   const zonePath = () => `${learnDir}/zonas/${safe}.json`;
-  const zoneKey = $derived(`${o.level}/${melody}/${myHands}`);
+  const zoneKey = $derived(`${o.level}${o.style === "pop" && o.level !== 5 ? "pop" : ""}/${melody}/${myHands}`);
   const bars = () => (zoneBook[zoneKey] ??= {});
   /** El compás (desde 0, el primero completo tras la anacrusa) de un instante. */
   const barAt = (t: number) => (arr ? Math.floor((toBeat(slowBeats, t) - arr.start) / arr.meter) : 0);
@@ -616,12 +617,12 @@
 
   const learnDir = `${paths.data}/aprender`;
   const safe = $derived((key ?? piece?.id ?? "").replace(/[/:]/g, "_"));
-  const scoreName = $derived(`${safe}__nivel${o.level}_${melody}${semis ? `_${semis > 0 ? "+" : ""}${semis}` : ""}`);
+  const scoreName = $derived(`${safe}__nivel${levelLabel(o.level)}${o.style === "pop" && o.level !== 5 ? "pop" : ""}_${melody}${semis ? `_${semis > 0 ? "+" : ""}${semis}` : ""}`);
   let scorePath = $state("");
   $effect(() => {
     if (o.view !== "score" || !arr || !loaded) return;
     const path = `${learnDir}/${scoreName}.musicxml`;
-    const xml = toMusicXML(arr, `${title} · nivel ${o.level}`);
+    const xml = toMusicXML(arr, `${title} · ${o.level === 5 ? "original" : `nivel ${levelLabel(o.level)}`}`);
     void writeBytes(path, new TextEncoder().encode(xml)).then(
       () => (scorePath = path),
       (e) => (error = `No se pudo guardar la partitura: ${e}`),
@@ -648,9 +649,18 @@
     {#if !exercise}
       <div class="grp" title="Dificultad: {LEVELS[o.level - 1][1]}">
         <span class="lbl">Nivel</span>
-        <div class="seg">{#each LEVELS.slice(0, 4) as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}</div>
+        <div class="seg">{#each ARRANGED as n (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={LEVELS[n - 1][1]}>{levelLabel(n)}</button>{/each}</div>
         <button class="ghost small" class:on={o.level === 5} onclick={() => (o.level = 5)} title={LEVELS[4][1]}>Original</button>
       </div>
+      {#if o.level !== 5}
+        <div class="grp" title="Cómo acompaña el arreglo: arpegios y bajo-acorde clásicos, o el ritmo y las octavas del pop">
+          <span class="lbl">Estilo</span>
+          <div class="seg">
+            <button class:on={o.style !== "pop"} onclick={() => (o.style = "clasico")}>Clásico</button>
+            <button class:on={o.style === "pop"} onclick={() => (o.style = "pop")}>Pop</button>
+          </div>
+        </div>
+      {/if}
       <div class="grp" title="Qué manos tocas: la otra la toca la guía">
         <span class="lbl">Manos</span>
         <div class="seg">
@@ -876,7 +886,7 @@
       {:else if scorePath}
         <div class="row">{@render opts()}</div>
         {#key scorePath}
-          <Score song={scoreSong} stems={[]} path={scorePath} {player} {controls} bind:follow={settings.scoreFollow} title="{title} · nivel {o.level}"
+          <Score song={scoreSong} stems={[]} path={scorePath} {player} {controls} bind:follow={settings.scoreFollow} title="{title} · {o.level === 5 ? 'original' : `nivel ${levelLabel(o.level)}`}"
             beatAt={(t) => toBeat(slowBeats, t) - arr.start} pdfName={scoreName} />
         {/key}
       {/if}
