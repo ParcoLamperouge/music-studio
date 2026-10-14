@@ -7,6 +7,7 @@
   import PlayView from "./lib/PlayView.svelte";
   import SessionsView from "./lib/SessionsView.svelte";
   import LearnView from "./lib/LearnView.svelte";
+  import CourseView from "./lib/CourseView.svelte";
   import Queue from "./lib/Queue.svelte";
   import SettingsPanel from "./lib/SettingsPanel.svelte";
   import { loadSettings, saveSettings, settings } from "./lib/settings.svelte";
@@ -18,7 +19,7 @@
   let fatal = $state("");
   let selected = $state<string | null>(params.get("song"));
   // qué se va a hacer: analizar canciones o tocar el teclado; sin elegir, el menú
-  type Mode = "analizar" | "tocar" | "sesiones" | "aprender";
+  type Mode = "analizar" | "tocar" | "sesiones" | "aprender" | "curso";
   let mode = $state<Mode | null>(params.get("song") ? "analizar" : (params.get("mode") as Mode | null));
   let initialTab = $state(params.get("tab") ?? undefined);
   let picked = $state<string[]>([]);
@@ -65,9 +66,9 @@
   const gpuWaiting = $derived(store.jobs.filter((j) => j.status === "ready" && j.steps[j.cur]?.res === "gpu").length);
   const titleOf = (key: string) => store.tracks.find((t) => t.key === key)?.title ?? key;
 
-  function go(m: typeof mode, piece?: string) {
+  function go(m: typeof mode, extra: Record<string, string> = {}) {
     mode = m;
-    history.replaceState(null, "", m ? `?mode=${m}${piece ? `&piece=${encodeURIComponent(piece)}` : ""}` : "?");
+    history.replaceState(null, "", m ? `?${new URLSearchParams({ mode: m, ...extra })}` : "?");
   }
 
   function select(key: string) {
@@ -103,7 +104,7 @@
   function onkey(e: KeyboardEvent) {
     const typing = (e.target as HTMLElement).closest("input, textarea, select, [contenteditable]");
     if (typing || e.ctrlKey || e.metaKey || e.altKey || adding) return;
-    const pick = ({ "1": "analizar", "2": "tocar", "3": "sesiones", "4": "aprender" } as const)[e.key as "1"];
+    const pick = ({ "1": "analizar", "2": "tocar", "3": "sesiones", "4": "aprender", "5": "curso" } as const)[e.key as "1"];
     if (!mode && pick) return go(pick);
     if (mode !== "analizar") return;
     if (e.key === "q" || e.key === "Q") ((queueOpen = !queueOpen), e.preventDefault());
@@ -146,14 +147,21 @@
         <strong>Aprender</strong>
         <span>Una canción o una pieza tuya (escrita en el editor, o un MIDI / MusicXML) para piano, del nivel 1 al 5, con partitura.</span>
       </button>
+      <button onclick={() => go("curso")} class="course-card">
+        <kbd>5</kbd>
+        <strong>Curso de piano</strong>
+        <span>De cero a experto: teoría y práctica juntas, con canciones, ejercicios, oído y 73 obras clásicas.</span>
+      </button>
     </div>
   </div>
 {:else if mode === "tocar"}
   <main class="solo"><PlayView onback={() => go(null)} onsessions={() => go("sesiones")} /></main>
 {:else if mode === "aprender"}
-  <LearnView onback={() => go(null)} onsessions={() => go("sesiones")} />
+  <LearnView onback={() => go(null)} onsessions={() => go("sesiones")} oncourse={(l) => go("curso", { leccion: l })} />
+{:else if mode === "curso"}
+  <CourseView onback={() => go(null)} onpractice={(l, s) => go("aprender", { leccion: l, paso: String(s) })} />
 {:else if mode === "sesiones"}
-  <SessionsView onback={() => go(null)} onsong={(k) => (go("analizar"), select(k))} onlearn={(id) => go("aprender", id)} />
+  <SessionsView onback={() => go(null)} onsong={(k) => (go("analizar"), select(k))} onlearn={(id) => go("aprender", { piece: id })} />
 {:else}
   <div class="app">
     <aside class="side">
@@ -283,6 +291,7 @@
   .menu h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(48px, 6vw, 80px); line-height: 0.95; margin: 14px 0 32px; }
   .menu em { color: var(--accent); }
   .choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .choices .course-card { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
   .choices button {
     display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 22px; border-radius: var(--radius); text-align: left;
     border: 1px solid var(--line); background: var(--panel); color: var(--text-2); transition: border-color 0.15s, background 0.15s, transform 0.15s var(--ease);

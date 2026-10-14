@@ -10,9 +10,13 @@
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { Player, synth, voice } from "./player";
   import { loadPiano } from "./piano";
+  import { keyOf, LESSONS, stars, type Practice as CoursePractice } from "./course";
   import { EX_LEVELS, EXERCISES, exercisePiece, type Exercise, type Hands } from "./exercises";
+  import { OBRA_LEVELS, OBRAS, type Obra } from "./obras";
+  import { record } from "./progress.svelte";
+  import { songPiece, SONGS } from "./songs";
   import PieceEditor from "./PieceEditor.svelte";
-  import { newPiece, pieceArrangement, pieceBeats, pieceDuration, pieceSeconds, type Piece } from "./piece";
+  import { fromMidi, newPiece, pieceArrangement, pieceBeats, pieceDuration, pieceSeconds, type Piece } from "./piece";
   import { deletePiece, importPieces, loadPieces, pieces, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
   import Score from "./Score.svelte";
@@ -23,9 +27,9 @@
   /** Modo Aprender: una canción separada como arreglo para piano (arrange.ts), del nivel 1 al 5, para tocarla encima de
    * sus pistas (sin la parte que tocas), con guía sintetizada, modo espera, bucle y piano roll o partitura. O una pieza
    * (escrita en el editor o importada de MIDI / MusicXML): el nivel 5 es la pieza tal cual. */
-  let { onback, onsessions }: { onback: () => void; onsessions: () => void } = $props();
+  let { onback, onsessions, oncourse }: { onback: () => void; onsessions: () => void; oncourse: (lesson: string) => void } = $props();
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios"; speed: number; exKey: number; exMinor: boolean; exHands: Hands };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands };
   const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh" };
   const saved = (() => {
     try {
@@ -91,6 +95,8 @@
     key = null;
     reset();
     exercise = null;
+    obra = null;
+    lessonPractice = null;
     const ns = [{ stem: "piano", notes: pieceSeconds(pc, "rh") }, { stem: "bass", notes: pieceSeconds(pc, "lh") }].filter((t) => t.notes.length);
     const bs = pieceBeats(pc);
     const len = pieceDuration(pc);
@@ -114,6 +120,54 @@
     if (ex) untrack(() => openExercise(ex));
   });
   const exShown = $derived(EXERCISES.filter((e) => `${e.title} ${e.concept}`.toLowerCase().includes(query.trim().toLowerCase())));
+
+  // ---------------------------------------------------------------- obras (Mutopia, en public/obras)
+
+  let obra = $state.raw<Obra | null>(null);
+  async function openObra(ob: Obra) {
+    try {
+      const r = await fetch(`/obras/m${ob.id}.mid`);
+      if (!r.ok) throw new Error(`m${ob.id}.mid: ${r.status}`);
+      const pc = fromMidi(new Uint8Array(await r.arrayBuffer()), ob.title);
+      openPiece({ ...pc, id: `obra-${ob.id}`, title: `${ob.composer}: ${ob.title}` });
+      obra = ob;
+    } catch (e) {
+      error = `No se pudo abrir la obra: ${e}`;
+    }
+  }
+  const obrasShown = $derived(OBRAS.filter((x) => `${x.title} ${x.composer}`.toLowerCase().includes(query.trim().toLowerCase())));
+
+  // ---------------------------------------------------------------- practicar desde el curso
+
+  /** La práctica del curso en curso: al llegar al final se apunta el resultado (progreso, estrellas). */
+  let lessonPractice = $state.raw<{ lesson: string; step: number; title: string; lessonTitle: string; goal: number } | null>(null);
+  let lessonResult = $state<number | null>(null);
+  async function openCoursePractice(lessonId: string, stepIdx: number) {
+    const l = LESSONS.find((x) => x.id === lessonId), step = l?.steps[stepIdx];
+    if (!l || !step || !("p" in step)) return;
+    const p: CoursePractice = step.p;
+    o.wait = true;
+    if (p.kind === "ejercicio") {
+      const ex = EXERCISES.find((e) => e.id === p.id);
+      if (!ex) return;
+      const k = keyOf(p.key);
+      [o.tab, o.exKey, o.exMinor, o.exHands, o.hands] = ["ejercicios", k.tonic, k.minor, p.hands ?? (ex.oneHand ? "rh" : "both"), "both"];
+      openExercise(ex);
+    } else if (p.kind === "cancion") {
+      const song = SONGS.find((x) => x.id === p.id);
+      if (!song) return;
+      openPiece(songPiece(song));
+      [o.level, o.hands, o.pieceRight] = [p.level ?? 5, p.hands ?? "both", true];
+    } else if (p.kind === "obra") {
+      const ob = OBRAS.find((x) => x.id === p.id);
+      if (!ob) return;
+      o.tab = "obras";
+      await openObra(ob);
+      [o.level, o.hands, o.pieceRight] = [p.level ?? 5, p.hands ?? "both", true];
+    }
+    lessonPractice = { lesson: l.id, step: stepIdx, title: step.title, lessonTitle: l.title, goal: step.goal ?? 0.85 };
+    lessonResult = null;
+  }
 
   async function newOrImport(kind: "new" | "import") {
     try {
@@ -345,6 +399,7 @@
   }
 
   function seek(t: number) {
+    if (t < 0.5) lessonResult = null; // desde el principio: otro intento
     player.seek(t);
     time = t;
     waiting = null;
@@ -367,7 +422,9 @@
   onMount(() => {
     void loadPiano().catch(() => {}); // que la primera nota ya suene a piano
     // desde Sesiones («Practicar en Aprender») llega con ?piece=<id>
-    const want = new URLSearchParams(location.search).get("piece");
+    const params = new URLSearchParams(location.search);
+    const want = params.get("piece");
+    if (params.get("leccion")) void openCoursePractice(params.get("leccion")!, +(params.get("paso") ?? 0));
     void loadPieces().then(() => {
       const pc = want && pieces.list.find((p) => p.id === want);
       if (pc) ((o.tab = "piezas"), openPiece(pc));
@@ -393,6 +450,11 @@
         } else if (time >= duration) {
           player.stop();
           playing = false;
+          // práctica del curso hecha entera: su resultado al progreso
+          if (lessonPractice && lessonResult == null && stats.due > 0) {
+            lessonResult = stats.hits / (stats.due + stats.wrong);
+            void record(lessonPractice.lesson, lessonPractice.step, lessonResult);
+          }
         }
       }
       stats = practice.stats(time);
@@ -520,10 +582,25 @@
       <button class:on={o.tab === "canciones"} onclick={() => (o.tab = "canciones")}>Canciones</button>
       <button class:on={o.tab === "piezas"} onclick={() => (o.tab = "piezas")}>Mis piezas</button>
       <button class:on={o.tab === "ejercicios"} onclick={() => (o.tab = "ejercicios")}>Ejercicios</button>
+      <button class:on={o.tab === "obras"} onclick={() => (o.tab = "obras")}>Obras</button>
     </div>
     <input type="search" placeholder="Buscar…" bind:value={query} />
     <div class="list">
-      {#if o.tab === "ejercicios"}
+      {#if o.tab === "obras"}
+        {#each OBRA_LEVELS as [lv, label] (lv)}
+          {@const list = obrasShown.filter((x) => x.level === lv)}
+          {#if list.length}
+            <span class="kicker lvl">{lv} · {label}</span>
+            {#each list as x (x.id)}
+              <button class="item" class:on={obra?.id === x.id} onclick={() => openObra(x)}>
+                <span>{x.title}</span>
+                <small>{x.composer}</small>
+              </button>
+            {/each}
+          {/if}
+        {/each}
+        <p class="muted empty">Del <a href="https://www.mutopiaproject.org" target="_blank" rel="noreferrer">Mutopia Project</a>: dominio público o Creative Commons (créditos en public/obras/CREDITOS.md).</p>
+      {:else if o.tab === "ejercicios"}
         <div class="exopts">
           <select value={o.exKey} onchange={(e) => (o.exKey = +e.currentTarget.value)} title="Tonalidad de los ejercicios">
             {#each Array.from({ length: 12 }, (_, i) => i) as t (t)}<option value={t}>{keyName({ tonic: t, minor: o.exMinor }, notation.latin).split(" ")[0]}</option>{/each}
@@ -581,6 +658,18 @@
   </aside>
 
   <main>
+    {#if lessonPractice && !editing}
+      <div class="lesson-bar" class:passed={lessonResult != null && lessonResult >= lessonPractice.goal}>
+        <span>📘 <strong>{lessonPractice.lessonTitle}</strong> · {lessonPractice.title} · objetivo {Math.round(lessonPractice.goal * 100)} %</span>
+        {#if lessonResult != null}
+          <span class="res"><span class="stars">{"★".repeat(stars(lessonResult))}{"☆".repeat(3 - stars(lessonResult))}</span> {Math.round(lessonResult * 100)} %
+            {lessonResult >= lessonPractice.goal ? "· ¡Objetivo cumplido!" : "· casi: otra vuelta"}</span>
+          <button class="ghost small" onclick={() => (seek(0), toggle())}>Otra vez</button>
+        {/if}
+        <span class="grow"></span>
+        <button class="ghost small" onclick={() => lessonPractice && oncourse(lessonPractice.lesson)}>← Volver a la lección</button>
+      </div>
+    {/if}
     {#if editing}
       <PieceEditor piece={editing} {onsessions} onclose={() => ((editing = null), void loadPieces())}
         onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
@@ -737,6 +826,9 @@
   .item.on { background: var(--panel-hi); box-shadow: inset 2px 0 0 var(--accent); }
   .item small { color: var(--text-3); font-size: 11.5px; }
   .empty { padding: 12px; font-size: 13px; }
+  .lesson-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 12px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); font-size: 13px; flex-shrink: 0; }
+  .lesson-bar.passed { background: color-mix(in srgb, var(--ok) 18%, var(--panel)); border-color: var(--ok); }
+  .lesson-bar .stars { color: var(--accent); letter-spacing: 2px; }
   .tabs { display: flex; margin: 0 10px; padding: 3px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
   .tabs button { flex: 1; padding: 5px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12.5px; }
   .tabs button.on { background: var(--panel-hi); color: var(--text); }

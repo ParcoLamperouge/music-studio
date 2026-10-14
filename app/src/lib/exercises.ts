@@ -29,6 +29,10 @@ const NATURAL = [0, 2, 3, 5, 7, 8, 10];
 const HARMONIC = [0, 2, 3, 5, 7, 8, 11];
 const MELODIC = [0, 2, 3, 5, 7, 9, 11]; // al subir; al bajar, la natural
 const scaleOf = (k: Key) => (k.minor ? NATURAL : MAJOR);
+/** El modo que empieza en el grado `rot` de la escala mayor (0 jónico … 6 locrio), desde 0. */
+const mode = (rot: number) => MAJOR.map((_, i) => (MAJOR[(i + rot) % 7] - MAJOR[rot] + 12) % 12);
+/** El círculo de quintas desde Do. */
+const FIFTHS = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
 
 /** Tónica de la mano derecha (Do4…Si4) y de la izquierda, una octava por debajo. */
 const home = (k: Key, hand: Hand) => 60 + k.tonic - (hand === "lh" ? 12 : 0);
@@ -120,6 +124,54 @@ export const EXERCISES: Exercise[] = [
     make: (k, h) => line(scaleLine(k, 1, home(k, "rh")), 1, h),
   },
 
+  {
+    id: "encuentra-do", level: 1, concept: "Teclado", title: "Encuentra todos los Do", keyed: false, oneHand: true, bpm: 60,
+    about: "El Do es la tecla blanca justo a la izquierda de cada grupo de dos teclas negras. Toca todos los Do del teclado, de grave a agudo y vuelta: son la misma nota en octavas distintas.",
+    make: (_k, h) => {
+      const up = [36, 48, 60, 72, 84];
+      return line([...up, ...up.slice(0, -1).reverse()], 1, h === "both" ? "rh" : h).map((n) => ({ ...n, hand: n.p < 60 ? "lh" : "rh" }));
+    },
+  },
+  {
+    id: "grupos-negras", level: 1, concept: "Teclado", title: "Grupos de teclas negras", keyed: false, oneHand: true, bpm: 70,
+    about: "Las teclas negras van en grupos de dos y de tres. Son la forma de orientarse en el teclado: el grupo de dos tiene Do-Re-Mi alrededor, y el de tres, Fa-Sol-La-Si.",
+    make: (_k, h) => line([61, 63, 66, 68, 70, 73, 75, 78, 80, 82], 1, h),
+  },
+  {
+    id: "manos-alternas", level: 1, concept: "Posición", title: "Pregunta y respuesta entre manos", keyed: true, oneHand: false, bpm: 70,
+    about: "Una mano toca una frase corta y la otra le contesta igual, una octava más grave. Así se practica pasar de una mano a otra sin perder el pulso.",
+    make: (k) => {
+      const sc = scaleOf(k), out: PNote[] = [];
+      const phrase = [0, 1, 2, 1, 0];
+      for (let rep = 0; rep < 2; rep++) {
+        phrase.forEach((d, i) => out.push({ b: rep * 12 + i, d: 1, p: degree(sc, home(k, "rh"), d), v: 0.7, hand: "rh" }));
+        phrase.forEach((d, i) => out.push({ b: rep * 12 + 6 + i, d: 1, p: degree(sc, home(k, "lh"), d), v: 0.7, hand: "lh" }));
+      }
+      return out;
+    },
+  },
+  {
+    id: "intervalos", level: 1, concept: "Intervalos", title: "Intervalos desde la tónica", keyed: true, oneHand: true, bpm: 70,
+    about: "La distancia entre dos notas: segunda (vecinas), tercera (saltando una), cuarta, quinta y octava. Toca la tónica y luego cada intervalo, primero seguidas y luego juntas.",
+    make: (k, h) => {
+      const hand: Hand = h === "lh" ? "lh" : "rh", sc = scaleOf(k), base = home(k, hand);
+      const out: PNote[] = [];
+      [1, 2, 3, 4, 7].forEach((deg, i) => {
+        out.push({ b: i * 4, d: 1, p: base, v: 0.7, hand }, { b: i * 4 + 1, d: 1, p: degree(sc, base, deg), v: 0.7, hand });
+        out.push({ b: i * 4 + 2, d: 2, p: base, v: 0.6, hand }, { b: i * 4 + 2, d: 2, p: degree(sc, base, deg), v: 0.6, hand });
+      });
+      return out;
+    },
+  },
+  {
+    id: "dinamicas", level: 1, concept: "Expresión", title: "Piano y forte: tocar suave y fuerte", keyed: true, oneHand: true, bpm: 70,
+    about: "La misma frase muy suave (piano, p), luego fuerte (forte, f) y luego creciendo poco a poco (crescendo). La fuerza sale del peso del brazo, no de golpear. Con teclado MIDI, la app te dice si aciertas la fuerza.",
+    make: (k, h) => {
+      const seq = [0, 1, 2, 3, 4, 3, 2, 1].map((d) => degree(scaleOf(k), home(k, "rh"), d));
+      const vs = [...Array(8).fill(0.3), ...Array(8).fill(0.85), ...Array.from({ length: 8 }, (_, i) => 0.25 + i * 0.09)];
+      return line([...seq, ...seq, ...seq], 1, h).map((n, i) => ({ ...n, v: vs[i % 24] })); // cada mano, sus 24 notas
+    },
+  },
   // ---------------------------------------------------------------- 2 · Básico
   {
     id: "escala-menor", level: 2, concept: "Escalas", title: "Escala menor natural, armónica y melódica", keyed: true, oneHand: true, bpm: 70,
@@ -166,6 +218,34 @@ export const EXERCISES: Exercise[] = [
     },
   },
 
+  {
+    id: "mayor-menor", level: 2, concept: "Acordes", title: "Mayor y menor: cambia una sola nota", keyed: true, oneHand: true, bpm: 60,
+    about: "Un acorde mayor (Do-Mi-Sol) se vuelve menor bajando la nota del medio un semitono (Do-Mib-Sol). Toca cada pareja y escucha: el mayor suena luminoso y el menor más triste.",
+    make: (k, h) => {
+      const hand: Hand = h === "lh" ? "lh" : "rh", base = home(k, hand);
+      const roots = [0, 1, 2, 3, 4, 5].map((d) => base + MAJOR[d]); // Do, Re, Mi, Fa, Sol, La de la tonalidad
+      return blocks(roots.flatMap((r) => [[r, r + 4, r + 7], [r, r + 3, r + 7]]), 2, hand);
+    },
+  },
+  {
+    id: "pentatonica", level: 2, concept: "Escalas", title: "Escala pentatónica", keyed: true, oneHand: true, bpm: 80,
+    about: "Cinco notas por octava, sin los semitonos de la mayor (sin el cuarto ni el séptimo grado). Es la escala del folk, del rock y de muchas melodías del mundo: con ella casi nada suena mal.",
+    make: (k, h) => {
+      const penta = k.minor ? [0, 3, 5, 7, 10] : [0, 2, 4, 7, 9], base = home(k, "rh");
+      const up = Array.from({ length: 11 }, (_, i) => base + penta[i % 5] + 12 * Math.floor(i / 5));
+      return line([...up, ...up.slice(0, -1).reverse()], 0.5, h);
+    },
+  },
+  {
+    id: "contrario", level: 2, concept: "Independencia", title: "Movimiento contrario", keyed: true, oneHand: false, bpm: 70,
+    about: "Las dos manos empiezan en la misma tónica y se separan: la derecha sube y la izquierda baja, como en un espejo. Con los mismos dedos a la vez en cada mano, es la forma más fácil de tocar escala con las dos.",
+    make: (k) => {
+      const sc = scaleOf(k), base = home(k, "rh");
+      const up = Array.from({ length: 8 }, (_, i) => degree(sc, base, i));
+      const lhSeq = Array.from({ length: 8 }, (_, i) => degree(sc, base - 12, -i)); // la izquierda baja desde su tónica
+      return line([...up, ...up.slice(0, -1).reverse()], 1, "both", [...lhSeq, ...lhSeq.slice(0, -1).reverse()]);
+    },
+  },
   // ---------------------------------------------------------------- 3 · Intermedio
   {
     id: "inversiones", level: 3, concept: "Acordes", title: "Inversiones de la tríada", keyed: true, oneHand: true, bpm: 70,
@@ -231,6 +311,85 @@ export const EXERCISES: Exercise[] = [
     },
   },
 
+  {
+    id: "blues", level: 3, concept: "Progresiones", title: "Blues de doce compases", keyed: true, oneHand: false, bpm: 90,
+    about: "La forma del blues: 4 compases de I, 2 de IV, 2 de I, uno de V, uno de IV y 2 de I, todos con séptima. La izquierda marca el bajo y la derecha el acorde en contratiempo.",
+    make: (k) => {
+      const t = k.tonic, out: PNote[] = [];
+      const form = [0, 0, 0, 0, 5, 5, 0, 0, 7, 5, 0, 0];
+      form.forEach((iv, bar) => {
+        const root = 48 + ((t + iv) % 12);
+        const ch = [root + 12 + 4, root + 12 + 7, root + 12 + 10];
+        for (let beat = 0; beat < 4; beat++) {
+          out.push({ b: bar * 4 + beat, d: 1, p: beat % 2 ? root + 7 : root, v: 0.65, hand: "lh" });
+          if (beat % 2) for (const p of ch) out.push({ b: bar * 4 + beat, d: 0.5, p, v: 0.6, hand: "rh" });
+        }
+      });
+      return out;
+    },
+  },
+  {
+    id: "escalas-mayores-todas", level: 3, concept: "Escalas", title: "Las doce escalas mayores (círculo de quintas)", keyed: false, oneHand: true, bpm: 90,
+    about: "Una octava de cada escala mayor, avanzando por quintas: Do, Sol, Re, La, Mi, Si, Fa#, Reb, Lab, Mib, Sib y Fa. Cada una añade (o quita) una alteración a la anterior.",
+    make: (_k, h) => line(FIFTHS.flatMap((t) => scaleLine({ tonic: t, minor: false }, 1, 60 + (t > 6 ? t - 12 : t))), 0.5, h),
+  },
+  {
+    id: "escalas-menores-todas", level: 4, concept: "Escalas", title: "Las doce escalas menores armónicas", keyed: false, oneHand: true, bpm: 90,
+    about: "Una octava de cada menor armónica (séptimo grado alto), por el círculo de quintas: La, Mi, Si, Fa#, Do#, Sol#, Mib, Sib, Fa, Do, Sol y Re menor.",
+    make: (_k, h) => line(FIFTHS.map((t) => (t + 9) % 12).flatMap((t) => scaleLine({ tonic: t, minor: true }, 1, 60 + (t > 6 ? t - 12 : t), HARMONIC)), 0.5, h),
+  },
+  {
+    id: "escala-blues", level: 3, concept: "Escalas", title: "Escala de blues", keyed: true, oneHand: true, bpm: 90,
+    about: "La pentatónica menor con una nota de más, la «blue note» (la quinta disminuida): 1, b3, 4, #4, 5, b7. Sobre un blues de doce compases casi todo lo que toques con ella suena a blues.",
+    make: (k, h) => {
+      const blues = [0, 3, 5, 6, 7, 10], base = home(k, "rh");
+      const up = Array.from({ length: 13 }, (_, i) => base + blues[i % 6] + 12 * Math.floor(i / 6));
+      return line([...up, ...up.slice(0, -1).reverse()], 0.5, h);
+    },
+  },
+  {
+    id: "tonos-enteros", level: 3, concept: "Escalas", title: "Escala de tonos enteros", keyed: true, oneHand: true, bpm: 80,
+    about: "Seis notas, todas a un tono de distancia: sin semitonos no hay nota que tire hacia ninguna parte, y suena a sueño o misterio. Debussy la usaba mucho.",
+    make: (k, h) => {
+      const up = Array.from({ length: 13 }, (_, i) => home(k, "rh") + 2 * i);
+      return line([...up, ...up.slice(0, -1).reverse()], 0.5, h);
+    },
+  },
+  {
+    id: "modo-jonico", level: 3, concept: "Modos", title: "Modo jónico", keyed: true, oneHand: true, bpm: 80,
+    about: "Desde la tónica elegida, el modo jónico: el modo mayor de siempre: tono, tono, semitono, tono, tono, tono, semitono. Es la escala mayor empezando en su 1.º grado (en blancas, desde Do).",
+    make: (k, h) => line(scaleLine(k, 1, home(k, "rh"), mode(0)), 0.5, h),
+  },
+  {
+    id: "modo-dorico", level: 3, concept: "Modos", title: "Modo dórico", keyed: true, oneHand: true, bpm: 80,
+    about: "Desde la tónica elegida, el modo dórico: menor con el sexto grado alto: oscuro pero con un punto luminoso (funk, jazz, folk). Es la escala mayor empezando en su 2.º grado (en blancas, desde Re).",
+    make: (k, h) => line(scaleLine(k, 1, home(k, "rh"), mode(1)), 0.5, h),
+  },
+  {
+    id: "modo-frigio", level: 3, concept: "Modos", title: "Modo frigio", keyed: true, oneHand: true, bpm: 80,
+    about: "Desde la tónica elegida, el modo frigio: menor con el segundo grado bajo: suena español, flamenco. Es la escala mayor empezando en su 3.º grado (en blancas, desde Mi).",
+    make: (k, h) => line(scaleLine(k, 1, home(k, "rh"), mode(2)), 0.5, h),
+  },
+  {
+    id: "modo-lidio", level: 3, concept: "Modos", title: "Modo lidio", keyed: true, oneHand: true, bpm: 80,
+    about: "Desde la tónica elegida, el modo lidio: mayor con el cuarto grado alto: soñador, de banda sonora. Es la escala mayor empezando en su 4.º grado (en blancas, desde Fa).",
+    make: (k, h) => line(scaleLine(k, 1, home(k, "rh"), mode(3)), 0.5, h),
+  },
+  {
+    id: "modo-mixolidio", level: 3, concept: "Modos", title: "Modo mixolidio", keyed: true, oneHand: true, bpm: 80,
+    about: "Desde la tónica elegida, el modo mixolidio: mayor con el séptimo bajo: el del rock y el blues mayor. Es la escala mayor empezando en su 5.º grado (en blancas, desde Sol).",
+    make: (k, h) => line(scaleLine(k, 1, home(k, "rh"), mode(4)), 0.5, h),
+  },
+  {
+    id: "modo-eolico", level: 3, concept: "Modos", title: "Modo eólico", keyed: true, oneHand: true, bpm: 80,
+    about: "Desde la tónica elegida, el modo eólico: la menor natural. Es la escala mayor empezando en su 6.º grado (en blancas, desde La).",
+    make: (k, h) => line(scaleLine(k, 1, home(k, "rh"), mode(5)), 0.5, h),
+  },
+  {
+    id: "modo-locrio", level: 3, concept: "Modos", title: "Modo locrio", keyed: true, oneHand: true, bpm: 80,
+    about: "Desde la tónica elegida, el modo locrio: con el segundo y el quinto bajos: inestable, casi no se usa como tónica. Es la escala mayor empezando en su 7.º grado (en blancas, desde Si).",
+    make: (k, h) => line(scaleLine(k, 1, home(k, "rh"), mode(6)), 0.5, h),
+  },
   // ---------------------------------------------------------------- 4 · Avanzado
   {
     id: "septimas", level: 4, concept: "Acordes", title: "Acordes de séptima de la tonalidad", keyed: true, oneHand: true, bpm: 70,

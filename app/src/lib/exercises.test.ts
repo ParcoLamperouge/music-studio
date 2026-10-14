@@ -43,4 +43,28 @@ for (const e of EXERCISES) for (let t = 0; t < 12; t++) for (const minor of [fal
 }
 assert.ok(ids.size > EXERCISES.length * 12, "un id por ejercicio, tonalidad y manos");
 assert.equal(new Set(EXERCISES.map((e) => e.id)).size, EXERCISES.length);
+// mayor y menor: la del medio baja un semitono
+const mm = exercisePiece(ex("mayor-menor"), C, "rh").notes;
+assert.deepEqual([0, 2].map((b) => mm.filter((n) => n.b === b).map((n) => n.p)), [[60, 64, 67], [60, 63, 67]]);
+// matices: la misma frase suave y luego fuerte
+const dyn = exercisePiece(ex("dinamicas"), C, "rh").notes;
+assert.ok(dyn[0].v < 0.4 && dyn[8].v > 0.8);
+// movimiento contrario: la derecha sube cuando la izquierda baja
+const ct = exercisePiece(ex("contrario"), C, "both").notes;
+assert.deepEqual([ct.find((n) => n.b === 1 && n.hand === "rh")!.p, ct.find((n) => n.b === 1 && n.hand === "lh")!.p], [62, 47]);
+// blues: doce compases
+assert.equal(Math.max(...exercisePiece(ex("blues"), C, "both").notes.map((n) => n.b + n.d)), 48);
+// modos desde Do: dórico con Mib y Sib, lidio con Fa#, mixolidio con Sib
+const modeNotes = (id: string) => new Set(ps(id, C).map((p) => p % 12));
+assert.deepEqual([...modeNotes("modo-dorico")].sort((a, b) => a - b), [0, 2, 3, 5, 7, 9, 10]);
+assert.deepEqual([...modeNotes("modo-lidio")].sort((a, b) => a - b), [0, 2, 4, 6, 7, 9, 11]);
+assert.deepEqual([...modeNotes("modo-mixolidio")].sort((a, b) => a - b), [0, 2, 4, 5, 7, 9, 10]);
+assert.deepEqual([...modeNotes("modo-frigio")].sort((a, b) => a - b), [0, 1, 3, 5, 7, 8, 10]);
+assert.deepEqual([...modeNotes("modo-locrio")].sort((a, b) => a - b), [0, 1, 3, 5, 6, 8, 10]);
+assert.deepEqual([...modeNotes("escala-blues")].sort((a, b) => a - b), [0, 3, 5, 6, 7, 10]);
+assert.deepEqual([...modeNotes("tonos-enteros")].sort((a, b) => a - b), [0, 2, 4, 6, 8, 10]);
+// las doce mayores: 12 escalas de 15 notas, y la de Sol con su Fa#
+const all12 = ps("escalas-mayores-todas");
+assert.equal(all12.length, 12 * 15);
+assert.ok(all12.slice(15, 30).some((p) => p % 12 === 6));
 console.log("ejercicios ok");
