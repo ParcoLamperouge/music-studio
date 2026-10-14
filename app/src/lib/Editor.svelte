@@ -127,34 +127,34 @@
 
 <svelte:window onkeydowncapture={onkey} />
 
-<aside>
+<aside class="drawer">
   <header>
     <h2>Editar letra</h2>
-    <button class="ghost" onclick={onclose} title="Cerrar (E)">✕</button>
+    <button class="icon-btn sm" onclick={onclose} title="Cerrar (E)">✕</button>
   </header>
 
   <div class="tools">
-    <button class="primary" disabled={!dirty} onclick={save}>Guardar</button>
-    <button onclick={() => (paste = lines.map((l) => l.text).join("\n"))}>Pegar / editar texto</button>
-    <button class:on={tap >= 0} onclick={() => (tap = tap >= 0 ? -1 : Math.max(0, lines.findIndex((l) => l.t == null)))}>
+    <button class="primary sm" disabled={!dirty} onclick={save}>Guardar</button>
+    <button class="ghost sm" onclick={() => (paste = lines.map((l) => l.text).join("\n"))}>Pegar / editar texto</button>
+    <button class="ghost sm" class:on={tap >= 0} onclick={() => (tap = tap >= 0 ? -1 : Math.max(0, lines.findIndex((l) => l.t == null)))}>
       {tap >= 0 ? "Parar tap" : "Sincronizar a mano"}
     </button>
-    <button disabled={busy || !lines.some((l) => l.text)} onclick={() => { const d = result(); dirty = false; onai(d); }}
+    <button class="ghost sm" disabled={busy || !lines.some((l) => l.text)} onclick={() => { const d = result(); dirty = false; onai(d); }}
       title="Guarda y alinea tu texto escuchando el audio (Whisper), sin usar los tiempos por línea.">
       {busy ? "Sincronizando…" : "Desde el audio"}
     </button>
-    <button disabled={busy || !lines.some((l) => l.t != null && l.text)} onclick={() => { const d = result(); dirty = false; onfast(d); }}
+    <button class="ghost sm" disabled={busy || !lines.some((l) => l.t != null && l.text)} onclick={() => { const d = result(); dirty = false; onfast(d); }}
       title="Guarda y coloca las palabras con el audio sin tocar el inicio de ninguna línea (los que ves aquí).">
       Dentro de cada línea
     </button>
-    <button disabled={busy || !history} onclick={onrestore}
+    <button class="ghost sm" disabled={busy || !history} onclick={onrestore}
       title="Deshace la última sincronización con IA ({history} guardadas).">
       Volver a la anterior{history > 1 ? ` (${history})` : ""}
     </button>
     <span class="nudge">
       Todo
-      <button onclick={() => shift(-0.1)}>−0.1 s</button>
-      <button onclick={() => shift(0.1)}>+0.1 s</button>
+      <button class="ghost sm" onclick={() => shift(-0.1)}>−0.1 s</button>
+      <button class="ghost sm" onclick={() => shift(0.1)}>+0.1 s</button>
     </span>
   </div>
 
@@ -178,8 +178,8 @@
     <div class="paste">
       <textarea bind:value={paste} rows="16" placeholder="Una línea de la letra por renglón. Renglón vacío = pausa."></textarea>
       <div class="tools">
-        <button class="primary" onclick={applyPaste}>Aplicar</button>
-        <button onclick={() => (paste = null)}>Cancelar</button>
+        <button class="primary sm" onclick={applyPaste}>Aplicar</button>
+        <button class="ghost sm" onclick={() => (paste = null)}>Cancelar</button>
       </div>
     </div>
   {/if}
@@ -188,196 +188,56 @@
     {#each lines as l, k (k)}
       <div class="row" class:doubt={doubtful(l).length} title={doubtful(l).length ? `La IA no tiene claro: ${doubtful(l).join(", ")}` : undefined} class:tapnext={k === tap} class:playing={l.t != null && l.t <= now && (lines[k + 1]?.t ?? Infinity) > now}>
         <input class="time" value={fmtTime(l.t)} placeholder="--:--" onchange={(e) => setT(l, parseTime(e.currentTarget.value))} />
-        <button class="ghost" title="Poner el tiempo actual" onclick={() => setT(l, Math.round(now * 100) / 100)}>⏱</button>
-        <button class="ghost" title="Ir aquí" disabled={l.t == null} onclick={() => onseek(l.t!)}>▶</button>
+        <button class="icon-btn sm" title="Poner el tiempo actual" onclick={() => setT(l, Math.round(now * 100) / 100)}>⏱</button>
+        <button class="icon-btn sm" title="Ir aquí" disabled={l.t == null} onclick={() => onseek(l.t!)}>▶</button>
         <input class="text" value={l.text} oninput={(e) => setText(l, e.currentTarget.value)} />
-        <button class="ghost" class:on={open === k} disabled={!l.words?.length} title="Tiempo de cada palabra" onclick={() => (open = open === k ? -1 : k)}>⋯</button>
-        <button class="ghost" title="Línea debajo" onclick={() => insert(k)}>＋</button>
-        <button class="ghost" title="Borrar" onclick={() => remove(k)}>✕</button>
+        <button class="icon-btn sm" class:on={open === k} disabled={!l.words?.length} title="Tiempo de cada palabra" onclick={() => (open = open === k ? -1 : k)}>⋯</button>
+        <button class="icon-btn sm" title="Línea debajo" onclick={() => insert(k)}>＋</button>
+        <button class="icon-btn sm" title="Borrar" onclick={() => remove(k)}>✕</button>
       </div>
       {#if open === k && l.words?.length}
         <div class="words">
           {#each l.words as w, j (j)}
             <div class="word" class:now={w.t <= now && (w.end ?? l.words[j + 1]?.t ?? Infinity) > now} class:doubt={w.p != null && w.p < 0.5}>
               <b>{w.w}</b>
-              <button class="ghost" title="−0.05 s" onclick={() => setWordT(l, w, w.t - 0.05)}>−</button>
+              <button class="icon-btn sm" title="−0.05 s" onclick={() => setWordT(l, w, w.t - 0.05)}>−</button>
               <input class="wt" value={fmtTime(w.t)} onchange={(e) => setWordT(l, w, parseTime(e.currentTarget.value))} />
-              <button class="ghost" title="+0.05 s" onclick={() => setWordT(l, w, w.t + 0.05)}>+</button>
-              <button class="ghost" title="Poner el tiempo actual" disabled={!now} onclick={() => setWordT(l, w, now)}>⏱</button>
-              <button class="ghost" title="Ir aquí" onclick={() => onseek(w.t)}>▶</button>
+              <button class="icon-btn sm" title="+0.05 s" onclick={() => setWordT(l, w, w.t + 0.05)}>+</button>
+              <button class="icon-btn sm" title="Poner el tiempo actual" disabled={!now} onclick={() => setWordT(l, w, now)}>⏱</button>
+              <button class="icon-btn sm" title="Ir aquí" onclick={() => onseek(w.t)}>▶</button>
             </div>
           {/each}
         </div>
       {/if}
     {:else}
       <p class="hint">Sin letra. Pega el texto o añade líneas.</p>
-      <button onclick={() => insert(-1)}>＋ Añadir línea</button>
+      <button class="ghost sm" onclick={() => insert(-1)}>＋ Añadir línea</button>
     {/each}
   </div>
 </aside>
 
 <style>
-  aside {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(560px, 100vw);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 16px;
-    background: var(--sidebar);
-    border-left: 1px solid var(--line-hi);
-    box-shadow: -30px 0 60px -20px #000c;
-    z-index: 30;
-    animation: slide 0.35s cubic-bezier(0.2, 0.9, 0.3, 1);
-  }
-  @keyframes slide {
-    from { transform: translateX(40px); opacity: 0; }
-  }
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  h2 {
-    margin: 0;
-    font-family: var(--serif);
-    font-weight: 400;
-    font-size: 28px;
-  }
-  button {
-    padding: 5px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--line);
-    background: var(--panel);
-    color: var(--text-2);
-    font-size: 12.5px;
-  }
-  button:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--line-hi);
-  }
-  button:disabled {
-    opacity: 0.4;
-  }
-  button.on {
-    color: var(--text);
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-  button.ghost {
-    border-color: transparent;
-    background: transparent;
-    padding: 3px 7px;
-  }
-  button.primary {
-    border: 0;
-    color: #1c0f05;
-  }
-  input {
-    padding: 5px 8px;
-  }
-  .tools {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-  }
-  .nudge {
-    margin-left: auto;
-    font-size: 12px;
-    opacity: 0.8;
-  }
-  .rows {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .row {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    padding: 2px 4px;
-    border-radius: 8px;
-  }
-  .row.playing {
-    background: var(--panel-hi);
-  }
-  .row.doubt {
-    box-shadow: inset 3px 0 #ffc23d;
-  }
-  .row.doubt .text {
-    border-color: rgba(255, 194, 61, 0.5);
-  }
-  .hint.busy {
-    color: var(--accent);
-    opacity: 1;
-  }
-  .hint.warn {
-    color: #ffc23d;
-    opacity: 1;
-  }
-  .row.tapnext {
-    background: var(--accent-soft);
-    outline: 1px solid var(--accent);
-  }
-  .words {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 4px 4px 8px 78px;
-  }
-  .word {
-    display: flex;
-    align-items: center;
-    gap: 1px;
-    padding: 2px 4px 2px 8px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
-    font-size: 12px;
-  }
-  .word b {
-    margin-right: 2px;
-  }
-  .word button {
-    padding: 2px 5px;
-  }
-  .word.now {
-    outline: 1px solid var(--accent);
-  }
-  .word.doubt b {
-    color: #ffc23d;
-  }
-  .wt {
-    width: 62px;
-    font-variant-numeric: tabular-nums;
-  }
-  .time {
-    width: 76px;
-    font-family: var(--mono);
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-  }
-  .text {
-    flex: 1;
-  }
-  .paste textarea {
-    width: 100%;
-    box-sizing: border-box;
-    resize: vertical;
-  }
-  .hint {
-    font-size: 13px;
-    opacity: 0.75;
-    margin: 0;
-  }
-  kbd {
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.15);
-  }
+  aside { width: min(560px, 100vw); gap: 10px; padding: 16px; z-index: 30; border-left-color: var(--line-hi); }
+  header { display: flex; justify-content: space-between; align-items: center; }
+  input { padding: 3px 7px; }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .nudge { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); }
+  .rows { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .row { display: flex; gap: 2px; align-items: center; padding: 2px 4px; border-radius: var(--radius-sm); }
+  .row.playing { background: var(--panel-hi); }
+  .row.doubt { box-shadow: inset 2px 0 var(--warn); }
+  .row.doubt .text { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+  .row.tapnext { background: var(--accent-soft); outline: 1px solid var(--accent); }
+  .hint.busy { color: var(--accent); }
+  .hint.warn { color: var(--warn); }
+  .words { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 4px 8px 78px; }
+  .word { display: flex; align-items: center; gap: 1px; padding: 2px 4px 2px 8px; border-radius: var(--radius-sm); background: var(--panel); font-size: 12px; }
+  .word b { margin-right: 2px; font-weight: 500; }
+  .word .icon-btn { width: 20px; height: 20px; }
+  .word.now { outline: 1px solid var(--accent); }
+  .word.doubt b { color: var(--warn); }
+  .wt { width: 62px; font-variant-numeric: tabular-nums; }
+  .time { width: 72px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .text { flex: 1; }
+  .paste textarea { width: 100%; resize: vertical; }
 </style>

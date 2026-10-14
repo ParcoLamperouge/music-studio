@@ -11,6 +11,7 @@
   import { fromSession } from "./piece";
   import { pickPieces, pieceToSession, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
+  import SearchInput from "./SearchInput.svelte";
   import { settings } from "./settings.svelte";
   import SongPlayer from "./SongPlayer.svelte";
   import { store } from "./store.svelte";
@@ -125,7 +126,7 @@
 
   async function scan() {
     const files = await listDir(dir).catch(() => []);
-    const names = files.filter((f) => f.name.endsWith(".json")).map((f) => f.name.slice(0, -5)).sort().reverse();
+    const names = files.filter((f) => f.name.endsWith(".json") && `${dir}/${f.name}` !== songsPath).map((f) => f.name.slice(0, -5)).sort().reverse();
     items = await Promise.all(names.map(async (name) => ({ name, base: `${dir}/${name}`, s: await readJson<Session | null>(`${dir}/${name}.json`, null) })));
     songs = await readJson<string[]>(songsPath, []);
     if (!sel && !song && tab === "sesiones" && items[0]) void open(items[0]);
@@ -304,16 +305,16 @@
 
 <div class="sessions">
   <aside>
-    <header>
-      <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
-      <div class="seg">
+    <header class="side-head">
+      <button class="ghost sm" onclick={onback} title="Volver al menú">← Menú</button>
+      <div class="seg wide">
         <button class:on={tab === "sesiones"} onclick={() => (tab = "sesiones")}>Sesiones</button>
         <button class:on={tab === "canciones"} onclick={() => (tab = "canciones")}>Canciones</button>
       </div>
     </header>
     <div class="list">
       {#if tab === "canciones"}
-        <button class="add" onclick={() => (adding = true)}>＋ Añadir canción</button>
+        <button class="ghost add" onclick={() => (adding = true)}>＋ Añadir canción</button>
         {#each songs as k (k)}
           {@const t = trackOf(k)}
           <button class="item" class:on={song === k} onclick={() => openSong(k)}>
@@ -324,7 +325,7 @@
           <p class="muted empty">Añade canciones con las pistas separadas para escucharlas por instrumentos aquí.</p>
         {/each}
       {:else}
-      <button class="add" onclick={importSession} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl) como sesión">＋ Importar MIDI o MusicXML</button>
+      <button class="ghost add" onclick={importSession} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl) como sesión">＋ Importar MIDI o MusicXML</button>
       {#each items as it (it.name)}
         <button class="item" class:on={sel?.name === it.name} onclick={() => open(it)} disabled={!it.s}>
           <span>{when(it.name)}</span>
@@ -366,8 +367,8 @@
       {#if top.length}
         {#if songFromNotes}<p class="muted note">De las notas transcritas: los del audio (lv-chordia) están en la cola y saldrán la próxima vez que la abras.</p>{/if}
         <span class="kicker">Acordes que más suenan</span>
-        <div class="chips">{#each top as [name, d] (name)}<span>{name} <small>{fmt(d)}</small></span>{/each}</div>
-        <span class="kicker">Progresión <small>(clic para ir)</small></span>
+        <div class="chips">{#each top as [name, d] (name)}<span class="chip">{name} <small>{fmt(d)}</small></span>{/each}</div>
+        <span class="kicker" title="Clic en un acorde para ir a él">Progresión</span>
         <div class="prog">
           {#each songChords as c, i (i)}
             <button class:now={c.t <= songTime && songTime < c.end} onclick={() => songPlayer?.seek(c.t)} title="{fmt(c.t)}{c.deg ? ` · ${c.deg}` : ''}">{c.name}</button>
@@ -378,9 +379,9 @@
       {/if}
       <span class="kicker">Instrumentos para Claude</span>
       {#if noted.length}
-        <div class="chips pick">
+        <div class="chips">
           {#each noted as st (st.name)}
-            <button class:on={aiStems.includes(st.name)} onclick={() => (aiStems = aiStems.includes(st.name) ? aiStems.filter((x) => x !== st.name) : [...aiStems, st.name])}>
+            <button class="chip" class:on={aiStems.includes(st.name)} onclick={() => (aiStems = aiStems.includes(st.name) ? aiStems.filter((x) => x !== st.name) : [...aiStems, st.name])}>
               {STEM_INFO[st.name]?.label ?? st.name}{#if st.notes}<small> {st.notes} notas</small>{/if}
             </button>
           {/each}
@@ -406,8 +407,8 @@
       </dl>
       {#if top.length}
         <span class="kicker">Acordes que más suenan</span>
-        <div class="chips">{#each top as [name, d] (name)}<span>{name} <small>{fmt(d)}</small></span>{/each}</div>
-        <span class="kicker">Progresión <small>(clic para ir)</small></span>
+        <div class="chips">{#each top as [name, d] (name)}<span class="chip">{name} <small>{fmt(d)}</small></span>{/each}</div>
+        <span class="kicker" title="Clic en un acorde para ir a él">Progresión</span>
         <div class="prog">
           {#each sel.s.chords as c, i (i)}
             <button class:now={c.t <= time && time < c.end} onclick={() => seek(c.t)} title="{fmt(c.t)}{c.deg ? ` · ${c.deg}` : ''}">{c.name}</button>
@@ -429,12 +430,11 @@
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (adding = false)}>
     <div class="dialog" role="dialog" aria-modal="true" aria-label="Añadir canciones">
       <h3>Añadir canciones</h3>
-      <p class="muted">Las que tienen las pistas separadas.</p>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input type="search" placeholder="Buscar…" bind:value={query} autofocus onkeydown={(e) => e.key === "Escape" && (adding = false)} />
-      <div class="pick">
+      <p class="hint">Las que tienen las pistas separadas.</p>
+      <SearchInput placeholder="Buscar…" bind:value={query} autofocus onkeydown={(e) => e.key === "Escape" && (adding = false)} />
+      <div class="picklist">
         {#each available as t (t.key)}
-          <label class:on={picked.includes(t.key)}>
+          <label class="item" class:on={picked.includes(t.key)}>
             <input type="checkbox" bind:group={picked} value={t.key} />
             <span>{t.title}</span><small>{t.artist} · {t.present.length} pistas</small>
           </label>
@@ -451,66 +451,44 @@
 {/if}
 
 <style>
-  .sessions { height: 100vh; display: grid; grid-template-columns: 280px 1fr 380px; }
+  .sessions { height: 100vh; display: grid; grid-template-columns: 280px 1fr 360px; }
   aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-  aside header { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
-  .seg { display: flex; flex: 1; padding: 3px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
-  .seg button { flex: 1; padding: 5px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12.5px; }
-  .seg button.on { background: var(--panel-hi); color: var(--text); }
-  .add { margin-bottom: 6px; padding: 9px 12px; border-radius: 10px; border: 1px dashed var(--line-hi); background: none; color: var(--text-2); text-align: left; }
-  .add:hover { color: var(--text); border-color: var(--accent); }
+  .add { width: 100%; justify-content: flex-start; margin-bottom: 6px; border-style: dashed; }
+  .side-head .seg { flex: 1; }
 
-  .backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: #0008; backdrop-filter: blur(4px); }
-  .dialog {
-    width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 60px); display: flex; flex-direction: column; gap: 10px; padding: 20px 22px;
-    background: var(--sidebar); border: 1px solid var(--line-hi); border-radius: 18px; box-shadow: 0 40px 100px -20px #000; animation: rise 0.3s var(--ease);
-  }
-  .dialog h3 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 30px; }
-  .dialog p { margin: 0; font-size: 13px; }
-  .pick { overflow-y: auto; min-height: 120px; max-height: 50vh; display: flex; flex-direction: column; gap: 2px; }
-  .pick label { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: center; padding: 7px 10px; border-radius: 9px; cursor: pointer; }
-  .pick label:hover { background: var(--panel); }
-  .pick label.on { background: var(--accent-soft); }
-  .pick input { grid-row: span 2; }
-  .pick small { color: var(--text-3); font-size: 11.5px; }
+  .dialog { width: min(560px, calc(100vw - 32px)); gap: 10px; padding: 18px; }
+  .dialog h3 { font-size: 16px; }
+  .picklist { overflow-y: auto; min-height: 120px; max-height: 50vh; display: flex; flex-direction: column; gap: 2px; }
+  .picklist label { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: center; cursor: pointer; }
+  .picklist input { grid-row: span 2; }
   .dialog .actions { justify-content: flex-end; }
   .list { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
-  .item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border-radius: 10px; border: 0; background: none; color: var(--text); text-align: left; }
-  .item:hover:not(:disabled) { background: var(--panel); }
-  .item.on { background: var(--panel-hi); box-shadow: inset 2px 0 0 var(--accent); }
-  .item small { color: var(--text-3); font-size: 11px; }
-  .empty { padding: 12px; font-size: 13px; }
+  .empty { padding: 10px; font-size: 12px; }
 
   main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px; }
   .bottom { flex-shrink: 0; }
   .welcome { margin: auto; }
-  .welcome h1 { font-family: var(--serif); font-weight: 400; font-size: 64px; line-height: 0.95; }
-  .welcome em { color: var(--accent); }
+  .welcome h1 { font-size: 28px; }
+  .welcome em { font-style: normal; color: var(--accent); }
 
-  .panel { border-left: 1px solid var(--line); background: var(--sidebar); overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
-  .panel h2 { font-family: var(--serif); font-weight: 400; font-size: 30px; margin: 0; }
+  .panel { border-left: 1px solid var(--line); background: var(--sidebar); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 0 6px; font-size: 12px; }
   dt { color: var(--text-3); }
   dd { margin: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .kicker small { text-transform: none; letter-spacing: 0; font-weight: 400; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chips span { padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--text); font-size: 13px; }
-  .chips small { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
   .note { margin: 0; font-size: 12px; }
-  .pick button { padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); background: none; color: var(--text-3); font-size: 12.5px; }
-  .pick button.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--text); }
-  .pick small { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
   .prog { display: flex; flex-wrap: wrap; gap: 4px; max-height: 160px; overflow-y: auto; }
-  .prog button { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text-2); font-family: var(--mono); font-size: 11.5px; }
+  .prog button { padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line); background: none; color: var(--text-2); font-size: 11.5px; }
   .prog button:hover { color: var(--text); border-color: var(--line-hi); }
-  .prog button.now { color: #1c0f05; background: var(--accent); border-color: var(--accent); }
-  .actions { display: flex; gap: 8px; margin-top: 6px; }
+  .prog button.now { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .panel .error-text { font-size: 12.5px; margin: 0; }
-  article { border-top: 1px solid var(--line); padding-top: 6px; font-size: 13.5px; color: var(--text-2); }
-  article h3 { font-family: var(--serif); font-weight: 400; font-size: 21px; color: var(--text); margin: 14px 0 4px; }
+  .panel > p.muted { margin: 0; font-size: 12px; }
+  article { border-top: 1px solid var(--line); padding-top: 6px; font-size: 12.5px; color: var(--text-2); }
+  article h3 { margin: 12px 0 4px; }
   article p { margin: 0 0 6px; }
   article .li { padding-left: 14px; position: relative; }
-  .ts { padding: 0 3px; border: 0; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 0.9em; }
-  .ts:hover { background: var(--accent); color: #1c0f05; }
   article .li::before { content: "·"; position: absolute; left: 3px; color: var(--accent); }
+  .ts { padding: 0 3px; border: 0; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 0.9em; }
+  .ts:hover { background: var(--accent); color: var(--on-accent); }
 </style>

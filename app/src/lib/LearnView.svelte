@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, untrack } from "svelte";
-  import { ARRANGED, arrange, easyTranspose, fromBeat, levelLabel, LEVELS, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
+  import { ARRANGED, arrange, easyTranspose, fromBeat, levelLabel, judge, LEVELS, median, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
   import { accuracy, hardZones, tally, wrongAt, type Bars, type Zone } from "./zones";
   import { loadNotation } from "./ChordsTab.svelte";
   import { enqueue, paths, readJson, songDetail, STEM_INFO, writeBytes, writeJson, type Detail, type Song } from "./engine";
@@ -19,8 +19,9 @@
   import { fromMidi, newPiece, pieceArrangement, pieceBeats, pieceDuration, pieceSeconds, type Piece } from "./piece";
   import { deletePiece, importPieces, loadPieces, pieces, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
+  import SearchInput from "./SearchInput.svelte";
   import Score from "./Score.svelte";
-  import { settings } from "./settings.svelte";
+  import { saveSettings, settings } from "./settings.svelte";
   import { jobOf, jobText, store } from "./store.svelte";
   import Transport from "./Transport.svelte";
 
@@ -364,11 +365,45 @@
   // al cambiar de nivel, manos… la práctica nueva sigue desde donde vas, no desde el principio
   $effect(() => {
     const pr = practice;
-    untrack(() => pr.reset(time));
+    untrack(() => (pr.reset(time), (recent = [])));
   });
   let waiting: number | null = null;
-  let stats = $state<ReturnType<Practice["stats"]>>({ due: 0, hits: 0, wrong: 0, ms: 0, force: null, offForce: 0 });
+  let stats = $state<ReturnType<Practice["stats"]>>({ due: 0, hits: 0, wrong: 0, ms: 0, force: null, offForce: 0, sd: 0 });
   const pressed = new Map<number, string>(); // tecla → color (verde acierto, rojo fallo)
+  // tiempo de las últimas notas (ms, − adelantado / + atrasado) para la tira de al lado de la puntuación
+  let recent = $state<number[]>([]);
+  const TIMING_COLOR = { ontime: "#9bd37f", near: "#9bd37f", early: "#6aa9ff", late: "#ff5a5a" };
+  // calibración: 16 toques sobre un clic cada 0,6 s; la mediana del desfase es la latencia
+  let calib = $state<{ clicks: number[]; taps: number[] } | null>(null);
+  function calibrate() {
+    const ctx = player.ctx;
+    void ctx.resume();
+    const t0 = ctx.currentTime + 1;
+    const clicks = Array.from({ length: 20 }, (_, i) => t0 + i * 0.6);
+    for (const t of clicks) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = 1000;
+      g.gain.setValueAtTime(0.3, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + 0.06);
+    }
+    calib = { clicks, taps: [] };
+  }
+  function calibTap() {
+    const c = calib!;
+    const now = player.ctx.currentTime;
+    const near = c.clicks.reduce((a, b) => (Math.abs(b - now) < Math.abs(a - now) ? b : a));
+    if (Math.abs(now - near) > 0.3) return; // lejos de cualquier clic: despiste
+    c.taps.push(now - near);
+    if (c.taps.length >= 16) {
+      settings.latencyMs = Math.max(0, Math.round(1000 * median(c.taps)));
+      saveSettings();
+      calib = null;
+    }
+  }
   const held = (p: number) => pressed.has(p);
   const voices = new Map<number, () => void>();
   let loopA = $state<number | null>(null);
@@ -379,11 +414,12 @@
     const [st, p, v] = msg;
     const kind = st & 0xf0;
     if (kind === 0x90 && v > 0) {
+      if (calib) return calibTap();
       // parado y se empieza a tocar: arranca solo. Si lo siguiente que toca está cerca, desde ahí, como en espera (sigue
       // al completar esa nota o acorde, y cuenta); si queda lejos (una intro), desde donde estaba
       if (!player.playing && waiting == null && loaded && !loading) {
         const now = from();
-        practice.reset(now); // otra pasada desde aquí (si acabó, desde el principio)
+        practice.reset(now), (recent = []); // otra pasada desde aquí (si acabó, desde el principio)
         const next = practice.targets.find((x) => !x.skipped && x.t >= now - practice.tol);
         if (next && next.t - now <= 1) {
           if (now < 0.5) lessonResult = null;
@@ -392,10 +428,15 @@
         } else start(now);
       }
       // la fuerza solo cuenta con teclado MIDI (el del ordenador siempre toca igual)
-      const hit = practice.press(p, player.time(), waiting, input.connected ? v / 127 : undefined);
+      // Hora = al llegar el mensaje al JS. El callback de midir trae un sello en µs, pero con un origen propio que no se
+      // puede casar con el reloj de audio; el salto Rust→JS (Channel) son ~1 ms, bajo la ventana de 35 ms. Lo que de
+      // verdad pesa es la latencia fija teclado→oído: se resta la calibrada.
+      const hit = practice.press(p, player.time() - settings.latencyMs / 1000, waiting, input.connected ? v / 127 : undefined);
       if (!hit && arr) ((wrongAt(bars(), barAt(player.time())), (zonesDirty = true)));
       const forceOff = hit?.vel != null && hit.v != null && Math.abs(hit.vel - hit.v) > VEL_TOL;
-      pressed.set(p, !hit ? "#ff7a6b" : forceOff ? "#f6c84a" : "#9bd37f");
+      const tm = hit?.err != null ? judge(hit.err) : null;
+      if (tm && !(waiting != null && Math.abs(hit!.err!) > practice.tol)) recent = [...recent.slice(-15), Math.round(1000 * hit!.err!)];
+      pressed.set(p, !hit ? "#ff7a6b" : tm && tm !== "ontime" && tm !== "near" ? TIMING_COLOR[tm] : forceOff ? "#f6c84a" : "#9bd37f");
       if (!input.connected) voices.set(p, voice(player.ctx, p, v / 127)); // sin piano, que suene aquí
       // en espera: con todo el grupo tocado, sigue
       if (waiting != null && practice.blocking(waiting) == null && !practice.released(waiting, held)) {
@@ -433,7 +474,7 @@
     if (at < 0.5) lessonResult = null;
     player.seek(at);
     time = at;
-    practice.reset(at);
+    practice.reset(at), (recent = []);
     waiting = null;
     player.play();
     playing = true;
@@ -444,7 +485,7 @@
     player.seek(t);
     time = t;
     waiting = null;
-    practice.reset(t);
+    practice.reset(t), (recent = []);
   }
 
   function setLoop(which: "a" | "b") {
@@ -638,9 +679,9 @@
 
 {#snippet controls()}
   <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !loaded} ontoggle={toggle} onseek={seek}>
-    <button class="ghost" class:on={loopA != null} onclick={() => setLoop("a")} title="Inicio del bucle aquí">A</button>
-    <button class="ghost" class:on={loopB != null} onclick={() => setLoop("b")} title="Final del bucle aquí">B</button>
-    <button class="ghost" class:on={loop} disabled={loopA == null || loopB == null} onclick={() => (loop = !loop)} title="Repetir de A a B">Bucle</button>
+    <button class="ghost sm" class:on={loopA != null} onclick={() => setLoop("a")} title="Inicio del bucle aquí">A</button>
+    <button class="ghost sm" class:on={loopB != null} onclick={() => setLoop("b")} title="Final del bucle aquí">B</button>
+    <button class="ghost sm" class:on={loop} disabled={loopA == null || loopB == null} onclick={() => (loop = !loop)} title="Repetir de A a B">Bucle</button>
   </Transport>
 {/snippet}
 
@@ -650,7 +691,7 @@
       <div class="grp" title="Dificultad: {LEVELS[o.level - 1][1]}">
         <span class="lbl">Nivel</span>
         <div class="seg">{#each ARRANGED as n (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={LEVELS[n - 1][1]}>{levelLabel(n)}</button>{/each}</div>
-        <button class="ghost small" class:on={o.level === 5} onclick={() => (o.level = 5)} title={LEVELS[4][1]}>Original</button>
+        <button class="ghost sm" class:on={o.level === 5} onclick={() => (o.level = 5)} title={LEVELS[4][1]}>Original</button>
       </div>
       {#if o.level !== 5}
         <div class="grp" title="Cómo acompaña el arreglo: arpegios y bajo-acorde clásicos, o el ritmo y las octavas del pop">
@@ -671,7 +712,7 @@
       </div>
     {/if}
     <div class="grp">
-      <label title="La canción se para hasta que tocas la nota que toca, y solo sigue mientras la mantienes"><input type="checkbox" bind:checked={o.wait} onchange={() => practice.reset(time)} /> Espera</label>
+      <label title="La canción se para hasta que tocas la nota que toca, y solo sigue mientras la mantienes"><input type="checkbox" bind:checked={o.wait} onchange={() => (practice.reset(time), (recent = []))} /> Espera</label>
       <label title="Más lento para aprender: todo a ese tempo (de una canción, a tempo reducido suena solo la guía)">
         <span class="lbl">Tempo</span>
         <select value={String(o.speed)} onchange={(e) => (o.speed = +e.currentTarget.value)}>
@@ -686,10 +727,22 @@
       </div>
     </div>
     <div class="grp more-wrap">
-      <button class="ghost small" class:on={o.more} onclick={() => (o.more = !o.more)} title="Teclado, melodía, tonalidad, volúmenes…">Ajustes {o.more ? "▴" : "▾"}</button>
+      <button class="ghost sm" class:on={o.more} onclick={() => (o.more = !o.more)} title="Teclado, melodía, tonalidad, volúmenes…">Ajustes {o.more ? "▴" : "▾"}</button>
       {#if o.more}
-        <div class="more-pop">
+        <div class="pop more-pop">
           <div class="row opts"><InputBar /></div>
+          <div class="row opts">
+            <label>
+              Latencia (ms)
+              <input type="number" min="0" max="300" step="5" bind:value={settings.latencyMs} onchange={saveSettings} style="width: 70px" />
+            </label>
+            {#if calib}
+              <span class="muted">Toca una tecla con cada clic: {calib.taps.length}/16</span>
+              <button class="ghost sm" onclick={() => (calib = null)}>Cancelar</button>
+            {:else}
+              <button class="ghost sm" onclick={calibrate} title="Suenan clics: toca una tecla a la vez que cada uno, 16 veces. La mediana del desfase es la latencia del teclado y del sonido.">Calibrar</button>
+            {/if}
+          </div>
           <div class="row opts">
             {#if piece && !exercise}
               <label>
@@ -699,7 +752,7 @@
                   <option value="no">acordes (solo acompañamiento)</option>
                 </select>
               </label>
-              <button class="ghost small" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
+              <button class="ghost sm" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
             {:else if !piece}
               <label>
                 Melodía
@@ -730,7 +783,7 @@
             <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
             {#if detail && !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
           </div>
-          {#if exercise}<p class="about">{exercise.about}</p>{/if}
+          {#if exercise}<p class="hint about">{exercise.about}</p>{/if}
         </div>
       {/if}
     </div>
@@ -739,21 +792,21 @@
 
 <div class="learn" class:nolist={!o.list}>
   <aside>
-    <header>
+    <header class="side-head">
       {#if lessonPractice}
-        <button class="primary" onclick={backToLesson} title="Volver a la lección, al paso donde estabas">← Lección</button>
+        <button class="primary sm" onclick={backToLesson} title="Volver a la lección, al paso donde estabas">← Lección</button>
       {:else}
-        <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
+        <button class="ghost sm" onclick={onback} title="Volver al menú">← Menú</button>
       {/if}
       <strong>Aprender</strong>
     </header>
-    <div class="tabs">
+    <div class="seg wide">
       <button class:on={o.tab === "canciones"} onclick={() => (o.tab = "canciones")}>Canciones</button>
       <button class:on={o.tab === "piezas"} onclick={() => (o.tab = "piezas")}>Mis piezas</button>
       <button class:on={o.tab === "ejercicios"} onclick={() => (o.tab = "ejercicios")}>Ejercicios</button>
       <button class:on={o.tab === "obras"} onclick={() => (o.tab = "obras")}>Obras</button>
     </div>
-    <input type="search" placeholder="Buscar…" bind:value={query} />
+    <div class="find"><SearchInput placeholder="Buscar…" bind:value={query} /></div>
     <div class="list">
       {#if o.tab === "obras"}
         {#each OBRA_LEVELS as [lv, label] (lv)}
@@ -774,11 +827,11 @@
           <select value={o.exKey} onchange={(e) => (o.exKey = +e.currentTarget.value)} title="Tonalidad de los ejercicios">
             {#each Array.from({ length: 12 }, (_, i) => i) as t (t)}<option value={t}>{keyName({ tonic: t, minor: o.exMinor }, notation.latin).split(" ")[0]}</option>{/each}
           </select>
-          <div class="seg mini">
+          <div class="seg">
             <button class:on={!o.exMinor} onclick={() => (o.exMinor = false)}>mayor</button>
             <button class:on={o.exMinor} onclick={() => (o.exMinor = true)}>menor</button>
           </div>
-          <div class="seg mini" title="Con qué mano (los de dos manos, siempre juntas)">
+          <div class="seg" title="Con qué mano (los de dos manos, siempre juntas)">
             <button class:on={o.exHands === "rh"} onclick={() => (o.exHands = "rh")}>Der.</button>
             <button class:on={o.exHands === "lh"} onclick={() => (o.exHands = "lh")}>Izq.</button>
             <button class:on={o.exHands === "both"} onclick={() => (o.exHands = "both")}>Juntas</button>
@@ -798,8 +851,8 @@
         {/each}
       {:else if o.tab === "piezas"}
         <div class="add">
-          <button class="ghost" onclick={() => newOrImport("new")} title="Escribirla en el editor (con el piano o el ratón)">＋ Nueva</button>
-          <button class="ghost" onclick={() => newOrImport("import")} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl)">Importar…</button>
+          <button class="ghost sm" onclick={() => newOrImport("new")} title="Escribirla en el editor (con el piano o el ratón)">＋ Nueva</button>
+          <button class="ghost sm" onclick={() => newOrImport("import")} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl)">Importar…</button>
         </div>
         {#each piecesShown as pc (pc.id)}
           <div class="item piece" class:on={piece?.id === pc.id}>
@@ -807,8 +860,8 @@
               <span>{pc.title}</span>
               <small>{pc.notes.length} notas · {pc.bpm} bpm</small>
             </button>
-            <button class="icon-btn" onclick={() => (reset(), (editing = pc))} title="Editar" aria-label="Editar">✎</button>
-            <button class="icon-btn" onclick={() => removePiece(pc)} title="Borrar" aria-label="Borrar">✕</button>
+            <button class="icon-btn sm" onclick={() => (reset(), (editing = pc))} title="Editar" aria-label="Editar">✎</button>
+            <button class="icon-btn sm" onclick={() => removePiece(pc)} title="Borrar" aria-label="Borrar">✕</button>
           </div>
         {:else}
           <p class="muted empty">Escribe una con «＋ Nueva» (tocando en el piano o con el ratón) o importa un MIDI o MusicXML.</p>
@@ -833,10 +886,10 @@
         {#if lessonResult != null}
           <span class="res"><span class="stars">{"★".repeat(stars(lessonResult))}{"☆".repeat(3 - stars(lessonResult))}</span> {Math.round(lessonResult * 100)} %
             {lessonResult >= lessonPractice.goal ? "· ¡Objetivo cumplido!" : "· casi: otra vuelta"}</span>
-          <button class="ghost small" onclick={() => (seek(0), toggle())}>Otra vez</button>
+          <button class="ghost sm" onclick={() => (seek(0), toggle())}>Otra vez</button>
         {/if}
         <span class="grow"></span>
-        <button class="primary small" onclick={backToLesson}>← Volver a la lección</button>
+        <button class="primary sm" onclick={backToLesson}>← Volver a la lección</button>
       </div>
     {/if}
     {#if editing}
@@ -844,16 +897,25 @@
         onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
     {:else}
     <div class="row titlebar">
-      <button class="ghost icon" onclick={() => (o.list = !o.list)} title={o.list ? "Ocultar la lista (más sitio)" : "Mostrar la lista"}>{o.list ? "⇤" : "☰"}</button>
+      <button class="ghost sm" onclick={() => (o.list = !o.list)} title={o.list ? "Ocultar la lista (más sitio)" : "Mostrar la lista"}>{o.list ? "⇤" : "☰"}</button>
       {#if loaded}<strong class="ptitle" title={title}>{title}</strong>{#if keyText}<small class="muted mono">{keyText}</small>{/if}{/if}
       <span class="grow"></span>
       {#if loaded}
-        <span class="mono score" title="Notas acertadas de las que ya tocaban · notas equivocadas · adelanto (−) o retraso (+) medio">
-          {stats.hits}/{stats.due} · {stats.wrong} fallos{stats.hits ? ` · ${stats.ms > 0 ? "+" : ""}${stats.ms} ms` : ""}{#if stats.force != null}<span
+        <span class="mono score" title="Notas acertadas de las que ya tocaban · notas equivocadas · sesgo medio, adelanto (−) o retraso (+): se arregla calibrando · dispersión (±): lo que mejora al practicar">
+          {stats.hits}/{stats.due} · {stats.wrong} fallos{stats.hits ? ` · ${stats.ms > 0 ? "+" : ""}${stats.ms} ms · ±${stats.sd}` : ""}{#if stats.force != null}<span
               class="force" class:off={Math.abs(stats.force) > 20}
               title="Fuerza: de media, cuánto más fuerte (+) o flojo (−) que lo que pide (de 127); en amarillo, las notas que se pasan">
               · fuerza {stats.force > 0 ? "+" : ""}{stats.force}{stats.offForce ? ` (${stats.offForce} muy ${stats.force > 0 ? "fuertes" : "flojas"})` : ""}</span>{/if}
         </span>
+      {/if}
+      {#if loaded && recent.length}
+        <svg class="strip" viewBox="-150 -8 300 16" preserveAspectRatio="none" aria-label="Tiempo de las últimas notas">
+          <line x1="0" x2="0" y1="-8" y2="8" class="mid" />
+          {#each recent as ms, i (i)}
+            {@const k = judge(ms / 1000)}
+            <line x1={Math.max(-148, Math.min(148, ms))} x2={Math.max(-148, Math.min(148, ms))} y1="-6" y2="6" class="tick {k}" opacity={0.3 + 0.7 * ((i + 1) / recent.length)} />
+          {/each}
+        </svg>
       {/if}
       <span class="dot" class:on={!!input.connected} title={input.connected ? `Teclado: ${input.connected}` : "Sin teclado MIDI: se toca con el del ordenador (en Ajustes)"}></span>
     </div>
@@ -867,7 +929,7 @@
             {STEM_INFO[o.melody]?.label ?? o.melody} sin notas todavía:
             {#if notesJob}sacándolas ({jobText(notesJob)}); la derecha lleva acordes mientras{:else}la derecha lleva acordes{/if}
           </small>
-          {#if !notesJob}<button class="ghost small" onclick={() => pickMelody(o.melody)}>Sacar sus notas</button>{/if}
+          {#if !notesJob}<button class="ghost sm" onclick={() => pickMelody(o.melody)}>Sacar sus notas</button>{/if}
         {/if}
       </div>
     {/if}
@@ -901,19 +963,19 @@
           <div class="row zones">
             {#if activeZone}
               <span>Practicando c. {activeZone.from + 1}{activeZone.to > activeZone.from ? `–${activeZone.to + 1}` : ""} al {Math.round(o.speed * 100)} %</span>
-              {#if suggestUp}<button class="primary small" onclick={() => ((o.speed = Math.min(1, Math.round((o.speed + 0.1) * 10) / 10)), (suggestUp = false))}>Te sale: subir a {Math.round(Math.min(1, o.speed + 0.1) * 100)} %</button>{/if}
-              <button class="ghost small" onclick={() => ((activeZone = null), (loop = false), (suggestUp = false))}>Dejar el pasaje</button>
+              {#if suggestUp}<button class="primary sm" onclick={() => ((o.speed = Math.min(1, Math.round((o.speed + 0.1) * 10) / 10)), (suggestUp = false))}>Te sale: subir a {Math.round(Math.min(1, o.speed + 0.1) * 100)} %</button>{/if}
+              <button class="ghost sm" onclick={() => ((activeZone = null), (loop = false), (suggestUp = false))}>Dejar el pasaje</button>
             {:else}
               <span class="muted">Zonas difíciles:</span>
               {#each zones as z (z.from)}
-                <button class="ghost small" onclick={() => practiceZone(z)} title="{z.tries} notas tocadas ahí">
+                <button class="ghost sm" onclick={() => practiceZone(z)} title="{z.tries} notas tocadas ahí">
                   c. {z.from + 1}{z.to > z.from ? `–${z.to + 1}` : ""} · {Math.round(z.acc * 100)} % · Practicar
                 </button>
               {:else}
                 <span class="muted">ninguna por ahora</span>
               {/each}
               <span class="grow"></span>
-              <button class="ghost small" class:danger={confirmReset} onclick={resetZones}
+              <button class="ghost sm" class:danger={confirmReset} onclick={resetZones}
                 title="Borra lo apuntado de esta pieza en este nivel, melodía y manos (lo demás se queda)">
                 {confirmReset ? "¿Seguro? Clic otra vez" : "Reiniciar zonas"}
               </button>
@@ -924,7 +986,7 @@
       </div>
     {:else if !error}
       <div class="welcome"><h1>Elige una canción<br />y <em>tócala</em>.</h1>
-        <p class="muted">Melodía y acompañamiento para piano, del nivel 1 al 5. Con el teclado MIDI o el del ordenador.</p></div>
+        <p class="hint">Melodía y acompañamiento para piano, del nivel 1 al 5. Con el teclado MIDI o el del ordenador.</p></div>
     {/if}
     {/if}
   </main>
@@ -935,76 +997,63 @@
   .learn.nolist { grid-template-columns: 0 1fr; }
   .learn.nolist > aside { visibility: hidden; overflow: hidden; }
   .titlebar { gap: 12px; }
-  .titlebar .icon { padding: 3px 9px; }
   .titlebar small { font-size: 11.5px; }
   .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
   .grp { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-left: 1px solid var(--line); }
   .grp:first-child { border-left: 0; padding-left: 0; }
-  .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
-  .toolbar .seg button { padding: 3px 9px; }
-  .toolbar button.on { border-color: var(--accent); color: var(--text); }
+  .lbl { font-size: 11px; color: var(--text-3); }
   .more-wrap { position: relative; }
-  .more-pop {
-    position: absolute; left: 0; top: calc(100% + 8px); z-index: 70; width: min(560px, 80vw); display: flex; flex-direction: column; gap: 10px;
-    padding: 12px 14px; border-radius: 12px; background: var(--panel-hi); border: 1px solid var(--line); box-shadow: 0 12px 32px #0009;
-  }
+  .more-pop { position: absolute; left: 0; top: calc(100% + 8px); z-index: 70; width: min(560px, 80vw); }
   .titlebar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
-  .titlebar .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .titlebar .dot.on { background: var(--ok); }
   aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; gap: 8px; padding-bottom: 8px; }
-  aside header { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
-  aside strong { font-family: var(--serif); font-weight: 400; font-size: 24px; }
-  aside input { margin: 0 10px; }
+  aside > .seg { margin: 0 10px; }
+  .find { padding: 0 10px; }
   .list { overflow-y: auto; padding: 0 8px; display: flex; flex-direction: column; gap: 2px; }
-  .item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 0; background: none; color: var(--text); text-align: left; }
-  .item:hover { background: var(--panel); }
-  .item.on { background: var(--panel-hi); box-shadow: inset 2px 0 0 var(--accent); }
-  .item small { color: var(--text-3); font-size: 11.5px; }
-  .empty { padding: 12px; font-size: 13px; }
-  .lesson-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 12px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); font-size: 13px; flex-shrink: 0; }
-  .lesson-bar.passed { background: color-mix(in srgb, var(--ok) 18%, var(--panel)); border-color: var(--ok); }
+  .empty { padding: 10px; font-size: 12px; }
+  .lesson-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-radius: var(--radius); flex-shrink: 0; font-size: 12.5px;
+    background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  }
+  .lesson-bar.passed { border-color: var(--ok); }
   .lesson-bar .stars { color: var(--accent); letter-spacing: 2px; }
-  .tabs { display: flex; margin: 0 10px; padding: 3px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
-  .tabs button { flex: 1; padding: 5px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12.5px; }
-  .tabs button.on { background: var(--panel-hi); color: var(--text); }
   .add { display: flex; gap: 6px; padding: 2px 4px 8px; }
-  .add button { flex: 1; padding: 6px 8px; font-size: 12.5px; }
-  .piece { flex-direction: row !important; align-items: center !important; padding: 0 4px 0 0 !important; }
-  .piece .open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; border: 0; background: none; color: var(--text); text-align: left; min-width: 0; }
-  .piece .open small { color: var(--text-3); font-size: 11.5px; }
-  .ptitle { font-family: var(--serif); font-weight: 400; font-size: 20px; color: var(--text); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .add button { flex: 1; }
+  .piece { flex-direction: row; align-items: center; padding: 0 4px 0 0; }
+  .piece .open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 10px; border: 0; background: none; color: var(--text); text-align: left; min-width: 0; }
+  .piece .open small { color: var(--text-3); font-size: 11px; }
+  .ptitle { font-size: 14px; font-weight: 600; color: var(--text); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .exopts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 8px; align-items: center; }
-  .exopts select { font-size: 12px; padding: 4px 6px; }
-  .seg.mini button { padding: 3px 7px; font-size: 11.5px; }
+  .exopts select { font-size: 12px; padding: 3px 6px; }
   .lvl { padding: 10px 8px 4px; }
-  .about { margin: 0; max-width: 900px; font-size: 13px; color: var(--text-2); line-height: 1.5; flex-shrink: 0; }
+  .about { max-width: 900px; line-height: 1.5; flex-shrink: 0; }
 
-  main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 24px 16px; }
+  main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 24px 16px; }
   .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
-  .opts { font-size: 12.5px; color: var(--text-2); }
+  .opts { font-size: 12px; color: var(--text-2); }
   .opts label { display: flex; align-items: center; gap: 6px; }
-  .opts select { font-size: 12px; padding: 4px 8px; }
+  .opts select { font-size: 12px; padding: 3px 8px; }
   .opts input[type="range"] { width: 90px; }
-  .grow { flex: 1; }
   .score { font-size: 12px; color: var(--text-2); }
+  .strip { width: 110px; height: 14px; flex-shrink: 0; }
+  .strip .mid { stroke: var(--text-3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .strip .tick { stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .tick.ontime, .tick.near { stroke: var(--ok); }
+  .tick.early { stroke: var(--early); }
+  .tick.late { stroke: var(--late); }
 
   .note-warn { color: var(--accent); display: inline-flex; align-items: center; gap: 6px; }
   .inline { width: 12px; height: 12px; }
-  .force.off { color: #f6c84a; }
-  .zonemap { display: flex; gap: 1px; height: 10px; margin-bottom: 6px; }
+  .force.off { color: var(--warn); }
+  .zonemap { display: flex; gap: 1px; height: 8px; margin-bottom: 6px; }
   .zonemap button { flex: 1; min-width: 2px; padding: 0; border: 0; border-radius: 2px; opacity: 0.75; cursor: pointer; }
   .zonemap button:hover, .zonemap button.now { opacity: 1; outline: 1px solid var(--text); }
   .zonemap button.loop { opacity: 1; box-shadow: 0 -3px 0 var(--accent); }
-  .zones { margin-bottom: 6px; font-size: 12.5px; }
-  .zones .grow { flex: 1; }
-  .zones .danger { border-color: #ff7a6b; color: #ff7a6b; }
-  .small { padding: 3px 10px; font-size: 12px; }
-  .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
-  .seg button { padding: 4px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12px; }
-  .seg button.on { background: var(--panel-hi); color: var(--text); }
+  .zones { margin-bottom: 6px; font-size: 12px; }
+  .zones .danger { border-color: var(--bad); }
   .bottom { flex-shrink: 0; }
   .msg { margin: auto; }
   .welcome { margin: auto; text-align: center; }
-  .welcome h1 { font-family: var(--serif); font-weight: 400; font-size: 60px; line-height: 0.95; margin: 0 0 12px; }
-  .welcome em { color: var(--accent); }
-  :global(.transport button.on) { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .welcome h1 { font-size: 28px; margin: 0 0 12px; }
+  .welcome em { font-style: normal; color: var(--accent); }
 </style>

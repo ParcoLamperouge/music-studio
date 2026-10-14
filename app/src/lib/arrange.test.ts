@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { arrange, easyTranspose, fifths, fromBeat, melodyLine, Practice, toBeat, toMusicXML, toSeconds } from "./arrange.ts";
+import { arrange, judge, median, easyTranspose, fifths, fromBeat, melodyLine, Practice, toBeat, toMusicXML, toSeconds } from "./arrange.ts";
 import type { Chord, Note } from "./harmony.ts";
 
 // pulsos a 120 bpm empezando en 1 s
@@ -190,3 +190,13 @@ assert.deepEqual(arrange({ ...base, melody: null, level: 5, bass: [[1, 2, 40, 0.
   assert.ok(acc.rh.every((n) => Math.abs(((n.b - acc.start) * 2) % 1) < 1e-6), "acordes en corcheas");
 }
 console.log("acompañamiento ok");
+
+// tiempo: ventanas y estadística (sesgo y dispersión por separado)
+assert.deepEqual([0, 0.035, -0.05, 0.075, -0.1, 0.2].map(judge), ["ontime", "ontime", "near", "near", "early", "late"]);
+assert.equal(median([5, 1, 3]), 3);
+assert.equal(median([1, 2, 3, 10]), 2.5);
+const tm = new Practice([{ t: 1, p: 60, hand: "rh" }, { t: 2, p: 62, hand: "rh" }]);
+tm.press(60, 1.04);
+tm.press(62, 2.08);
+assert.deepEqual([tm.stats(3).ms, tm.stats(3).sd], [60, 20]);
+console.log("tiempo ok");

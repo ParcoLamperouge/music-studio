@@ -481,6 +481,15 @@ export type Target = { t: number; e?: number; p: number; v?: number; hand: Hand;
 /** Diferencia de fuerza a partir de la que se avisa (en 0-1; unas 30 de 127). */
 export const VEL_TOL = 0.25;
 
+/** Cómo de a tiempo: ±35 ms «a tiempo», ±75 «casi»; más allá, adelantado (err < 0) o atrasado. `err` en segundos. */
+export type Timing = "ontime" | "near" | "early" | "late";
+export const judge = (err: number): Timing => (Math.abs(err) <= 0.035 ? "ontime" : Math.abs(err) <= 0.075 ? "near" : err < 0 ? "early" : "late");
+/** Mediana (para calibrar la latencia: aguanta algún toque despistado). */
+export const median = (xs: number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? (s[s.length >> 1] + s[(s.length - 1) >> 1]) / 2 : 0;
+};
+
 /** Lo que hay que tocar y lo que se va tocando. `tol`: segundos de margen antes y después de cada nota. */
 export class Practice {
   targets: Target[];
@@ -545,12 +554,15 @@ export class Practice {
     const hits = due.filter((x) => x.hit);
     const errs = hits.filter((x) => x.err != null).map((x) => x.err!);
     // fuerza: lo que se tocó menos lo que pedía, de media (+ más fuerte), y cuántas se pasaron del margen
+    const mean = errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
+    const sd = errs.length ? Math.sqrt(errs.reduce((a, b) => a + (b - mean) ** 2, 0) / errs.length) : 0;
     const dyn = hits.filter((x) => x.vel != null && x.v != null).map((x) => x.vel! - x.v!);
     return {
       due: due.length,
       hits: hits.length,
       wrong: this.wrong,
-      ms: errs.length ? Math.round((1000 * errs.reduce((a, b) => a + b, 0)) / errs.length) : 0,
+      ms: Math.round(1000 * mean), // sesgo (calibración)
+      sd: Math.round(1000 * sd), // dispersión (lo que se mejora)
       force: dyn.length ? Math.round((127 * dyn.reduce((a, b) => a + b, 0)) / dyn.length) : null,
       offForce: dyn.filter((d) => Math.abs(d) > VEL_TOL).length,
     };

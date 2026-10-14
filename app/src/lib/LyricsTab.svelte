@@ -177,7 +177,7 @@
             {:else}—{/if}
           </dd>
         </dl>
-        {#if doubts && !doc.edited}<p class="warn">{doubts} líneas con palabras dudosas: revísalas en el editor.</p>{/if}
+        {#if doubts && !doc.edited}<p class="hint warn">{doubts} líneas con palabras dudosas: revísalas en el editor.</p>{/if}
       </div>
 
       {#if active}
@@ -191,28 +191,28 @@
       {/if}
 
       <div class="actions">
-        <button class="primary" onclick={() => (editing = true)}>Editar <kbd>E</kbd></button>
-        <button class="ghost" disabled={!!active || !canFast} onclick={() => act("sync", ["lineas"])} title="No toca el inicio de ninguna línea: el audio coloca cada palabra entre el inicio de su línea y el de la siguiente. Instantáneo.">Dentro de cada línea</button>
-        <button class="ghost" disabled={!!active} onclick={() => act("sync", ["ia"])} title="No usa los tiempos por línea: Whisper escucha el audio y alinea tu texto letra a letra. Para arreglar una sincronización liada.">Desde el audio</button>
-        <button class="ghost" disabled={!!active} onclick={() => confirm("Buscar la letra otra vez en internet. La actual va al historial.") && act("letra", ["force"])}>Buscar otra vez</button>
-        <button class="ghost" disabled={!!active || !detail.history} onclick={restore} title="Deshace la última sincronización o búsqueda">Volver a la anterior{detail.history > 1 ? ` (${detail.history})` : ""}</button>
+        <button class="primary sm" onclick={() => (editing = true)}>Editar <kbd>E</kbd></button>
+        <button class="ghost sm" disabled={!!active || !canFast} onclick={() => act("sync", ["lineas"])} title="No toca el inicio de ninguna línea: el audio coloca cada palabra entre el inicio de su línea y el de la siguiente. Instantáneo.">Dentro de cada línea</button>
+        <button class="ghost sm" disabled={!!active} onclick={() => act("sync", ["ia"])} title="No usa los tiempos por línea: Whisper escucha el audio y alinea tu texto letra a letra. Para arreglar una sincronización liada.">Desde el audio</button>
+        <button class="ghost sm" disabled={!!active} onclick={() => confirm("Buscar la letra otra vez en internet. La actual va al historial.") && act("letra", ["force"])}>Buscar otra vez</button>
+        <button class="ghost sm" disabled={!!active || !detail.history} onclick={restore} title="Deshace la última sincronización o búsqueda">Volver a la anterior{detail.history > 1 ? ` (${detail.history})` : ""}</button>
       </div>
 
       <div class="card offsets">
         <span class="kicker">Desfase</span>
         <div class="nudge">
           <span>Todo</span>
-          <button class="ghost" onclick={() => nudge("offset", -0.1)}>−0.1</button>
+          <button class="ghost sm" onclick={() => nudge("offset", -0.1)}>−0.1</button>
           <b class="mono">{off > 0 ? "+" : ""}{off.toFixed(2)} s</b>
-          <button class="ghost" onclick={() => nudge("offset", 0.1)}>+0.1</button>
+          <button class="ghost sm" onclick={() => nudge("offset", 0.1)}>+0.1</button>
         </div>
         <div class="nudge">
           <span>Palabras</span>
-          <button class="ghost" onclick={() => nudge("word_offset", -0.05)}>−0.05</button>
+          <button class="ghost sm" onclick={() => nudge("word_offset", -0.05)}>−0.05</button>
           <b class="mono">{(doc.word_offset ?? 0) > 0 ? "+" : ""}{(doc.word_offset ?? 0).toFixed(2)} s</b>
-          <button class="ghost" onclick={() => nudge("word_offset", 0.05)}>+0.05</button>
+          <button class="ghost sm" onclick={() => nudge("word_offset", 0.05)}>+0.05</button>
         </div>
-        <small>Se aplica igual en la partitura y en los edits.</small>
+        <small class="hint">Se aplica igual en la partitura y en los edits.</small>
       </div>
       <div class="card desk">
         <span class="kicker">Escritorio y biblioteca</span>
@@ -244,53 +244,50 @@
 {/if}
 
 <style>
-  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 300px; gap: 18px; }
+  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
   .karaoke {
     min-height: 0; overflow-y: auto; padding: 0 10px; scroll-behavior: smooth;
     mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
   }
   .pad { height: 40%; }
   .line {
-    display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 4px; margin: 0;
-    font-family: var(--serif); font-size: 30px; line-height: 1.15; color: var(--text-3); transition: color 0.3s, transform 0.4s var(--ease), opacity 0.3s;
-    transform-origin: left center;
+    display: block; width: 100%; text-align: left; border: 0; background: none; padding: 5px 4px; margin: 0;
+    font-size: 20px; line-height: 1.3; letter-spacing: -0.02em; color: var(--text-3);
+    transition: color 0.3s, transform 0.4s var(--ease), opacity 0.3s; transform-origin: left center;
   }
   .line:disabled { cursor: default; }
   .line:hover:not(:disabled) { color: var(--text-2); }
   .line.past { opacity: 0.45; }
-  .line.now { color: var(--text); transform: scale(1.12); padding: 14px 4px; }
+  .line.now { color: var(--text); transform: scale(1.08); padding: 12px 4px; font-weight: 600; }
   .dim .line.next { color: var(--text-2); }
   .w {
     background: linear-gradient(90deg, var(--accent) calc(var(--p) * 100%), var(--text) calc(var(--p) * 100%));
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .w.doubt { text-decoration: underline wavy color-mix(in srgb, #ffc23d 70%, transparent) 1px; text-underline-offset: 6px; }
-  .gap { height: 26px; }
+  .w.doubt { text-decoration: underline wavy color-mix(in srgb, var(--warn) 70%, transparent) 1px; text-underline-offset: 6px; }
+  .gap { height: 22px; }
 
-  .info { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; }
-  .card { padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+  .info { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; }
   .card.busy { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-  .card.busy p { margin: 4px 0 8px; font-size: 13px; }
-  .big { margin: 4px 0 10px; font-size: 15px; line-height: 1.3; }
-  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+  .card.busy p { margin: 4px 0 8px; font-size: 12.5px; }
+  .card > .error-text { margin: 0; }
+  .big { margin: 4px 0 10px; font-size: 14px; font-weight: 600; line-height: 1.3; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12px; }
   dt { color: var(--text-3); }
   dd { margin: 0; color: var(--text-2); }
-  .warn { margin: 10px 0 0; font-size: 12.5px; color: #ffc23d; }
+  .warn { margin-top: 10px; color: var(--warn); }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; }
-  .actions button { font-size: 12.5px; }
   .offsets { display: flex; flex-direction: column; gap: 8px; }
-  .nudge { display: grid; grid-template-columns: 64px auto 1fr auto; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
-  .nudge .ghost { padding: 3px 8px; font-size: 12px; }
+  .nudge { display: grid; grid-template-columns: 64px auto 1fr auto; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
   .nudge b { text-align: center; font-weight: 500; color: var(--text); }
-  .offsets small { color: var(--text-3); font-size: 11.5px; }
   .spot { color: #1ed760; }
-  .desk { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  .desk { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
   .desk label { display: flex; gap: 8px; align-items: center; color: var(--text-2); }
-  .desk textarea { resize: vertical; font-size: 12.5px; }
+  .desk textarea { resize: vertical; font-size: 12px; }
 
-  .empty { margin: auto; text-align: center; max-width: 560px; padding: 40px 0; animation: rise 0.35s var(--ease); }
-  .empty h2 { margin: 0 0 8px; font-family: var(--serif); font-weight: 400; font-size: 38px; }
-  .empty p { color: var(--text-2); margin: 0 0 18px; }
+  .empty { margin: auto; text-align: center; max-width: 560px; padding: 40px 0; }
+  .empty h2 { margin-bottom: 8px; }
+  .empty p { color: var(--text-3); font-size: 12.5px; margin: 0 0 16px; }
   .jobline { display: inline-flex; gap: 10px; align-items: center; color: var(--text-2); }
   .assign { display: flex; gap: 8px; justify-content: center; }
 </style>

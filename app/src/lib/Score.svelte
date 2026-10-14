@@ -188,7 +188,7 @@
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && fullscreen && setFullscreen(false)} />
 
-<section class="score" class:fs={fullscreen}>
+<section class="card score" class:fs={fullscreen}>
   <header>
     <div class="title">
       {#each stems as s (s.name)}<span class="dot" style:--c={STEM_INFO[s.name].color}></span>{/each}
@@ -199,12 +199,12 @@
       <label title="Desplazar la partitura para seguir la reproducción">
         <input type="checkbox" bind:checked={follow} /> Seguir
       </label>
-      <button class="ghost" onclick={() => setZoom(zoom - 0.1)} aria-label="Alejar">−</button>
+      <button class="ghost sm" onclick={() => setZoom(zoom - 0.1)} aria-label="Alejar">−</button>
       <span class="zoom">{Math.round(zoom * 100)}%</span>
-      <button class="ghost" onclick={() => setZoom(zoom + 0.1)} aria-label="Acercar">+</button>
-      <button class="ghost" onclick={exportPdf} disabled={!ready || exporting}>{exporting ? "Exportando…" : "PDF"}</button>
-      <button class="ghost" onclick={() => openPath(`${song.dir}/scores`)} title="MIDI, MusicXML y PDF">Carpeta</button>
-      <button class="ghost" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? "Salir (Esc)" : "Pantalla completa"}>
+      <button class="ghost sm" onclick={() => setZoom(zoom + 0.1)} aria-label="Acercar">+</button>
+      <button class="ghost sm" onclick={exportPdf} disabled={!ready || exporting}>{exporting ? "Exportando…" : "PDF"}</button>
+      <button class="ghost sm" onclick={() => openPath(`${song.dir}/scores`)} title="MIDI, MusicXML y PDF">Carpeta</button>
+      <button class="ghost sm" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? "Salir (Esc)" : "Pantalla completa"}>
         {fullscreen ? "Salir" : "Pantalla completa"}
       </button>
     </div>
@@ -219,18 +219,18 @@
 </section>
 
 <style>
-  .score { flex: 1; min-height: 240px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .score { flex: 1; min-height: 240px; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .title { display: flex; align-items: center; gap: 8px; }
-  .title small { color: var(--text-3); }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); }
+  .title strong { font-weight: 600; }
+  .title small { color: var(--text-3); font-size: 11.5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
   .tools { display: flex; align-items: center; gap: 6px; }
-  .tools button { padding: 6px 12px; }
   .tools label { display: flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 12px; margin-right: 6px; }
   .zoom { font-size: 12px; color: var(--text-2); min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
   .paper { flex: 1; min-height: 0; background: #f6f0e4; overflow: auto; padding: 8px 0; position: relative; }
   .loading { padding: 24px; color: var(--text-2); }
-  .error { color: #ff8a8a; padding: 0 14px; }
+  .error { color: var(--bad); padding: 0 14px; }
 
   .fs { position: fixed; inset: 0; z-index: 50; margin: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; }
   footer { padding: 12px 16px; border-top: 1px solid var(--line); }

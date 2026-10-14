@@ -50,9 +50,9 @@
 
 <style>
   .leds { display: inline-flex; gap: 3px; align-items: center; }
-  i { width: 14px; height: 4px; border-radius: 2px; background: #2b2420; transition: background 0.3s, box-shadow 0.3s; }
-  .lg i { width: 26px; height: 5px; }
-  i.on { background: var(--accent); box-shadow: 0 0 8px -1px color-mix(in srgb, var(--accent) 70%, transparent); }
+  i { width: 14px; height: 4px; border-radius: 2px; background: #2b2420; transition: background 0.3s; }
+  .lg i { width: 22px; height: 4px; }
+  i.on { background: var(--accent); }
   i.half { background: linear-gradient(90deg, var(--accent) 50%, #4a3a2c 50%); }
   i.busy { background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
   i.bad { background: var(--bad); }

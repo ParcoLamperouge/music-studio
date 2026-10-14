@@ -160,13 +160,20 @@ export const KEY_WEIGHTS = { fit: 1, home: 1, dom: 1, cad: 0.5, ends: 0.1, bass:
  * ella desde V, IV o (en menor) VII, si empieza o acaba en ella y cuánto toca el bajo su nota. Krumhansl sobre las notas de los acordes se iba a la
  * dominante en las canciones que alternan i–V (Rem–La salía La mayor). */
 export function keyFromChords(chords: Chord[], bass: Note[] = [], w = KEY_WEIGHTS): Key {
+  let best = { score: -Infinity, tonic: 0, minor: false };
+  for (const k of keyScores(chords, bass, w)) if (k.score > best.score + 1e-9) best = k;
+  return { tonic: best.tonic, minor: best.minor };
+}
+
+/** Puntuación de las 24 tonalidades (lo que keyFromChords compara); vacía si no hay acordes con duración. */
+export function keyScores(chords: Chord[], bass: Note[] = [], w = KEY_WEIGHTS): (Key & { score: number })[] {
   const total = chords.reduce((n, c) => n + c.end - c.t, 0);
-  if (!total) return { tonic: 0, minor: false };
+  if (!total) return [];
+  const out: (Key & { score: number })[] = [];
   const bp = new Array(12).fill(0);
   for (const [s, e, p] of bass) bp[p % 12] += e - s;
   const bt = bp.reduce((a, b) => a + b, 0);
   const changes = chords.filter((c, i) => i > 0 && c.root !== chords[i - 1].root);
-  let best = { score: -Infinity, tonic: 0, minor: false };
   for (let t = 0; t < 12; t++) {
     for (const minor of [false, true]) {
       const set = minor ? MINOR_SET : MAJOR_SET;
@@ -184,10 +191,10 @@ export function keyFromChords(chords: Chord[], bass: Note[] = [], w = KEY_WEIGHT
       }
       const ends = (chords[0].root === t ? 1 : 0) + (chords[chords.length - 1].root === t ? 1 : 0);
       const score = w.fit * fit + w.home * home + w.dom * dom + w.cad * (changes.length ? cad / changes.length : 0) + w.ends * ends + w.bass * (bt ? bp[t] / bt : 0);
-      if (score > best.score + 1e-9) best = { score, tonic: t, minor };
+      out.push({ tonic: t, minor, score });
     }
   }
-  return { tonic: best.tonic, minor: best.minor };
+  return out;
 }
 
 /** Tonalidad (Krumhansl-Kessler) de un perfil de clases de nota. */

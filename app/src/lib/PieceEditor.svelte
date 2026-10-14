@@ -663,7 +663,7 @@
 
 <section class="editor">
   <div class="row">
-    <button class="ghost" onclick={onclose} title="Volver a la lista (se guarda sola)">←</button>
+    <button class="ghost sm" onclick={onclose} title="Volver a la lista (se guarda sola)">←</button>
     <input class="title" bind:value={meta.title} placeholder="Título" />
     <label>Tempo <input type="number" min="30" max="260" bind:value={meta.bpm} /></label>
     <label>Compás
@@ -673,8 +673,8 @@
     <span class="grow"></span>
     {#if message}<small class="msg">{message}</small>{/if}
     {#if goSessions}
-      <button class="ghost small" onclick={onsessions}>Ir a Sesiones</button>
-      <button class="icon-btn" onclick={() => ((goSessions = false), (message = ""))} aria-label="Cerrar aviso">✕</button>
+      <button class="ghost sm" onclick={onsessions}>Ir a Sesiones</button>
+      <button class="icon-btn sm" onclick={() => ((goSessions = false), (message = ""))} aria-label="Cerrar aviso">✕</button>
     {/if}
     <span class="mono muted pos">{fmtPos(playhead)} · {notes.length} notas</span>
   </div>
@@ -685,7 +685,7 @@
     <button class="primary play" onclick={play} title="Reproducir o parar (Espacio)" aria-label={playing ? "Parar" : "Reproducir"}>
       <svg viewBox="0 0 24 24" width="16" height="16">{#if playing}<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" />{:else}<path d="M8 5l11 7-11 7z" fill="currentColor" />{/if}</svg>
     </button>
-    <button class="ghost rec" class:on={recording} onclick={record} title="Grabar en tiempo real: cuenta de un compás, metrónomo y lo que tocas al compás">● Grabar</button>
+    <button class="ghost sm rec" class:on={recording} onclick={record} title="Grabar en tiempo real: cuenta de un compás, metrónomo y lo que tocas al compás">● Grabar</button>
     <label title="Sin grabar: cada nota que tocas se escribe en el cursor con lo que la mantienes, y el cursor avanza"><input type="checkbox" bind:checked={stepInput} /> Paso a paso</label>
     <label><input type="checkbox" bind:checked={metronome} /> Metrónomo</label>
     <label title="Al grabar, cuadrar a la cuadrícula"><input type="checkbox" bind:checked={quantize} /> Cuadrar</label>
@@ -702,15 +702,15 @@
       <input type="range" min="0.05" max="1" step="0.01" value={velShown} onpointerdown={() => selected.size && remember()} oninput={(e) => setVel(+e.currentTarget.value)} />
       <span class="mono vel">{Math.round(velShown * 127)}</span>
     </label>
-    <button class="ghost" onclick={() => restore(undo, redo)} title="Deshacer (Ctrl+Z)">↶</button>
-    <button class="ghost" onclick={() => restore(redo, undo)} title="Rehacer (Ctrl+Y)">↷</button>
-    <button class="ghost" onclick={quantizeNotes} title="Cuadrar a la cuadrícula lo elegido, o todo (Ctrl+Q)">Cuadrar</button>
+    <button class="ghost sm" onclick={() => restore(undo, redo)} title="Deshacer (Ctrl+Z)">↶</button>
+    <button class="ghost sm" onclick={() => restore(redo, undo)} title="Rehacer (Ctrl+Y)">↷</button>
+    <button class="ghost sm" onclick={quantizeNotes} title="Cuadrar a la cuadrícula lo elegido, o todo (Ctrl+Q)">Cuadrar</button>
     <span class="grow"></span>
-    <button class="ghost" class:on={showScore} onclick={() => (showScore = !showScore)}>Partitura</button>
-    <button class="ghost" onclick={() => exportAs("mid")} title="Exportar a MIDI">MIDI</button>
-    <button class="ghost" onclick={() => exportAs("musicxml")} title="Exportar a MusicXML (MuseScore…)">MusicXML</button>
-    <button class="ghost" onclick={toSession} title="Pasarla a Sesiones (piano roll, acordes, análisis de Claude)">→ Sesión</button>
-    <button class="primary" onclick={() => onpractice(current())} disabled={!notes.length}>Practicar</button>
+    <button class="ghost sm" class:on={showScore} onclick={() => (showScore = !showScore)}>Partitura</button>
+    <button class="ghost sm" onclick={() => exportAs("mid")} title="Exportar a MIDI">MIDI</button>
+    <button class="ghost sm" onclick={() => exportAs("musicxml")} title="Exportar a MusicXML (MuseScore…)">MusicXML</button>
+    <button class="ghost sm" onclick={toSession} title="Pasarla a Sesiones (piano roll, acordes, análisis de Claude)">→ Sesión</button>
+    <button class="primary sm" onclick={() => onpractice(current())} disabled={!notes.length}>Practicar</button>
   </div>
 
   <div class="stage" bind:clientWidth={width} bind:clientHeight={height}>
@@ -735,26 +735,20 @@
 
 <style>
   .editor { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; font-size: 12.5px; color: var(--text-2); }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; font-size: 12px; color: var(--text-2); }
   .row label { display: flex; align-items: center; gap: 6px; }
-  .row input[type="number"] { width: 64px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; }
-  .row select { font-size: 12px; padding: 4px 8px; }
-  .title { font-family: var(--serif); font-size: 22px; padding: 2px 8px !important; width: 320px; }
-  .grow { flex: 1; }
+  .row input[type="number"] { width: 64px; }
+  .row select { font-size: 12px; }
+  .title { font-size: 15px; font-weight: 600; width: 300px; }
   .msg { color: var(--accent); }
-  .small { padding: 3px 10px; font-size: 12px; }
   .vel { font-size: 11px; min-width: 24px; }
   .row input[type="range"] { width: 90px; }
   .pos { font-size: 12px; }
-  .play { width: 38px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
-  .rec.on { color: #ff7a6b; border-color: #ff7a6b; }
-  .tools button.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
-  .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
-  .seg button { display: flex; align-items: center; gap: 5px; padding: 4px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12px; }
-  .seg button.on { background: var(--panel-hi); color: var(--text); }
+  .play { width: 32px; height: 32px; padding: 0; border-radius: 50%; }
+  .rec.on { color: var(--bad); border-color: var(--bad); background: transparent; }
   .seg i { width: 8px; height: 8px; border-radius: 50%; }
-  .stage { flex: 1; min-height: 200px; position: relative; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .stage { flex: 1; min-height: 200px; position: relative; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   canvas { display: block; width: 100%; touch-action: none; cursor: crosshair; }
-  .hint { position: absolute; left: 90px; right: 30px; bottom: 16px; margin: 0; font-size: 12px; color: var(--text-3); pointer-events: none; line-height: 1.6; }
+  .hint { position: absolute; left: 90px; right: 30px; bottom: 16px; font-size: 11.5px; pointer-events: none; line-height: 1.6; }
   .score { height: 38%; min-height: 200px; display: flex; flex-shrink: 0; }
 </style>

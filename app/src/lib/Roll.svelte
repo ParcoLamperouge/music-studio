@@ -316,7 +316,7 @@
         g.roundRect(12, 12, 250, keyLabel ? 104 : 84, 12);
         g.fill();
         g.fillStyle = "#f3ead9";
-        g.font = "400 40px 'Instrument Serif', serif";
+        g.font = "600 30px 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrains Mono Variable', monospace";
         const big = cur?.name ?? "—";
         g.fillText(big, 26, 54);
         const after = 26 + g.measureText(big).width + 14;
@@ -352,7 +352,7 @@
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && fullscreen && setFullscreen(false)} />
 
-<section class="roll" class:fs={fullscreen}>
+<section class="card roll" class:fs={fullscreen}>
   <header>
     {#if tools}
       <div class="legend">
@@ -373,13 +373,13 @@
     <div class="tools">
       {#if fx}
         <div class="style-wrap">
-          <button class="ghost" class:on={styleOpen} onclick={() => (styleOpen = !styleOpen)} title="Color, brillo y chispas">Estilo</button>
+          <button class="ghost sm" class:on={styleOpen} onclick={() => (styleOpen = !styleOpen)} title="Color, brillo y chispas">Estilo</button>
           {#if styleOpen}
             {@const st = style()}
-            <div class="style-pop">
+            <div class="pop style-pop">
               <div class="presets">
                 {#each Object.entries(ROLL_PRESETS) as [label, p] (label)}
-                  <button class="chip" class:sel={st.color === p.color && st.color2 === p.color2 && st.sparkles === p.sparkles} onclick={() => setStyle(p)}>
+                  <button class="chip" class:on={st.color === p.color && st.color2 === p.color2 && st.sparkles === p.sparkles} onclick={() => setStyle(p)}>
                     <i style:background={p.color}></i><i style:background={p.color2}></i>{label}
                   </button>
                 {/each}
@@ -405,7 +405,7 @@
         Caída
         <input type="range" min="1" max="6" step="0.5" value={7 - windowSec} oninput={(e) => (windowSec = 7 - +e.currentTarget.value)} />
       </label>
-      <button class="ghost icon" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}>
+      <button class="ghost sm" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}>
         {fullscreen ? "✕" : "⛶"}
       </button>
     </div>
@@ -417,36 +417,24 @@
 </section>
 
 <style>
-  .roll { flex: 1; min-height: 240px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-  header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); }
-  .legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .chip {
-    display: flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 99px; cursor: pointer;
-    border: 1px solid var(--line); background: transparent; color: var(--text-2); font-size: 12px;
-  }
-  .chip:hover { color: var(--text); }
-  .chip.off { opacity: 0.4; text-decoration: line-through; }
-  .legend i { width: 9px; height: 9px; border-radius: 50%; }
-  .legend small { color: var(--text-3); }
+  .roll { flex: 1; min-height: 240px; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  .legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .legend strong { font-weight: 600; }
+  .legend i { width: 8px; height: 8px; border-radius: 50%; }
+  .legend small { color: var(--text-3); font-size: 11.5px; }
   .tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .tools label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
   .tools label input { width: 70px; }
-  .tools .icon { padding: 4px 9px; font-size: 14px; }
-  .hand { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-  .tools button { padding: 5px 12px; }
-  .tools button.on { border-color: var(--accent); color: var(--text); }
+  .hand { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .style-wrap { position: relative; }
-  .style-pop {
-    position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; width: 300px; display: flex; flex-direction: column; gap: 10px;
-    padding: 12px 14px; border-radius: 12px; background: var(--panel-hi); border: 1px solid var(--line); box-shadow: 0 12px 32px #0008;
-  }
+  .style-pop { position: absolute; right: 0; top: calc(100% + 6px); width: 300px; }
   .style-pop label { justify-content: space-between; }
   .style-pop input[type="range"] { width: 150px; }
   .style-pop input[type="color"] { width: 44px; height: 24px; padding: 0; border: 0; background: none; }
   .presets { display: flex; flex-wrap: wrap; gap: 6px; }
-  .presets .chip { padding: 3px 9px; gap: 3px; }
-  .presets i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
-  .presets .chip.sel { border-color: var(--accent); color: var(--text); }
+  .presets .chip { gap: 3px; }
+  .presets i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
   canvas { width: 100%; display: block; }
 
   .fs { position: fixed; inset: 0; z-index: 50; margin: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; }

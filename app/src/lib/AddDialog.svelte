@@ -15,6 +15,7 @@
 <script lang="ts">
   import { open as pickFiles } from "@tauri-apps/plugin-dialog";
   import { enqueue, importSources, run } from "./engine";
+  import SearchInput from "./SearchInput.svelte";
 
   let { open = $bindable(), onadded }: { open: boolean; onadded: (key?: string) => void } = $props();
 
@@ -106,7 +107,7 @@
         <button class="icon-btn" onclick={close} aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
       </header>
 
-      <nav class="modes">
+      <nav class="tabs modes">
         <button class:on={mode === "name"} onclick={() => (mode = "name")}>Por nombre</button>
         <button class:on={mode === "youtube"} onclick={() => (mode = "youtube")}>YouTube o enlace</button>
         <button class:on={mode === "file"} onclick={() => (mode = "file")}>Ficheros</button>
@@ -124,13 +125,13 @@
           </form>
         {:else if mode === "youtube"}
           <form class="row" onsubmit={search}>
-            <input bind:this={first} bind:value={query} placeholder="Busca o pega un enlace (YouTube, SoundCloud, Bandcamp…)" />
+            <SearchInput bind:ref={first} bind:value={query} placeholder="Busca o pega un enlace (YouTube, SoundCloud, Bandcamp…)" />
             <button class="ghost" disabled={searching}>{searching ? "Buscando…" : "Buscar"}</button>
           </form>
           <div class="results">
             {#each results as r (r.url)}
               {@const on = picked.includes(r.url)}
-              <button class="result" class:on onclick={() => (picked = on ? picked.filter((u) => u !== r.url) : [...picked, r.url])}>
+              <button class="item result" class:on onclick={() => (picked = on ? picked.filter((u) => u !== r.url) : [...picked, r.url])}>
                 {#if r.thumbnail}<img src={r.thumbnail} alt="" loading="lazy" />{:else}<span class="thumb"></span>{/if}
                 <span class="r-title">{r.title}</span>
                 <span class="r-meta">{r.channel}{r.duration ? ` · ${dur(r.duration)}` : ""}</span>
@@ -164,43 +165,27 @@
 {/if}
 
 <style>
-  .backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: #0008; backdrop-filter: blur(4px); animation: fade 0.2s; }
-  @keyframes fade { from { opacity: 0; } }
-  .dialog {
-    width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 60px); display: flex; flex-direction: column;
-    background: var(--sidebar); border: 1px solid var(--line-hi); border-radius: 18px; box-shadow: 0 40px 100px -20px #000;
-    animation: rise 0.3s var(--ease);
-  }
-  header { display: flex; justify-content: space-between; align-items: center; padding: 20px 22px 8px; }
-  h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 32px; }
-  .modes { display: flex; gap: 4px; padding: 0 22px; border-bottom: 1px solid var(--line); }
-  .modes button { padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-2); margin-bottom: -1px; }
-  .modes button.on { color: var(--text); border-bottom-color: var(--accent); }
-  .body { padding: 18px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 180px; }
-  .hint { margin: 0 0 12px; color: var(--text-2); }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-  label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-2); }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px 6px; }
+  .modes { padding: 0 18px; }
+  .body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 180px; }
+  .hint { margin-bottom: 12px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
   .row { display: flex; gap: 8px; }
-  .row input { flex: 1; }
-  .results { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
-  .result {
-    display: grid; grid-template-columns: 88px 1fr 20px; grid-template-rows: auto auto; column-gap: 12px; align-items: center;
-    padding: 6px; border-radius: 10px; border: 1px solid transparent; background: none; text-align: left;
-  }
-  .result:hover { background: var(--panel); }
-  .result.on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); }
-  .result img, .thumb { grid-row: 1 / 3; width: 88px; height: 50px; object-fit: cover; border-radius: 6px; background: var(--panel-hi); }
-  .r-title { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .results { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; }
+  .result { display: grid; grid-template-columns: 80px 1fr 16px; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 6px; }
+  .result img, .thumb { grid-row: 1 / 3; width: 80px; height: 45px; object-fit: cover; border-radius: 4px; background: var(--panel-hi); }
+  .r-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .r-meta { grid-column: 2; color: var(--text-3); font-size: 12px; }
   .check { grid-row: 1 / 3; grid-column: 3; color: var(--accent); font-weight: 700; }
-  .loading { display: flex; gap: 10px; align-items: center; color: var(--text-2); padding: 20px 4px; }
+  .loading { display: flex; gap: 10px; align-items: center; color: var(--text-2); padding: 16px 4px; }
   .drop {
-    display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 34px 20px; text-align: center;
-    border: 1.5px dashed var(--line-hi); border-radius: 14px; color: var(--text-2);
+    display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 20px; text-align: center;
+    border: 1px dashed var(--line-hi); border-radius: var(--radius); color: var(--text-2);
   }
   .drop p { margin: 0; }
-  .drop small { color: var(--text-3); }
-  footer { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 22px 18px; border-top: 1px solid var(--line); }
-  footer label { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+  .drop small { color: var(--text-3); font-size: 11.5px; }
+  footer { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--line); }
+  footer label { flex-direction: row; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text); }
   form > .primary, .body > .primary { align-self: flex-start; }
 </style>

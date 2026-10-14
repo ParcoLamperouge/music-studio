@@ -52,7 +52,7 @@
       {#if on.has(p)}<text x={xOf(p - 1) + W} y={BH - 7} class="n nb">{label(p)}</text>{/if}
     {/each}
   </svg>
-  <button class="ghost listen" onclick={listen} title={together ? "Oír el acorde" : "Oír las notas una a una"}>♪ Escuchar</button>
+  <button class="ghost sm" onclick={listen} title={together ? "Oír el acorde" : "Oír las notas una a una"}>♪ Escuchar</button>
 </div>
 
 <style>
@@ -66,5 +66,4 @@
   .n { font: 600 9px var(--mono); fill: #1c0f05; text-anchor: middle; }
   .nb { fill: #fff; font-size: 7.5px; }
   .o { font: 500 9px var(--mono); fill: var(--text-3); text-anchor: middle; }
-  .listen { padding: 5px 12px; font-size: 12.5px; }
 </style>

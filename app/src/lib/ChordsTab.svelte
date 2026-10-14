@@ -13,9 +13,10 @@
 
 <script lang="ts">
   import type { Detail } from "./engine";
+  import ProgressionSearch from "./ProgressionSearch.svelte";
   import { degree, keyName, leadSheet, named, relative, scaleNotes, type Harmony } from "./harmony";
 
-  let { detail, harmony, model, sources, time, notation = $bindable(), src, instruments, onsrc, onstemnotes, onseek, onnotes, oncheck, busy }: {
+  let { detail, harmony, model, sources, time, notation = $bindable(), src, instruments, onsrc, onstemnotes, onseek, onnotes, oncheck, onopen, busy }: {
     detail: Detail;
     harmony: Harmony | null;
     model: boolean; // acordes de lv-chordia (del audio); si no, de las notas transcritas
@@ -29,6 +30,7 @@
     onseek: (t: number) => void;
     onnotes: () => void; // (sin uso con acordes del modelo)
     oncheck: () => void; // comprobar que el audio es la versión de la letra
+    onopen: (key: string, t: number) => void; // abrir otra canción (resultado de buscar la progresión)
     busy: string; // trabajo de notas en marcha, o ""
   } = $props();
 
@@ -63,7 +65,7 @@
     {/each}
   </div>
   {#each instruments.filter((x) => !x.notes) as x (x.name)}
-    <button class="add" disabled={!!x.job} onclick={() => onstemnotes(x.name)} title="Sacar sus notas para ver sus acordes y su tonalidad">
+    <button class="chip add" disabled={!!x.job} onclick={() => onstemnotes(x.name)} title="Sacar sus notas para ver sus acordes y su tonalidad">
       {x.job ? `${x.label}: ${x.job}` : `＋ ${x.label}`}
     </button>
   {/each}
@@ -130,19 +132,21 @@
         <span class="kicker">Tonalidad{src !== "mix" ? ` · ${instruments.find((x) => x.name === src)?.label}` : ""}</span>
         <h3>{keyName(k, notation.latin)}</h3>
         <div class="scale">
-          {#each scaleNotes(k, notation.latin) as n, i (i)}<span class:tonic={i === 0}>{n}</span>{/each}
+          {#each scaleNotes(k, notation.latin) as n, i (i)}<span class="chip" class:on={i === 0}>{n}</span>{/each}
         </div>
-        <p class="muted">Relativa: {keyName(relative(k), notation.latin)} · escala {k.minor ? "menor natural" : "mayor"}</p>
+        <p class="hint">Relativa: {keyName(relative(k), notation.latin)} · escala {k.minor ? "menor natural" : "mayor"}</p>
       </div>
 
       <div class="card">
         <span class="kicker">Acordes de la canción</span>
         <div class="vocab">
           {#each vocab as c (c.name)}
-            <span class="chip" class:now={now?.name === c.name}>{c.name}{#if notation.degrees}<small>{c.deg}</small>{/if}</span>
+            <span class="chip" class:on={now?.name === c.name}>{c.name}{#if notation.degrees}<small>{c.deg}</small>{/if}</span>
           {/each}
         </div>
       </div>
+
+      <ProgressionSearch current={detail.key} {onopen} />
 
       <div class="card opts">
         <div class="seg">
@@ -154,66 +158,58 @@
       </div>
 
       {#if src !== "mix"}
-        <p class="note">
+        <p class="hint">
           De las notas de {instruments.find((x) => x.name === src)?.label.toLowerCase()}, sin IA: lo que toca ese instrumento solo (su nota
           más grave hace de bajo), no la canción entera. Revísalo de oído.
         </p>
       {:else if model}
-        <p class="note">Del audio con lv-chordia (Jiang et al., ISMIR 2019; ~170 acordes con inversiones). Es automático: revísalo de oído.</p>
+        <p class="hint">Del audio con lv-chordia (Jiang et al., ISMIR 2019; ~170 acordes con inversiones). Es automático: revísalo de oído.</p>
       {:else}
-        <p class="note">
+        <p class="hint">
           Provisionales, de las notas de {sources.join(", ").toLowerCase()}, mientras lv-chordia saca los del audio.
         </p>
       {/if}
-      {#if busy}<p class="muted note">{busy}</p>{/if}
+      {#if busy}<p class="hint">{busy}</p>{/if}
     </aside>
   </div>
 {/if}
 
 <style>
   .src { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
-  .src .add { padding: 4px 10px; border-radius: 99px; border: 1px dashed var(--line-hi); background: none; color: var(--text-2); font-size: 12px; }
-  .src .add:disabled { opacity: 0.6; }
-  .warn-bar { flex-shrink: 0; margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; font-size: 12.5px; color: var(--text-2);
-    border: 1px solid color-mix(in srgb, #ffc23d 40%, var(--line)); background: color-mix(in srgb, #ffc23d 7%, var(--panel)); }
+  .src .chip:disabled { opacity: 0.6; }
+  .warn-bar {
+    flex-shrink: 0; margin-bottom: 10px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 12px; color: var(--text-3);
+    border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+  }
   .warn-bar .link { margin-left: 6px; }
-  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 300px; gap: 18px; }
+  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
   .sheet { min-height: 0; overflow-y: auto; padding: 4px 8px 40px; }
   .row { padding: 6px 0 10px; }
-  .line { display: flex; flex-wrap: wrap; align-items: flex-end; column-gap: 0.32em; row-gap: 6px; }
+  .line { display: flex; flex-wrap: wrap; align-items: flex-end; column-gap: 0.6em; row-gap: 6px; }
   .w { display: inline-flex; flex-direction: column; align-items: flex-start; }
-  .chs { display: flex; gap: 6px; min-height: 22px; }
+  .chs { display: flex; gap: 6px; min-height: 20px; }
   .ch, .bar-chord {
-    border: 0; background: none; padding: 0 2px; font-family: var(--mono); font-weight: 650; font-size: 14px; color: var(--accent);
-    border-radius: 5px; transition: background 0.15s, color 0.15s; white-space: nowrap;
+    border: 0; background: none; padding: 0 2px; font-weight: 700; font-size: 13px; color: var(--accent);
+    border-radius: 4px; transition: background 0.15s, color 0.15s; white-space: nowrap;
   }
   .ch:hover, .bar-chord:hover { background: var(--accent-soft); }
-  .ch.now, .bar-chord.now { background: var(--accent); color: #1c0f05; box-shadow: 0 0 18px -4px var(--accent); }
+  .ch.now, .bar-chord.now { background: var(--accent); color: var(--on-accent); }
   .ch small, .bar-chord small, .chip small { margin-left: 4px; font-size: 10px; font-weight: 500; opacity: 0.7; }
-  .word { font-family: var(--serif); font-size: 24px; line-height: 1.1; color: var(--text); }
+  .word { font-size: 16px; line-height: 1.2; color: var(--text); }
   .bars { display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
   .bars .kicker { margin-right: 12px; }
-  .bar-chord { padding: 6px 14px; border-left: 1px solid var(--line-hi); border-radius: 0; font-size: 15px; }
+  .bar-chord { padding: 4px 12px; border-left: 1px solid var(--line-hi); border-radius: 0; font-size: 14px; }
   .bar-chord:last-child { border-right: 1px solid var(--line-hi); }
 
-  .info { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; }
-  .card { padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
-  .key h3 { margin: 2px 0 10px; font-family: var(--serif); font-weight: 400; font-size: 34px; line-height: 1; }
-  .scale { display: flex; gap: 4px; flex-wrap: wrap; }
-  .scale span { padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line-hi); font-size: 13px; }
-  .scale .tonic { border-color: var(--accent); color: var(--accent); }
-  .key p { margin: 10px 0 0; font-size: 12.5px; }
-  .vocab { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-  .chip { padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line-hi); font-family: var(--mono); font-size: 12.5px; transition: all 0.15s; }
-  .chip.now { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-  .opts { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+  .info { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; }
+  .key h3 { margin: 2px 0 10px; font-size: 20px; }
+  .scale, .vocab { display: flex; gap: 4px; flex-wrap: wrap; }
+  .vocab { margin-top: 8px; }
+  .key .hint { margin-top: 10px; }
+  .opts { display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; }
   .opts label { display: flex; gap: 8px; align-items: center; color: var(--text-2); }
-  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; align-self: flex-start; }
-  .seg button { padding: 4px 11px; border: 0; background: transparent; color: var(--text-2); font-size: 12px; }
-  .seg button + button { border-left: 1px solid var(--line); }
-  .seg button.on { background: var(--panel-hi); color: var(--text); font-weight: 600; }
-  .note { margin: 0; font-size: 12px; color: var(--text-3); }
+  .opts .seg { align-self: flex-start; }
   .empty { margin: auto; text-align: center; max-width: 520px; padding: 40px 0; }
-  .empty h2 { margin: 0 0 8px; font-family: var(--serif); font-weight: 400; font-size: 34px; }
-  .empty p { color: var(--text-2); margin: 0 0 18px; }
+  .empty h2 { margin-bottom: 8px; }
+  .empty p { color: var(--text-3); font-size: 12.5px; margin: 0 0 16px; }
 </style>

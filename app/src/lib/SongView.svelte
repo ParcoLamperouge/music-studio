@@ -5,6 +5,7 @@
     enqueue, fmtClock, log, PITCHED, readJson, run, songDetail, STEM_INFO, SOURCE_LABEL, viewPath, writeJson, type Detail, type Track,
   } from "./engine";
   import ChordsTab, { loadNotation } from "./ChordsTab.svelte";
+  import { takeSeek } from "./progindex";
   import EditsTab from "./EditsTab.svelte";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
   import Leds from "./Leds.svelte";
@@ -17,11 +18,13 @@
   import Transport from "./Transport.svelte";
   import Waveform from "./Waveform.svelte";
 
-  let { key, initialTab, onrenamed, ondeleted }: {
+  let { key, initialTab, onrenamed, ondeleted, onopen, onsing }: {
     key: string;
     initialTab?: string;
     onrenamed: (key: string) => void;
     ondeleted: () => void;
+    onopen: (key: string) => void;
+    onsing?: () => void; // Cantar sobre la canción (hace falta la voz con notas)
   } = $props();
 
   type Tab = "letra" | "mix" | "roll" | "score" | "chords" | "edits";
@@ -97,6 +100,8 @@
       await player.load(tracks);
       duration = player.duration;
       if (at) player.seek(at);
+      const jump = takeSeek(key);
+      if (jump != null) player.seek(jump);
       if (was) player.play();
       playing = player.playing;
       log(`${key}: ${tracks.length} pistas en ${Math.round(performance.now() - t0)} ms`);
@@ -333,9 +338,9 @@
   {#if settings.showMini && !loading && stemlab}<MiniMixer stems={stems} bind:volume bind:muted bind:solo />{/if}
   <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !tracks.length} ontoggle={toggle} onseek={seek}>
     {#if stemlab}
-      <button class="ghost mix-toggle" class:active={settings.showMini} onclick={() => (settings.showMini = !settings.showMini)} title="Volumen de cada instrumento (V)">Pistas</button>
+      <button class="ghost sm" class:on={settings.showMini} onclick={() => (settings.showMini = !settings.showMini)} title="Volumen de cada instrumento (V)">Pistas</button>
     {/if}
-    <button class="ghost mix-toggle" class:active={metro.on} onclick={() => (metro.on = !metro.on)} title="Metrónomo (M)">
+    <button class="ghost sm" class:on={metro.on} onclick={() => (metro.on = !metro.on)} title="Metrónomo (M)">
       {metro.on && !beatData ? "…" : "♩"} {beatData ? Math.round(beatData.bpm * metro.factor) : ""}
     </button>
   </Transport>
@@ -354,7 +359,7 @@
     {:else}
       <span class="stage-state" class:err={job?.status === "error"} title={job?.status === "error" ? job.error : state}>{job?.status === "error" ? `Falló: ${job.error}` : state}</span>
       {#if button}
-        <button class="stage-btn" class:primary-lite={button.primary} onclick={button.run} title={button.title}>{button.label}</button>
+        <button class="ghost sm stage-btn" class:on={button.primary} onclick={button.run} title={button.title}>{button.label}</button>
       {/if}
     {/if}
   </div>
@@ -376,13 +381,14 @@
         </p>
       </div>
       <div class="hero-actions">
+        {#if onsing && track.notes.includes("vocals")}<button class="ghost" onclick={onsing} title="Canta encima: pistas sin la voz, la letra y tu nota contra la original">Cantar</button>{/if}
         {#if missing}
           <button class="primary" onclick={() => act("todo", quality())} title="Pistas, letra palabra a palabra y notas de cada instrumento. Lo hecho no se repite.">Hacer todo</button>
         {/if}
         <div class="menu-wrap">
           <button class="ghost" onclick={() => (menu = !menu)} aria-label="Más">⋯</button>
           {#if menu}
-            <div class="menu">
+            <div class="pop menu">
               {#if stemlab}<button onclick={() => ((menu = false), openPath(stemlab.dir))}>Abrir carpeta de pistas</button>{/if}
               <button onclick={() => act("beats")}>Volver a sacar los pulsos</button>
               <hr />
@@ -415,7 +421,7 @@
       {#each TABS as [id, label], i (id)}
         <button class:on={tab === id} onclick={() => (tab = id)} title="Atajo: {i + 1}">{label}</button>
       {/each}
-      <span class="keys"><kbd>Espacio</kbd> reproducir <kbd>◂ ▸</kbd> 5 s <kbd>1-6</kbd> pestañas <kbd>E</kbd> editar letra <kbd>M</kbd> metrónomo <kbd>Q</kbd> cola</span>
+      <span class="keys" title="Espacio: reproducir · ◂ ▸: 5 s · 1-6: pestañas · E: editar letra · M: metrónomo · Q: cola">atajos</span>
     </nav>
 
     <div class="content" class:fill={tab !== "mix" && tab !== "edits"}>
@@ -435,7 +441,7 @@
         {:else}
           {#if !stemlab}
             {@const job = stage(["separate"])}
-            <div class="cta" class:warn={track.stems === "partial"}>
+            <div class="card cta" class:warn={track.stems === "partial"}>
               <div>
                 <strong>{track.stems === "partial" ? "La separación se quedó a medias" : "Separa voz, batería, bajo, guitarra, piano y el resto"}</strong>
                 <p>
@@ -468,8 +474,8 @@
                       <small>{meta ? (st.present ? `${meta.level} dB` : "no suena") : "sin separar"}</small>
                     </div>
                     <div class="ms">
-                      <button class:on={muted[st.name]} onclick={() => (muted[st.name] = !muted[st.name])} title="Silenciar">M</button>
-                      <button class:on={solo[st.name]} class="solo" onclick={() => (solo[st.name] = !solo[st.name])} title="Solo">S</button>
+                      <button class="ms-btn" class:on={muted[st.name]} onclick={() => (muted[st.name] = !muted[st.name])} title="Silenciar">M</button>
+                      <button class="ms-btn solo" class:on={solo[st.name]} onclick={() => (solo[st.name] = !solo[st.name])} title="Solo">S</button>
                     </div>
                     <input type="range" min="0" max="1.5" step="0.01" bind:value={volume[st.name]} title="Volumen" />
                     {#if meta && PITCHED.includes(st.name) && st.present}
@@ -477,11 +483,11 @@
                         <span class="notes busy">{jobText(nj)}</span>
                       {:else}
                         <div class="notes-row">
-                          <button class="notes" class:done={!!meta.score} onclick={() => act("notes", [st.name, ...quality()])} title={nj?.error}>
+                          <button class="ghost sm notes" class:done={!!meta.score} onclick={() => act("notes", [st.name, ...quality()])} title={nj?.error}>
                             {nj?.status === "error" ? "Reintentar notas" : meta.score ? `↻ ${meta.notes ?? ""} notas` : `♪ Sacar notas${st.name === "vocals" ? " y letra" : ""}`}
                           </button>
                           {#if meta.score && (meta as { model?: string }).model !== "muscriptor"}
-                            <button class="notes precise" onclick={() => act("notes", [st.name, "precise"])} title="Otra vez con MuScriptor (GPU, mucho más lento y más preciso)">Precisas</button>
+                            <button class="ghost sm notes precise" onclick={() => act("notes", [st.name, "precise"])} title="Otra vez con MuScriptor (GPU, mucho más lento y más preciso)">Precisas</button>
                           {:else if meta.score}
                             <span class="model" title="Transcritas con MuScriptor">precisas</span>
                           {/if}
@@ -497,7 +503,7 @@
               {/each}
             </section>
             {#if metro.on || beatData}
-              <section class="metro" class:on={metro.on}>
+              <section class="card metro" class:on={metro.on}>
                 <strong>Metrónomo</strong>
                 <small>{beatData ? `${Math.round(beatData.bpm * metro.factor)} BPM · sigue los pulsos reales` : "Sacando pulsos…"}</small>
                 <input type="range" min="0" max="1.5" step="0.01" bind:value={metro.volume} title="Volumen del metrónomo" />
@@ -514,9 +520,9 @@
                       <button class:on={metro.meter === m} onclick={() => ((metro.meter = m), (metro.shift %= m))}>{m}/4</button>
                     {/each}
                   </div>
-                  <button class="ghost" onclick={() => (metro.shift = (metro.shift + 1) % metro.meter)} title="Mueve el clic fuerte un pulso para que caiga en el 1">Mover acento</button>
+                  <button class="ghost sm" onclick={() => (metro.shift = (metro.shift + 1) % metro.meter)} title="Mueve el clic fuerte un pulso para que caiga en el 1">Mover acento</button>
                 {/if}
-                <button class="ghost" onclick={() => (metro.on = !metro.on)}>{metro.on ? "Apagar" : "Encender"}</button>
+                <button class="ghost sm" onclick={() => (metro.on = !metro.on)}>{metro.on ? "Apagar" : "Encender"}</button>
               </section>
             {/if}
           {/if}
@@ -576,7 +582,7 @@
         {#if detail}
           <ChordsTab {detail} harmony={shownHarmony} model={src === "mix" && !!modelHarmony} sources={noted.map((s) => STEM_INFO[s.name].label)} {time} bind:notation
             {src} onsrc={(s) => (chordSrc = s)} instruments={pitched.map((s) => ({ name: s.name, label: STEM_INFO[s.name].label, notes: !!s.roll, job: notesJob(s.name) && notesJob(s.name)!.status !== "error" ? jobText(notesJob(s.name)!) : "" }))}
-            onstemnotes={(s) => act("notes", [s, ...quality()])} onseek={seek} onnotes={() => act("notes-all", quality())} oncheck={() => act("sync", ["lineas"])} busy={chordsBusy || notesBusy} />
+            onstemnotes={(s) => act("notes", [s, ...quality()])} onseek={seek} onnotes={() => act("notes-all", quality())} oncheck={() => act("sync", ["lineas"])} onopen={(k) => onopen(k)} busy={chordsBusy || notesBusy} />
         {/if}
       {:else if tab === "edits"}
         <EditsTab {track} {detail} />
@@ -589,123 +595,82 @@
 
 <style>
   .view { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-  .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-shrink: 0; animation: rise 0.4s var(--ease); }
+  .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-shrink: 0; }
   .who { min-width: 0; }
-  h1 {
-    margin: 2px 0 6px; font-family: var(--serif); font-weight: 400; font-size: clamp(38px, 5vw, 64px); line-height: 0.95;
-    letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0; color: var(--text-2); font-size: 13px; }
-  .meta .mono { color: var(--text); }
+  h1 { margin: 2px 0 6px; font-size: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0; color: var(--text-3); font-size: 12px; }
+  .meta .mono { color: var(--text-2); }
   .hero-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
   .menu-wrap { position: relative; }
-  .menu {
-    position: absolute; top: calc(100% + 6px); right: 0; min-width: 240px; padding: 6px; border-radius: 12px; z-index: 20;
-    background: var(--panel-hi); border: 1px solid var(--line-hi); box-shadow: 0 20px 50px -10px #000c; animation: rise 0.2s var(--ease);
-  }
-  .menu button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: var(--text-2); }
-  .menu button:hover { background: var(--panel); color: var(--text); }
-  .menu .danger { color: var(--bad); }
-  .menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
+  .menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 240px; z-index: 20; }
 
-  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 20px 0 6px; flex-shrink: 0; }
-  .stage {
-    display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; min-height: 92px; border-radius: 12px;
-    background: var(--panel); border: 1px solid var(--line); animation: rise 0.45s var(--ease) both;
-  }
-  .stage:nth-child(2) { animation-delay: 40ms; } .stage:nth-child(3) { animation-delay: 80ms; } .stage:nth-child(4) { animation-delay: 120ms; } .stage:nth-child(5) { animation-delay: 160ms; }
-  .stage.active { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--panel)), var(--panel)); }
+  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 16px 0 4px; flex-shrink: 0; }
+  .stage { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; min-height: 84px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); }
+  .stage.active { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
   .stage-top { display: flex; justify-content: space-between; align-items: center; border: 0; background: none; padding: 0; text-align: left; }
   .stage-top:hover:not(:disabled) .kicker { color: var(--text-2); }
-  .led { width: 22px; height: 5px; border-radius: 3px; background: #2b2420; }
-  .led.on { background: var(--accent); box-shadow: 0 0 10px -1px var(--accent); }
+  .led { width: 20px; height: 4px; border-radius: 2px; background: #2b2420; }
+  .led.on { background: var(--accent); }
   .led.half { background: linear-gradient(90deg, var(--accent) 50%, #4a3a2c 50%); }
   .led.bad { background: var(--bad); }
   .led.busy { background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
-  .stage-state { font-size: 12.5px; color: var(--text-2); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .stage-state { font-size: 12px; color: var(--text-2); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .stage-state.err { color: var(--bad); }
-  .stage-btn {
-    margin-top: auto; align-self: flex-start; padding: 4px 10px; border-radius: 7px; font-size: 12px;
-    border: 1px solid var(--line-hi); background: transparent; color: var(--text); transition: all 0.15s;
-  }
-  .stage-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .stage-btn.primary-lite { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); }
-  .stage-btn.primary-lite:hover { background: var(--accent); color: #1c0f05; }
+  .stage-btn { margin-top: auto; align-self: flex-start; }
   .stage .bar { margin-top: auto; }
 
-  .tabs { display: flex; align-items: center; gap: 2px; margin: 14px 0 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-  .tabs button { padding: 10px 14px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-2); font-size: 14px; transition: color 0.15s; }
-  .tabs button:hover { color: var(--text); }
-  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-  .keys { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--text-3); font-size: 11px; white-space: nowrap; overflow: hidden; }
-  .keys kbd { margin-left: 6px; }
+  .tabs { margin: 12px 0; }
+  .keys { margin-left: auto; color: var(--text-3); font-size: 11px; cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
 
   .content { flex: 1; min-height: 0; overflow-y: auto; }
   .content.fill { display: flex; flex-direction: column; overflow: hidden; }
   .transport-bar { flex-shrink: 0; padding-top: 12px; }
-  .mix-toggle { padding: 6px 12px; flex-shrink: 0; }
 
-  .empty { margin: auto; text-align: center; max-width: 520px; padding: 40px 0; animation: rise 0.35s var(--ease); }
-  .empty h2 { margin: 0 0 8px; font-family: var(--serif); font-weight: 400; font-size: 34px; }
-  .empty p { color: var(--text-2); margin: 0 0 18px; }
+  .empty { margin: auto; text-align: center; max-width: 520px; padding: 40px 0; }
+  .empty h2 { margin-bottom: 8px; }
+  .empty p { color: var(--text-3); font-size: 12.5px; margin: 0 0 16px; }
   .loading { display: flex; align-items: center; gap: 12px; color: var(--text-2); padding: 40px 0; }
 
-  .cta {
-    display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; margin-bottom: 10px; border-radius: 14px;
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-    background: radial-gradient(600px 120px at 0% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent), var(--panel);
-  }
+  .cta { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 10px; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
   .cta.warn { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
-  .cta strong { font-size: 15px; }
-  .cta p { margin: 4px 0 0; color: var(--text-2); font-size: 13px; max-width: 620px; }
+  .cta strong { font-weight: 600; }
+  .cta p { margin: 4px 0 0; color: var(--text-3); font-size: 12px; max-width: 620px; }
   .cta-job { min-width: 220px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-2); }
 
   .lanes { display: flex; flex-direction: column; gap: 8px; }
-  .lane {
-    display: grid; grid-template-columns: 250px 1fr; align-items: center; background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; overflow: hidden; transition: opacity 0.2s; animation: rise 0.35s var(--ease) both;
-  }
+  .lane { display: grid; grid-template-columns: 240px 1fr; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; transition: opacity 0.2s; }
   .lane.absent { opacity: 0.5; }
-  .head { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; padding: 10px 14px; border-right: 1px solid var(--line); }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); flex-shrink: 0; }
+  .head { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; padding: 10px 12px; border-right: 1px solid var(--line); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
   .name { display: flex; flex-direction: column; line-height: 1.2; }
-  .name small { color: var(--text-3); font-size: 11px; font-family: var(--mono); }
+  .name strong { font-weight: 600; }
+  .name small { color: var(--text-3); font-size: 11px; }
   .ms { display: flex; gap: 4px; }
-  .ms button { width: 26px; height: 24px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--text-2); font-size: 11px; font-weight: 700; }
-  .ms button.on { background: var(--accent-2); border-color: var(--accent-2); color: white; }
-  .ms button.solo.on { background: #f5c542; border-color: #f5c542; color: #1a1a1a; }
   .head input { grid-column: 1 / -1; width: 100%; accent-color: var(--c); }
-  .notes { grid-column: 1 / -1; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--text-2); font-size: 12px; text-align: center; }
-  .notes:hover { color: var(--text); border-color: var(--c); }
+  .notes { grid-column: 1 / -1; }
   .notes.done { color: var(--text-3); }
   .notes-row { grid-column: 1 / -1; display: flex; gap: 4px; }
   .notes-row .notes { flex: 1; grid-column: auto; }
   .notes.precise { flex: 0 0 auto; color: var(--accent); }
   .model { align-self: center; font-size: 11px; color: var(--accent); padding: 0 4px; }
-  .notes.busy { color: var(--accent); border-style: dashed; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .notes.busy { display: block; padding: 3px 9px; border: 1px dashed var(--line-hi); border-radius: var(--radius-sm); font-size: 12px; text-align: center; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .track { padding: 6px 12px; }
   .inner { position: relative; }
-  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.85; pointer-events: none; box-shadow: 0 0 8px var(--accent); }
+  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.85; pointer-events: none; }
 
-  .metro { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .metro { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; padding: 8px 12px; }
   .metro.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-  .metro small { color: var(--text-3); }
+  .metro strong { font-weight: 600; }
+  .metro small { color: var(--text-3); font-size: 11.5px; }
   .metro input { width: 110px; }
-  .metro .ghost { padding: 4px 10px; font-size: 12px; }
-  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .seg button { padding: 4px 9px; border: 0; background: transparent; color: var(--text-2); font-size: 12px; }
-  .seg button + button { border-left: 1px solid var(--line); }
-  .seg button.on { background: var(--panel-hi); color: var(--text); font-weight: 600; }
 
   .picker { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; flex-shrink: 0; align-items: center; }
-  .picker .quality { margin-left: auto; }
-  .chip { display: flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 99px; border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); color: var(--text); font-size: 13px; }
-  .chip.off { opacity: 0.45; text-decoration: line-through; background: transparent; border-color: var(--line); }
-  .chip.add { --c: var(--line-hi); background: transparent; color: var(--text-2); border-style: dashed; }
+  .picker .quality { margin-left: auto; align-self: center; }
+  .picker .chip:not(.add) { border-color: var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); color: var(--text); }
+  .picker .chip.off { background: transparent; border-color: var(--line); }
   .chip.add:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 
   @media (max-width: 1200px) {
     .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .keys { display: none; }
   }
 </style>

@@ -46,7 +46,7 @@
 </script>
 
 <div class="edits">
-  <section class="new">
+  <section class="card new">
     <div>
       <span class="kicker">Nuevo edit</span>
       <h2>Vídeo vertical con la letra, al ritmo</h2>
@@ -94,7 +94,7 @@
             <strong>{p.name}</strong>
             <small class="mono">{clip(p)} · {fmtDate(p.updated)}</small>
           </button>
-          <button class="icon-btn del" onclick={() => del(p)} title="Borrar">
+          <button class="icon-btn sm del" onclick={() => del(p)} title="Borrar">
             <svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2m-7 0 1 12h8l1-12" /></svg>
           </button>
         </article>
@@ -122,36 +122,27 @@
 </div>
 
 <style>
-  .edits { display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px; }
-  .new {
-    display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding: 20px 22px; border-radius: 16px;
-    background: radial-gradient(500px 200px at 100% 0%, color-mix(in srgb, var(--accent-2) 16%, transparent), transparent), var(--panel);
-    border: 1px solid var(--line);
-  }
-  h2 { margin: 4px 0 6px; font-family: var(--serif); font-weight: 400; font-size: 32px; }
-  .new p { margin: 0; color: var(--text-2); max-width: 560px; }
+  .edits { display: flex; flex-direction: column; gap: 20px; padding-bottom: 20px; }
+  .new { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding: 16px; }
+  h2 { margin: 4px 0 6px; }
+  .new p { margin: 0; color: var(--text-3); font-size: 12px; max-width: 560px; }
   .modes { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+  .modes .seg { align-self: flex-end; flex-wrap: wrap; }
   .need { text-align: right; }
   .need p { margin: 0 0 8px; }
-  .seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-  .seg button { padding: 6px 11px; border: 0; background: transparent; color: var(--text-2); font-size: 12.5px; }
-  .seg button + button { border-left: 1px solid var(--line); }
-  .seg button.on { background: var(--accent-soft); color: var(--text); }
-  .seg button:disabled { opacity: 0.4; }
-  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
-  article { position: relative; animation: rise 0.35s var(--ease) both; animation-delay: var(--d); }
-  .open { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0; border: 0; background: none; text-align: left; }
+  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  article { position: relative; }
+  .open { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 0; border: 0; background: none; text-align: left; }
   .poster {
-    aspect-ratio: 9 / 14; border-radius: 12px; display: grid; place-items: end start; padding: 12px; margin-bottom: 6px;
-    background: linear-gradient(160deg, #3a2414, #150f0c 60%), var(--panel); border: 1px solid var(--line);
-    transition: transform 0.25s var(--ease), border-color 0.2s;
+    aspect-ratio: 9 / 14; border-radius: var(--radius); display: grid; place-items: end start; padding: 10px; margin-bottom: 6px;
+    background: var(--panel); border: 1px solid var(--line); transition: border-color 0.15s;
   }
-  .poster i { font-family: var(--serif); font-size: 26px; color: var(--text); text-transform: capitalize; }
-  .open:hover .poster { transform: translateY(-3px); border-color: var(--accent); }
-  .open strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .poster i { font-style: normal; font-size: 13px; color: var(--text-2); }
+  .open:hover .poster { border-color: var(--accent); }
+  .open strong { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .open small { color: var(--text-3); font-size: 11px; }
   .del { position: absolute; top: 6px; right: 6px; opacity: 0; background: #0009; }
   article:hover .del { opacity: 1; }
-  .render { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .render { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 </style>

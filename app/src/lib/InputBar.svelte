@@ -12,14 +12,14 @@
   {#each input.ports as p (p)}<option value={p}>{p}</option>{/each}
   {#if !input.ports.length}<option value="">Ningún teclado MIDI conectado</option>{/if}
 </select>
-{#if input.port && !input.connected}<button class="ghost" onclick={() => connect(input.port)}>Conectar</button>{/if}
+{#if input.port && !input.connected}<button class="ghost sm" onclick={() => connect(input.port)}>Conectar</button>{/if}
 <span class="pc muted" title="Teclado del ordenador: fila A S D F G H J K L Ñ = blancas, W E T Y U O P = negras, Z/X = octava, Espacio = pedal">
   ⌨ A–Ñ · Z/X octava ({noteName(0, { tonic: 0, minor: false }, latin)}{input.octave / 12 - 1}) · Espacio pedal
 </span>
 
 <style>
-  select { max-width: 280px; font-size: 12px; padding: 5px 8px; }
+  select { max-width: 260px; font-size: 12px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
-  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-  .pc { font-size: 12px; white-space: nowrap; }
+  .dot.on { background: var(--ok); }
+  .pc { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 </style>

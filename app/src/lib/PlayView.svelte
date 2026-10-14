@@ -147,7 +147,7 @@
       g.roundRect(12, 12, 300, 112, 12);
       g.fill();
       g.fillStyle = "#f3ead9";
-      g.font = "400 44px 'Instrument Serif', serif";
+      g.font = "600 32px 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrains Mono Variable', monospace";
       const c = live.chord;
       const big = c ? chordName(c, kk, { latin, simple: false }) : "—";
       g.fillText(big, 26, 58);
@@ -178,9 +178,9 @@
 
 <svelte:window onkeydown={(e) => pcKey(e, live.channel)} onkeyup={(e) => pcKey(e, live.channel)} onblur={() => pcRelease(live.channel)} />
 
-<section class="play">
+<section class="card play">
   <header>
-    <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
+    <button class="ghost sm" onclick={onback} title="Volver al menú">← Menú</button>
     <InputBar />
     <label title={input.hasOut ? "Volumen del teclado (CC7)" : "Este aparato no tiene salida MIDI: el volumen, en el propio teclado"}>
       Volumen
@@ -193,9 +193,9 @@
     <span class="grow"></span>
     {#if error || input.error}<span class="error-text err" title={error || input.error}>{error || input.error}</span>{/if}
     <span class="mono muted" title={saved}>{count} notas{saved ? " · guardada" : ""}</span>
-    <button class="ghost" onclick={save} disabled={!count} title="Se guarda sola cada 15 s: .mid para reproducir y .json para la IA">Guardar</button>
-    <button class="ghost" onclick={toSessions} title="Volver a oír y analizar lo tocado (se guarda esta antes)">Sesiones</button>
-    <button class="primary" onclick={fresh} disabled={!count} title="Guarda esta y empieza otra">Nueva sesión</button>
+    <button class="ghost sm" onclick={save} disabled={!count} title="Se guarda sola cada 15 s: .mid para reproducir y .json para la IA">Guardar</button>
+    <button class="ghost sm" onclick={toSessions} title="Volver a oír y analizar lo tocado (se guarda esta antes)">Sesiones</button>
+    <button class="primary sm" onclick={fresh} disabled={!count} title="Guarda esta y empieza otra">Nueva sesión</button>
   </header>
   <div class="stage" bind:clientWidth={width} bind:clientHeight={height}>
     <canvas bind:this={canvas} style:height="{height}px"></canvas>
@@ -203,11 +203,10 @@
 </section>
 
 <style>
-  .play { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .play { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
   header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   header label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
   header label input { width: 90px; }
-  .grow { flex: 1; }
   .err { font-size: 12px; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .muted { font-size: 12px; }
   .stage { flex: 1; min-height: 0; overflow: hidden; }

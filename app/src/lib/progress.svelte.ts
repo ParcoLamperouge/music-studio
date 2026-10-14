@@ -4,6 +4,7 @@
 
 import { paths, readJson, writeJson } from "./engine";
 import { LESSONS, practiceSteps, stars, type Lesson } from "./course";
+import { grade, type EarState, type Kind } from "./ear";
 
 type Result = { best: number; tries: number; last: number };
 export const progress = $state({
@@ -29,8 +30,32 @@ export async function record(lesson: string, step: number, acc: number) {
   await loadProgress();
   const k = stepKey(lesson, step), r = progress.results[k];
   progress.results[k] = { best: Math.max(r?.best ?? 0, acc), tries: (r?.tries ?? 0) + 1, last: Date.now() };
-  if (!progress.days.includes(today())) progress.days = [...progress.days, today()];
+  markDay();
   await save();
+}
+
+function markDay() {
+  if (progress.days.includes(today())) return false;
+  progress.days = [...progress.days, today()];
+  return true;
+}
+
+// ---------------------------------------------------------------- entrenador de oído (curso/oido.json)
+
+export const ear = $state<EarState & { loaded: boolean }>({ items: {}, kinds: {}, loaded: false });
+const earFile = () => `${paths.data}/curso/oido.json`;
+
+export async function loadEar() {
+  if (ear.loaded) return;
+  Object.assign(ear, await readJson(earFile(), { items: {}, kinds: {} }), { loaded: true });
+}
+
+/** Una respuesta del entrenador: su repaso (Leitner y nivel) y el día de práctica. Devuelve el cambio de nivel. */
+export async function recordEar(kind: Kind, item: string, ok: boolean) {
+  await Promise.all([loadEar(), loadProgress()]);
+  const change = grade(ear, kind, item, ok, Date.now());
+  await Promise.all([writeJson(earFile(), { items: ear.items, kinds: ear.kinds }), markDay() && save()]);
+  return change;
 }
 
 export async function markOpened(lesson: string) {

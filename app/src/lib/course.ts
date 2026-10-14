@@ -6,7 +6,7 @@ import type { Hands } from "./exercises.ts";
 import type { Level } from "./arrange.ts";
 
 export type Area = "Teclado" | "Ritmo" | "Lectura" | "Técnica" | "Intervalos" | "Escalas" | "Acordes" | "Armonía" | "Expresión" | "Oído" | "Repertorio";
-export type Quiz = "intervalos-basicos" | "intervalos" | "mayor-menor" | "acordes";
+export type Quiz = "intervalos-basicos" | "intervalos" | "mayor-menor" | "acordes" | "septimas";
 export type Practice =
   | { kind: "ejercicio"; id: string; key?: string; hands?: Hands } // key: «Sol», «Re menor»…
   | { kind: "cancion"; id: string; hands?: Hands; level?: Level }
@@ -251,6 +251,8 @@ export const LESSONS: Lesson[] = [
       { t: "Los cuatro tipos de tríada: **mayor** (4+3 semitonos, luminoso), **menor** (3+4, íntimo), **disminuido** (3+3, tenso, inestable) y **aumentado** (4+4, extraño, suspendido). Escucha cada uno sobre Do.", keys: ["Do4", "Mi4", "Sol#4"], together: true },
       { p: { kind: "oido", quiz: "mayor-menor" }, title: "¿Mayor o menor?" },
       { p: { kind: "oido", quiz: "acordes" }, title: "Los cuatro tipos de acorde" },
+      { t: "Con una nota más arriba salen las **cuatriadas**: **maj7** (mayor con la 7.ª mayor, suave, jazz), **7** (mayor con la 7.ª menor, la dominante: pide resolver), **m7** (menor con 7.ª menor, relajado) y **m7(b5)** (el semidisminuido, oscuro). Para más (sus, dim7, grados, progresiones, dictado y trozos de tus canciones), el botón **♪ Oído** del curso.", keys: ["Do4", "Mi4", "Sol4", "Sib4"], together: true },
+      { p: { kind: "oido", quiz: "septimas" }, title: "Acordes de séptima" },
     ],
   },
   {

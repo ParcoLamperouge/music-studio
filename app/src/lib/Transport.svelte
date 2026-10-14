@@ -25,7 +25,7 @@
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 </script>
 
-<div class="transport">
+<div class="card transport">
   <button class="play" onclick={ontoggle} {disabled} aria-label={playing ? "Pausa" : "Reproducir"}>
     {#if playing}
       <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
@@ -33,8 +33,8 @@
       <svg viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" /></svg>
     {/if}
   </button>
-  <button class="skip" onclick={() => onseek(Math.max(0, time - 5))} {disabled} title="-5 s">−5</button>
-  <button class="skip" onclick={() => onseek(Math.min(duration, time + 5))} {disabled} title="+5 s">+5</button>
+  <button class="ghost sm" onclick={() => onseek(Math.max(0, time - 5))} {disabled} title="-5 s">−5</button>
+  <button class="ghost sm" onclick={() => onseek(Math.min(duration, time + 5))} {disabled} title="+5 s">+5</button>
   <span class="clock">{fmt(time)} <span class="muted">/ {fmt(duration)}</span></span>
   <input
     class="scrub"
@@ -47,7 +47,7 @@
     {disabled}
   />
   <div class="master" onwheel={wheel} title="Volumen general: {Math.round(volume * 100)}%">
-    <button class="spk" onclick={toggleMute} aria-label={volume ? "Silenciar todo" : "Activar sonido"}>
+    <button class="icon-btn" onclick={toggleMute} aria-label={volume ? "Silenciar todo" : "Activar sonido"}>
       <svg viewBox="0 0 24 24">
         <path d="M4 9v6h4l5 4V5L8 9H4z" />
         {#if volume === 0}<path d="m17 9 5 6m0-6-5 6" />
@@ -60,30 +60,17 @@
 </div>
 
 <style>
-  .transport {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  }
+  .transport { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
   .play {
-    width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center;
-    background: var(--accent-grad); color: white; cursor: pointer; flex-shrink: 0;
-    box-shadow: 0 6px 20px -6px var(--accent);
+    width: 36px; height: 36px; border-radius: 50%; border: 0; display: grid; place-items: center; flex-shrink: 0;
+    background: var(--accent); color: var(--on-accent); transition: filter 0.15s;
   }
-  .play svg { width: 20px; height: 20px; fill: currentColor; }
-  .play:disabled, .skip:disabled { opacity: 0.4; cursor: default; }
-  .skip {
-    width: 34px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: transparent;
-    color: var(--text-2); font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0;
-  }
-  .skip:hover:not(:disabled) { color: var(--text); }
-  .clock { font-variant-numeric: tabular-nums; font-size: 14px; min-width: 92px; }
-  .muted { color: var(--text-3); }
+  .play:hover:not(:disabled) { filter: brightness(1.1); }
+  .play svg { width: 16px; height: 16px; fill: currentColor; }
+  .play:disabled { opacity: 0.4; }
+  .clock { font-variant-numeric: tabular-nums; font-size: 12.5px; white-space: nowrap; }
   .scrub { flex: 1; min-width: 80px; }
-  .master { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-  .master input { width: 90px; }
-  .spk { width: 30px; height: 30px; display: grid; place-items: center; border: 0; background: none; color: var(--text-2); cursor: pointer; }
-  .spk:hover { color: var(--text); }
-  .spk svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .transport :global(.ghost.active) { color: var(--text); border-color: var(--accent); }
-  .transport :global(.ghost:disabled) { opacity: 0.4; cursor: default; }
+  .master { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .master input { width: 80px; }
+  .master svg { width: 18px; height: 18px; }
 </style>

@@ -39,7 +39,7 @@
 
 {#if open}
   <button class="scrim" onclick={() => (open = false)} aria-label="Cerrar la cola"></button>
-  <aside class="queue">
+  <aside class="drawer">
     <header>
       <div>
         <span class="kicker">Cola de trabajo</span>
@@ -66,7 +66,7 @@
                   <span class="slot-label">{j.waiting || j.label}</span>
                   <div class="bar" class:indet={j.pct == null}><i style:width="{j.pct ?? 0}%"></i></div>
                   <span class="mono t">{j.pct != null ? `${Math.round(j.pct)}%` : ""} {elapsed(j)}</span>
-                  <button class="icon-btn x" onclick={() => cancel([j.id])} title="Cancelar">
+                  <button class="icon-btn sm x" onclick={() => cancel([j.id])} title="Cancelar">
                     <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg>
                   </button>
                 </div>
@@ -150,44 +150,33 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; background: #0006; border: 0; z-index: 40; animation: fade 0.2s; backdrop-filter: blur(2px); }
-  @keyframes fade { from { opacity: 0; } }
-  .queue {
-    position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100vw); z-index: 41; display: flex; flex-direction: column;
-    background: var(--sidebar); border-left: 1px solid var(--line); box-shadow: -30px 0 60px -20px #000c;
-    animation: slide 0.3s var(--ease);
-  }
-  @keyframes slide { from { transform: translateX(30px); opacity: 0; } }
-  header { display: flex; justify-content: space-between; align-items: flex-start; padding: 20px 20px 10px; }
-  h2 { margin: 2px 0 0; font-family: var(--serif); font-weight: 400; font-size: 30px; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 16px 10px; }
+  h2 { margin-top: 2px; }
 
-  .lanes { display: flex; flex-direction: column; gap: 6px; padding: 6px 16px 14px; border-bottom: 1px solid var(--line); }
-  .lane { display: grid; grid-template-columns: 70px 1fr; gap: 10px; align-items: stretch; padding: 8px 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
-  .lane.active { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .lanes { display: flex; flex-direction: column; gap: 4px; padding: 4px 12px 12px; border-bottom: 1px solid var(--line); }
+  .lane { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: stretch; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--panel); }
   .lane-name { display: flex; flex-direction: column; justify-content: center; }
-  .lane-name b { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; color: var(--text-2); }
+  .lane-name b { font-size: 12px; font-weight: 600; color: var(--text-2); }
   .lane.active .lane-name b { color: var(--accent); }
   .lane-name small { color: var(--text-3); font-size: 10.5px; line-height: 1.2; }
   .lane-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  .idle { color: var(--text-3); font-size: 12px; align-self: flex-start; padding: 6px 0; }
+  .idle { color: var(--text-3); font-size: 12px; align-self: flex-start; padding: 4px 0; }
   .slot { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto auto; column-gap: 8px; row-gap: 3px; }
   .slot-title { grid-column: 1; text-align: left; border: 0; background: none; padding: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .slot-label { grid-column: 1; color: var(--text-2); font-size: 12px; }
   .slot .bar { grid-column: 1; }
   .slot .t { grid-column: 2; grid-row: 2; font-size: 11px; color: var(--text-3); text-align: right; }
-  .slot .x { grid-column: 2; grid-row: 1; justify-self: end; width: 24px; height: 24px; }
+  .slot .x { grid-column: 2; grid-row: 1; justify-self: end; }
 
-  .list { flex: 1; overflow-y: auto; padding: 8px 12px 20px; }
-  .list-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 6px 6px; }
+  .list { flex: 1; overflow-y: auto; padding: 8px 12px 16px; }
+  .list-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 6px 6px; font-size: 12px; }
   .kicker.bad { color: var(--bad); }
-  .link.danger { color: var(--bad); font-size: 12px; }
-  .link.plain { color: var(--text-2); text-decoration: none; font-size: 12px; }
-  .list .link { font-size: 12px; }
-  .none { padding: 4px 6px; margin: 0; font-size: 13px; }
-  .job { display: flex; align-items: center; gap: 2px; padding: 7px 8px; border-radius: 10px; animation: rise 0.3s var(--ease) both; animation-delay: var(--d, 0ms); }
+  .link.plain { color: var(--text-2); text-decoration: none; }
+  .none { padding: 4px 6px; margin: 0; font-size: 12.5px; }
+  .job { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-radius: var(--radius-sm); }
   .job:hover { background: var(--panel); }
   .job-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto; column-gap: 8px; }
-  .job-title { text-align: left; border: 0; background: none; padding: 0; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .job-title { text-align: left; border: 0; background: none; padding: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .job-title:hover { color: var(--accent); }
   .job-action { color: var(--text-2); font-size: 12px; text-align: right; }
   .job-state { grid-column: 1; color: var(--text-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -1470,6 +1470,32 @@ fn shutdown() {
     }
 }
 
+/// Micrófono para Cantar. Linux: WebKitGTK trae media-stream apagado y deniega el permiso si nadie lo
+/// atiende; aquí se enciende y se aceptan solo las peticiones de micro/cámara (getUserMedia).
+fn allow_mic(w: &tauri::WebviewWindow) {
+    let _ = w.with_webview(|wv| {
+        #[cfg(target_os = "linux")]
+        {
+            use webkit2gtk::{glib::prelude::ObjectExt, PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt};
+            let v = wv.inner();
+            if let Some(s) = v.settings() {
+                s.set_enable_media_stream(true);
+                s.set_enable_mediasource(true);
+            }
+            v.connect_permission_request(|_, req| {
+                if req.is::<UserMediaPermissionRequest>() {
+                    eprintln!("Estudio: permiso de micro concedido");
+                    req.allow();
+                    return true;
+                }
+                false
+            });
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = wv;
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Err(e) = init() {
@@ -1503,6 +1529,10 @@ pub fn run() {
             });
             thread::spawn(watch_spotify);
             tick();
+            // Cantar: WebKitGTK niega getUserMedia salvo que se active y se acepte el permiso
+            if let Some(w) = tauri::Manager::get_webview_window(app, "main") {
+                allow_mic(&w);
+            }
             // desarrollo: abrir otra página al arrancar (ESTUDIO_OPEN=http://localhost:1440/edit.html?song=…)
             #[cfg(debug_assertions)]
             if let (Ok(u), Some(w)) = (std::env::var("ESTUDIO_OPEN"), tauri::Manager::get_webview_window(app, "main")) {

@@ -10,6 +10,7 @@ export const settings = $state({
   scoreFollow: true,
   spotify: true, // sincronizar sola lo que suena en Spotify
   notes: "fast" as "fast" | "precise", // basic-pitch o MuScriptor
+  latencyMs: 0, // retraso teclado→oído que se resta al juzgar el tiempo (Aprender)
   remote: "", // servidor de Estudio (server/server.py): lo procesado, compartido entre ordenadores
   remoteToken: "",
 });

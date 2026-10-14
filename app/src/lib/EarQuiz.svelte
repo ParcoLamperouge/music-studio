@@ -19,6 +19,10 @@
       title: "¿Qué acorde es?", chord: true,
       options: [{ label: "Mayor", iv: [0, 4, 7] }, { label: "Menor", iv: [0, 3, 7] }, { label: "Disminuido", iv: [0, 3, 6] }, { label: "Aumentado", iv: [0, 4, 8] }],
     },
+    septimas: {
+      title: "¿Qué acorde es?", chord: true,
+      options: [{ label: "maj7", iv: [0, 4, 7, 11] }, { label: "7", iv: [0, 4, 7, 10] }, { label: "m7", iv: [0, 3, 7, 10] }, { label: "m7(b5)", iv: [0, 3, 6, 10] }],
+    },
   };
 </script>
 
@@ -99,7 +103,7 @@
   {:else}
     <div class="head">
       <span>{q.title} <small class="muted">{n + 1}/{ROUNDS}</small></span>
-      <button class="ghost" onclick={play}>♪ Repetir</button>
+      <button class="ghost sm" onclick={play}>♪ Repetir</button>
     </div>
     <div class="opts">
       {#each q.options as o, i (o.label)}
@@ -110,12 +114,12 @@
 </div>
 
 <style>
-  .quiz { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+  .quiz { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius-sm); background: var(--bg); align-self: stretch; }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .opts { display: flex; flex-wrap: wrap; gap: 6px; }
   .opt { min-width: 70px; }
-  .opt.ok { background: color-mix(in srgb, #9bd37f 30%, var(--panel)); border-color: #9bd37f; color: var(--text); }
-  .opt.bad { background: color-mix(in srgb, #ff7a6b 25%, var(--panel)); border-color: #ff7a6b; }
+  .opt.ok { background: color-mix(in srgb, var(--ok) 25%, var(--panel)); border-color: var(--ok); color: var(--text); }
+  .opt.bad { background: color-mix(in srgb, var(--bad) 20%, var(--panel)); border-color: var(--bad); }
   .result { margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .stars { color: var(--accent); letter-spacing: 2px; font-size: 16px; }
+  .stars { color: var(--accent); letter-spacing: 2px; font-size: 15px; }
 </style>
