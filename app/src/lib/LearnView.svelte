@@ -30,8 +30,8 @@
   let { onback, onsessions, oncourse }: { onback: () => void; onsessions: () => void; oncourse: (lesson: string, step: number) => void } = $props();
   const backToLesson = () => lessonPractice && oncourse(lessonPractice.lesson, lessonPractice.step);
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands };
-  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh" };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands; more: boolean };
+  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh", more: false };
   const saved = (() => {
     try {
       return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("estudio.aprender") ?? "{}") } as Opts;
@@ -749,8 +749,32 @@
       <PieceEditor piece={editing} {onsessions} onclose={() => ((editing = null), void loadPieces())}
         onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
     {:else}
-    <div class="row">
-      <InputBar />
+    <div class="row opts top">
+      <span class="dot" class:on={!!input.connected} title={input.connected ? `Teclado: ${input.connected}` : "Sin teclado MIDI: se toca con el del ordenador (en Ajustes)"}></span>
+      {#if loaded}
+        {#if piece}<strong class="ptitle" title={piece.title}>{piece.title}</strong>{/if}
+        {#if !exercise}
+          <div class="seg" title="Dificultad: {LEVELS[o.level - 1][1]}">
+            {#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}
+          </div>
+          <div class="seg" title="Qué manos tocas: la otra la toca la guía">
+            <button class:on={o.hands === "both"} onclick={() => (o.hands = "both")}>Ambas</button>
+            <button class:on={o.hands === "rh"} onclick={() => (o.hands = "rh")}>Der.</button>
+            <button class:on={o.hands === "lh"} onclick={() => (o.hands = "lh")}>Izq.</button>
+          </div>
+        {/if}
+        <label title="La canción se para hasta que tocas la nota que toca, y solo sigue mientras la mantienes"><input type="checkbox" bind:checked={o.wait} onchange={() => practice.reset(time)} /> Espera</label>
+        <label title="Más lento para aprender: todo a ese tempo (de una canción, a tempo reducido suena solo la guía)">
+          <select value={String(o.speed)} onchange={(e) => (o.speed = +e.currentTarget.value)}>
+            {#each [1, 0.9, 0.8, 0.7, 0.6, 0.5] as v (v)}<option value={String(v)}>{Math.round(v * 100)} %</option>{/each}
+          </select>
+        </label>
+        <div class="seg">
+          <button class:on={o.view === "roll"} onclick={() => (o.view = "roll")}>Piano roll</button>
+          <button class:on={o.view === "score"} onclick={() => (o.view = "score")}>Partitura</button>
+        </div>
+        <button class="ghost small" class:on={o.more} onclick={() => (o.more = !o.more)} title="Teclado, melodía, tonalidad, volúmenes…">Ajustes {o.more ? "▴" : "▾"}</button>
+      {/if}
       <span class="grow"></span>
       {#if loaded}
         <span class="mono score" title="Notas acertadas de las que ya tocaban · notas equivocadas · adelanto (−) o retraso (+) medio">
@@ -761,83 +785,65 @@
         </span>
       {/if}
     </div>
-    {#if loaded}
-      <div class="row opts">
-        {#if exercise && piece}
-          <strong class="ptitle">{piece.title}</strong>
-        {:else if piece}
-          <strong class="ptitle">{piece.title}</strong>
-          <label>
-            Derecha
-            <select value={o.pieceRight ? "si" : "no"} onchange={(e) => (o.pieceRight = e.currentTarget.value === "si")}>
-              <option value="si">la mano derecha de la pieza</option>
-              <option value="no">acordes (solo acompañamiento)</option>
-            </select>
-          </label>
-          <button class="ghost small" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
-        {:else}
-        <label>
-          Melodía
-          <select value={o.melody} onchange={(e) => pickMelody(e.currentTarget.value)}>
-            {#each melodyStems as st (st.name)}
-              <option value={st.name}>{STEM_INFO[st.name]?.label ?? st.name}{st.ready ? "" : " (sacar sus notas)"}</option>
-            {/each}
-            <option value="none">Ninguna: solo acompañamiento</option>
-          </select>
-        </label>
-        {/if}
-        {#if !exercise}
-          <div class="seg" title="Dificultad">
-            {#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}
+    {#if o.more || !loaded}
+      <div class="more">
+        <div class="row opts"><InputBar /></div>
+        {#if loaded}
+          <div class="row opts">
+            {#if piece && !exercise}
+              <label>
+                Derecha
+                <select value={o.pieceRight ? "si" : "no"} onchange={(e) => (o.pieceRight = e.currentTarget.value === "si")}>
+                  <option value="si">la mano derecha de la pieza</option>
+                  <option value="no">acordes (solo acompañamiento)</option>
+                </select>
+              </label>
+              <button class="ghost small" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
+            {:else if !piece}
+              <label>
+                Melodía
+                <select value={o.melody} onchange={(e) => pickMelody(e.currentTarget.value)}>
+                  {#each melodyStems as st (st.name)}
+                    <option value={st.name}>{STEM_INFO[st.name]?.label ?? st.name}{st.ready ? "" : " (sacar sus notas)"}</option>
+                  {/each}
+                  <option value="none">Ninguna: solo acompañamiento</option>
+                </select>
+              </label>
+            {/if}
+            {#if !exercise}
+              <label title={keyText}>
+                Tonalidad
+                <select value={String(o.transpose)} onchange={(e) => (o.transpose = /^-?\d+$/.test(e.currentTarget.value) ? +e.currentTarget.value : (e.currentTarget.value as "orig" | "easy"))}>
+                  <option value="orig">Original ({harmony ? keyName(harmony.key, notation.latin) : ""})</option>
+                  <option value="easy">Fácil ({harmony ? fmtSemis(easyTranspose(harmony.key)) : ""})</option>
+                  {#each [-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6] as n (n)}<option value={String(n)}>{fmtSemis(n)} semitonos</option>{/each}
+                </select>
+              </label>
+            {/if}
+            {#if !piece}
+              <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
+                Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
+              </label>
+            {/if}
+            <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
+            <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
+            {#if detail && !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
           </div>
-          <small class="muted">{LEVELS[o.level - 1][1]}</small>
+          {#if exercise}<p class="about">{exercise.about}</p>{/if}
         {/if}
-        {#if !exercise}
-        <label title={keyText}>
-          Tonalidad
-          <select value={String(o.transpose)} onchange={(e) => (o.transpose = /^-?\d+$/.test(e.currentTarget.value) ? +e.currentTarget.value : (e.currentTarget.value as "orig" | "easy"))}>
-            <option value="orig">Original ({harmony ? keyName(harmony.key, notation.latin) : ""})</option>
-            <option value="easy">Fácil ({harmony ? fmtSemis(easyTranspose(harmony.key)) : ""})</option>
-            {#each [-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6] as n (n)}<option value={String(n)}>{fmtSemis(n)} semitonos</option>{/each}
-          </select>
-        </label>
-        <div class="seg" title="Qué manos tocas: la otra la toca la guía">
-          <button class:on={o.hands === "both"} onclick={() => (o.hands = "both")}>Ambas</button>
-          <button class:on={o.hands === "rh"} onclick={() => (o.hands = "rh")}>Derecha</button>
-          <button class:on={o.hands === "lh"} onclick={() => (o.hands = "lh")}>Izquierda</button>
-        </div>
-        {/if}
-        <label title="La canción se para hasta que tocas la nota que toca"><input type="checkbox" bind:checked={o.wait} onchange={() => practice.reset(time)} /> Espera</label>
-        <div class="seg">
-          <button class:on={o.view === "roll"} onclick={() => (o.view = "roll")}>Piano roll</button>
-          <button class:on={o.view === "score"} onclick={() => (o.view = "score")}>Partitura</button>
-        </div>
       </div>
-      {#if exercise}<p class="about">{exercise.about}</p>{/if}
+    {/if}
+    {#if loaded && (stretching || (semis && !piece) || (o.melody !== "none" && melody === "none" && !piece))}
       <div class="row opts">
-        {#if !piece}
-          <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
-            Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
-          </label>
-        {/if}
-        <label title="Más lento para aprender: todo a ese tempo (de una canción, a tempo reducido suena solo la guía)">
-          Tempo
-          <select value={String(o.speed)} onchange={(e) => (o.speed = +e.currentTarget.value)}>
-            {#each [1, 0.9, 0.8, 0.7, 0.6, 0.5] as v (v)}<option value={String(v)}>{Math.round(v * 100)} %</option>{/each}
-          </select>
-        </label>
-        <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
-        <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
         {#if stretching}<small class="note-warn"><span class="spinner inline"></span> Preparando las pistas al {Math.round(o.speed * 100)} % (solo la primera vez); mientras, suena la guía.</small>
         {:else if semis && !piece}<small class="muted">Transportada {fmtSemis(semis)}: de la canción solo suena la batería.</small>{/if}
-        {#if o.melody !== "none" && melody === "none"}
+        {#if o.melody !== "none" && melody === "none" && !piece}
           <small class="note-warn">
             {STEM_INFO[o.melody]?.label ?? o.melody} sin notas todavía:
             {#if notesJob}sacándolas ({jobText(notesJob)}); la derecha lleva acordes mientras{:else}la derecha lleva acordes{/if}
           </small>
           {#if !notesJob}<button class="ghost small" onclick={() => pickMelody(o.melody)}>Sacar sus notas</button>{/if}
         {/if}
-        {#if detail && !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
       </div>
     {/if}
 
@@ -936,6 +942,11 @@
   .opts input[type="range"] { width: 90px; }
   .grow { flex: 1; }
   .score { font-size: 12px; color: var(--text-2); }
+  .top .ptitle { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+  .top .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .top button.on { border-color: var(--accent); color: var(--text); }
+  .more { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); flex-shrink: 0; }
   .note-warn { color: var(--accent); display: inline-flex; align-items: center; gap: 6px; }
   .inline { width: 12px; height: 12px; }
   .force.off { color: #f6c84a; }

@@ -6,12 +6,11 @@
   import InputBar from "./InputBar.svelte";
   import { input, pcKey, pcRelease, send, useInput } from "./keys.svelte";
   import { Live } from "./live";
-  import { drawBarLabel, drawKeys, keyLayout } from "./Roll.svelte";
+  import { drawBarLabel, drawKeys, keyLayout, keysHeight } from "./Roll.svelte";
   import { settings } from "./settings.svelte";
 
   let { onback, onsessions }: { onback: () => void; onsessions: () => void } = $props();
 
-  const KEYS_H = 90;
   const LO = 21, HI = 108; // piano de 88 teclas
   const latin = loadNotation().latin;
   const store = (k: string, v?: string) => {
@@ -109,6 +108,7 @@
       const now = performance.now() / 1000;
       const t = live.time(now);
       const win = settings.rollSpeed;
+      const KEYS_H = keysHeight(keys);
       const rollH = H - KEYS_H;
       const y = (x: number) => rollH - ((t - x) / win) * rollH;
       const k = live.key(now);

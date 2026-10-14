@@ -21,33 +21,82 @@
   type Keys = ReturnType<typeof keyLayout>;
   const MONO = "'JetBrains Mono Variable', monospace";
 
-  /** Teclado con el nombre de cada nota sobre su tecla (la octava en los Do): blancas siempre; negras cuando suenan, que
-   * no caben las doce a la vez. `lit`: color de las que suenan. */
+  /** Alto del teclado para un ancho de tecla blanca: la proporción de una tecla de verdad (la parte que se ve). */
+  export const keysHeight = (keys: Keys) => {
+    const white = [...keys.values()].find((k) => !k.black);
+    return Math.round(Math.max(80, Math.min(140, (white?.w ?? 20) * 4.3)));
+  };
+
+  /** Teclado de piano con el nombre de cada nota sobre su tecla (la octava en los Do): blancas siempre; negras cuando
+   * suenan, que no caben las doce a la vez. `lit`: color de las que suenan (se ven hundidas y de ese color). */
   export function drawKeys(g: CanvasRenderingContext2D, keys: Keys, top: number, h: number, lit: Map<number, string>, name: (p: number) => string) {
+    const hex = (c?: string) => c && /^#[0-9a-f]{6}/i.test(c);
+    const FELT = 4;
+    let width = 0;
+    for (const k of keys.values()) width = Math.max(width, k.x + k.w);
+    g.fillStyle = "#0b0a09";
+    g.fillRect(0, top, width, h);
+    const y0 = top + FELT, H = h - FELT;
     for (const black of [false, true]) {
       for (const [p, k] of keys) {
         if (k.black !== black) continue;
         const color = lit.get(p);
-        const kh = black ? h * 0.62 : h;
-        if (color && /^#[0-9a-f]{6}/i.test(color)) {
-          // pulsada: degradado del color hacia claro
-          const grad = g.createLinearGradient(0, top, 0, top + kh);
-          grad.addColorStop(0, tint(color, 0));
-          grad.addColorStop(1, tint(color, 0.6));
-          g.fillStyle = grad;
-        } else g.fillStyle = color ?? (black ? "#15161c" : "#eceae4");
-        g.beginPath();
-        g.roundRect(k.x + 0.5, top, k.w - 1, kh, [0, 0, 4, 4]);
-        g.fill();
+        if (!black) {
+          const x = k.x + 0.5, w = k.w - 1, down = color ? 2 : 0;
+          const body = g.createLinearGradient(0, y0, 0, y0 + H);
+          if (hex(color)) (body.addColorStop(0, tint(color!, 0.1)), body.addColorStop(1, tint(color!, 0.6)));
+          else if (color) (body.addColorStop(0, color), body.addColorStop(1, color));
+          else (body.addColorStop(0, "#f3f0e8"), body.addColorStop(0.75, "#fdfcf8"), body.addColorStop(1, "#e7e2d6"));
+          g.fillStyle = body;
+          g.beginPath();
+          g.roundRect(x, y0, w, H - 1 - (color ? 0 : 0), [0, 0, 5, 5]);
+          g.fill();
+          // la cara de delante (más alta si está subida) y la sombra del fieltro, más honda si está pulsada
+          g.fillStyle = color ? "#00000026" : "#0000001f";
+          g.fillRect(x, y0 + H - 7 + down, w, 6 - down);
+          const shade = g.createLinearGradient(0, y0, 0, y0 + 14 + down * 4);
+          shade.addColorStop(0, color ? "#00000066" : "#00000059");
+          shade.addColorStop(1, "#00000000");
+          g.fillStyle = shade;
+          g.fillRect(x, y0, w, 14 + down * 4);
+          g.fillStyle = "#00000030"; // junta entre teclas
+          g.fillRect(k.x + k.w - 0.5, y0, 1, H - 2);
+        } else {
+          const bh = H * 0.62, x = k.x + 0.5, w = k.w - 1;
+          // sombra sobre las blancas
+          g.fillStyle = "#00000047";
+          g.beginPath();
+          g.roundRect(x + 1.5, y0, w + 1, bh + 4, [0, 0, 3, 3]);
+          g.fill();
+          const body = g.createLinearGradient(x, 0, x + w, 0);
+          body.addColorStop(0, "#09090b");
+          body.addColorStop(0.5, "#1d1d22");
+          body.addColorStop(1, "#09090b");
+          g.fillStyle = body;
+          g.beginPath();
+          g.roundRect(x, y0, w, bh, [0, 0, 3, 3]);
+          g.fill();
+          // la cara de arriba, con brillo, y el bisel de delante (más corto si está pulsada)
+          const lip = color ? bh * 0.06 : bh * 0.12;
+          const face = g.createLinearGradient(0, y0, 0, y0 + bh - lip);
+          if (hex(color)) (face.addColorStop(0, tint(color!, 0)), face.addColorStop(1, tint(color!, 0.45)));
+          else if (color) (face.addColorStop(0, color), face.addColorStop(1, color));
+          else (face.addColorStop(0, "#2a2a30"), face.addColorStop(0.85, "#3c3c44"), face.addColorStop(1, "#4a4a52"));
+          g.fillStyle = face;
+          g.beginPath();
+          g.roundRect(x + w * 0.12, y0, w * 0.76, bh - lip, [0, 0, 2, 2]);
+          g.fill();
+        }
         if (black && !color) continue;
+        const kh = black ? H * 0.62 : H;
         const size = Math.max(7, Math.min(11, k.w * 0.45));
         g.font = `${color ? 700 : 500} ${size}px ${MONO}`;
         let label = name(p) + (p % 12 === 0 ? String(Math.floor(p / 12) - 1) : "");
         if (g.measureText(label).width > k.w - 2) label = name(p); // sin octava si no cabe
         const tw = g.measureText(label).width;
         if (tw > k.w - 1) continue;
-        g.fillStyle = color ? "#1c0f05" : "#0000008c";
-        g.fillText(label, k.x + (k.w - tw) / 2, top + kh - 7);
+        g.fillStyle = color ? "#1c0f05" : "#00000080";
+        g.fillText(label, k.x + (k.w - tw) / 2, y0 + kh - (black ? 8 : 12));
       }
     }
   }
@@ -107,7 +156,6 @@
   /** Con efectos, la primera pista (la derecha) va en el color principal y la segunda (la izquierda) en el otro. */
   const fxColor = (st: RollStyle, i: number) => (i === 0 ? st.color : st.color2);
 
-  const KEYS_H = 90;
   let fullscreen = $state(false);
   let height = $state(0); // ocupa todo el alto que le dejen (pestaña o pantalla completa)
 
@@ -142,7 +190,13 @@
     let hi = Math.max(...all.map((n) => n[2]));
     lo -= lo % 12;
     hi += 11 - (hi % 12);
-    if (hi - lo < 35) hi = lo + 35; // mínimo 3 octavas
+    // al menos 5 octavas, repartidas por los dos lados: con pocas, las teclas salen anchas como de juguete
+    for (let below = true; hi - lo < 59; below = !below) {
+      if (below && lo >= 33) lo -= 12;
+      else if (hi <= 96) hi += 12;
+      else if (lo >= 33) lo -= 12;
+      else break;
+    }
     return { lo, hi };
   });
 
@@ -165,6 +219,7 @@
     const draw = () => {
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t = player.time();
+      const KEYS_H = keysHeight(keys);
       const rollH = HEIGHT - KEYS_H;
       const st = style();
       if (effects) drawBackground(g, width, rollH);
