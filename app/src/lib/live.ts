@@ -122,17 +122,19 @@ export class Live {
   }
 }
 
-/** MIDI estándar (tipo 0, 120 bpm, 480 pulsos por negra: 960 por segundo) con los mensajes en su segundo. */
-export function toMidi(events: [number, number[]][]): Uint8Array {
+/** MIDI estándar (tipo 0, 480 pulsos por negra; a 120 bpm, 960 por segundo) con los mensajes en su segundo. */
+export function toMidi(events: [number, number[]][], bpm = 120): Uint8Array {
   const vlq = (n: number) => {
     const out = [n & 0x7f];
     while ((n >>= 7)) out.unshift((n & 0x7f) | 0x80);
     return out;
   };
-  const body = [0, 0xff, 0x51, 3, 0x07, 0xa1, 0x20]; // tempo: 500000 µs por negra
+  const us = Math.round(60e6 / bpm); // µs por negra
+  const body = [0, 0xff, 0x51, 3, (us >> 16) & 255, (us >> 8) & 255, us & 255];
+  const perSec = (480 * bpm) / 60;
   let last = 0;
   for (const [t, msg] of events) {
-    const tick = Math.max(last, Math.round(t * 960));
+    const tick = Math.max(last, Math.round(t * perSec));
     body.push(...vlq(tick - last), ...msg);
     last = tick;
   }

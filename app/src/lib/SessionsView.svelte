@@ -8,6 +8,8 @@
   import { toToon } from "./toon";
   import { Player, synth } from "./player";
   import { loadPiano } from "./piano";
+  import { fromSession } from "./piece";
+  import { pickPieces, pieceToSession, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
   import { settings } from "./settings.svelte";
   import SongPlayer from "./SongPlayer.svelte";
@@ -25,7 +27,7 @@
   };
   type Item = { name: string; base: string; s: Session | null };
 
-  let { onback, onsong }: { onback: () => void; onsong: (key: string) => void } = $props();
+  let { onback, onsong, onlearn }: { onback: () => void; onsong: (key: string) => void; onlearn: (pieceId: string) => void } = $props();
 
   const dir = `${paths.data}/sesiones`;
   let items = $state<Item[]>([]);
@@ -198,6 +200,27 @@
     return songForAI({ title: d.title, artist: d.artist, duration: d.duration, key: songKey || null, bpm: d.bpm }, tracks, songChords, d.doc);
   }
 
+  /** La sesión como pieza, para practicarla en Aprender (o retocarla en el editor). */
+  async function toPiece() {
+    if (!sel?.s) return;
+    const pc = await savePiece(fromSession(sel.s.notes, `Sesión del ${when(sel.name)}`));
+    onlearn(pc.id);
+  }
+
+  /** MIDI o MusicXML como sesión (su piano roll, sus acordes, el análisis de Claude). */
+  async function importSession() {
+    try {
+      const got = await pickPieces();
+      let base = "";
+      for (const [i, pc] of got.entries()) base = await pieceToSession(pc, true, new Date(Date.now() + i * 1000));
+      await scan();
+      const it = items.find((x) => x.base === base);
+      if (it) void open(it);
+    } catch (e) {
+      error = `No se pudo importar: ${e}`;
+    }
+  }
+
   async function remove() {
     if (!sel || !confirm(`Borrar la sesión del ${when(sel.name)} (.mid, .json, .toon y su análisis). No se puede deshacer.`)) return;
     for (const ext of [".json", ".mid", ".toon", ".analisis.md"]) await removeFile(sel.base + ext).catch(() => {});
@@ -301,6 +324,7 @@
           <p class="muted empty">Añade canciones con las pistas separadas para escucharlas por instrumentos aquí.</p>
         {/each}
       {:else}
+      <button class="add" onclick={importSession} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl) como sesión">＋ Importar MIDI o MusicXML</button>
       {#each items as it (it.name)}
         <button class="item" class:on={sel?.name === it.name} onclick={() => open(it)} disabled={!it.s}>
           <span>{when(it.name)}</span>
@@ -392,6 +416,7 @@
       {/if}
       <div class="actions">
         <button class="primary" onclick={analyze} disabled={analyzing}>{analyzing ? "Claude escuchando…" : analysis ? "Analizar otra vez" : "Analizar con Claude"}</button>
+        <button class="ghost" onclick={toPiece} title="Pasarla a pieza para practicarla con niveles (o retocarla en el editor)">Practicar en Aprender</button>
         <button class="ghost" onclick={() => sel && revealItemInDir(`${sel.base}.mid`)} title="El .mid se abre en cualquier programa">Carpeta</button>
         <button class="ghost" onclick={remove}>Borrar</button>
       </div>

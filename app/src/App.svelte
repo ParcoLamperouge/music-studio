@@ -65,9 +65,9 @@
   const gpuWaiting = $derived(store.jobs.filter((j) => j.status === "ready" && j.steps[j.cur]?.res === "gpu").length);
   const titleOf = (key: string) => store.tracks.find((t) => t.key === key)?.title ?? key;
 
-  function go(m: typeof mode) {
+  function go(m: typeof mode, piece?: string) {
     mode = m;
-    history.replaceState(null, "", m ? `?mode=${m}` : "?");
+    history.replaceState(null, "", m ? `?mode=${m}${piece ? `&piece=${encodeURIComponent(piece)}` : ""}` : "?");
   }
 
   function select(key: string) {
@@ -144,7 +144,7 @@
       <button onclick={() => go("aprender")}>
         <kbd>4</kbd>
         <strong>Aprender</strong>
-        <span>Una canción para piano, del nivel 1 al 5: melodía y acompañamiento, sobre sus pistas, con partitura.</span>
+        <span>Una canción o una pieza tuya (escrita en el editor, o un MIDI / MusicXML) para piano, del nivel 1 al 5, con partitura.</span>
       </button>
     </div>
   </div>
@@ -153,7 +153,7 @@
 {:else if mode === "aprender"}
   <LearnView onback={() => go(null)} />
 {:else if mode === "sesiones"}
-  <SessionsView onback={() => go(null)} onsong={(k) => (go("analizar"), select(k))} />
+  <SessionsView onback={() => go(null)} onsong={(k) => (go("analizar"), select(k))} onlearn={(id) => go("aprender", id)} />
 {:else}
   <div class="app">
     <aside class="side">

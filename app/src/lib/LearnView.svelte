@@ -8,6 +8,9 @@
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { Player, synth, voice } from "./player";
   import { loadPiano } from "./piano";
+  import PieceEditor from "./PieceEditor.svelte";
+  import { newPiece, pieceArrangement, pieceBeats, pieceLength, pieceSeconds, type Piece } from "./piece";
+  import { deletePiece, importPieces, loadPieces, pieces, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
   import Score from "./Score.svelte";
   import { settings } from "./settings.svelte";
@@ -15,11 +18,12 @@
   import Transport from "./Transport.svelte";
 
   /** Modo Aprender: una canción separada como arreglo para piano (arrange.ts), del nivel 1 al 5, para tocarla encima de
-   * sus pistas (sin la parte que tocas), con guía sintetizada, modo espera, bucle y piano roll o partitura. */
+   * sus pistas (sin la parte que tocas), con guía sintetizada, modo espera, bucle y piano roll o partitura. O una pieza
+   * (escrita en el editor o importada de MIDI / MusicXML): el nivel 5 es la pieza tal cual. */
   let { onback }: { onback: () => void } = $props();
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean };
-  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" };
+  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones" };
   const saved = (() => {
     try {
       return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("estudio.aprender") ?? "{}") } as Opts;
@@ -58,8 +62,54 @@
   let time = $state(0);
   let duration = $state(0);
 
+  let piece = $state.raw<Piece | null>(null);
+  let editing = $state.raw<Piece | null>(null);
+  const loaded = $derived(!!detail || !!piece);
+  const title = $derived(detail?.title ?? piece?.title ?? "");
+  const piecesShown = $derived(pieces.list.filter((p) => p.title.toLowerCase().includes(query.trim().toLowerCase())));
+
+  function reset() {
+    player.stop();
+    player.buffers.clear();
+    player.duration = 0;
+    playing = false;
+    [detail, piece, error, time] = [null, null, "", 0];
+  }
+
+  /** Una pieza: sus manos como «piano» (derecha) y «bajo» (izquierda), para sacar acordes y tonalidad de sus notas. */
+  function openPiece(pc: Piece) {
+    key = null;
+    reset();
+    const ns = [{ stem: "piano", notes: pieceSeconds(pc, "rh") }, { stem: "bass", notes: pieceSeconds(pc, "lh") }].filter((t) => t.notes.length);
+    const bs = pieceBeats(pc);
+    const len = (pieceLength(pc) * 60) / pc.bpm;
+    const h = analyze(ns, bs, len);
+    [notes, beats, harmony, piece] = [ns, bs, { ...h, key: pc.key ?? h.key }, pc];
+    duration = len + 2;
+  }
+
+  async function newOrImport(kind: "new" | "import") {
+    try {
+      if (kind === "new") editing = await savePiece(newPiece());
+      else {
+        const added = await importPieces();
+        if (added[0]) editing = added[0];
+      }
+      o.tab = "piezas";
+    } catch (e) {
+      error = `No se pudo importar: ${e}`;
+    }
+  }
+
+  async function removePiece(pc: Piece) {
+    if (!confirm(`Borrar la pieza «${pc.title}». No se puede deshacer.`)) return;
+    await deletePiece(pc.id);
+    if (piece?.id === pc.id) reset();
+  }
+
   async function open(k: string) {
     key = k;
+    piece = null;
     loading = true;
     error = "";
     player.stop();
@@ -89,7 +139,9 @@
   // ---------------------------------------------------------------- arreglo
 
   // la melodía que se usa: la elegida si ya tiene notas; si no (la voz sin transcribir), acordes mientras se sacan
-  const melody = $derived(o.melody !== "none" && notes.some((t) => t.stem === o.melody) ? o.melody : "none");
+  const melody = $derived(
+    piece ? (o.pieceRight && notes.some((t) => t.stem === "piano") ? "piano" : "none") : o.melody !== "none" && notes.some((t) => t.stem === o.melody) ? o.melody : "none",
+  );
   /** Pistas que pueden llevar la melodía: las que tienen notas y las que aún no (se sacan al elegirlas). */
   const melodyStems = $derived(
     (detail?.stemlab?.stems ?? []).filter((s) => s.name !== "drums" && s.present).map((s) => ({ name: s.name, ready: notes.some((t) => t.stem === s.name) })),
@@ -114,15 +166,16 @@
 
   const semis = $derived(!harmony ? 0 : o.transpose === "orig" ? 0 : o.transpose === "easy" ? easyTranspose(harmony.key) : o.transpose);
   const arr = $derived.by<Arrangement | null>(() => {
-    if (!harmony || !detail) return null;
+    if (!harmony || !loaded) return null;
+    if (piece && o.level === 5) return pieceArrangement(piece, harmony.key, semis); // la pieza tal cual
     return arrange({
       melody: melody === "none" ? null : (notes.find((t) => t.stem === melody)?.notes ?? null),
       piano: notes.find((t) => t.stem === "piano")?.notes,
       bass: notes.find((t) => t.stem === "bass")?.notes,
       chords: harmony.chords,
       beats,
-      downbeats: detail.beatData?.downbeats,
-      meter: detail.beatData?.meter,
+      downbeats: piece ? [0] : detail?.beatData?.downbeats,
+      meter: piece ? piece.meter : detail?.beatData?.meter,
       key: harmony.key,
       level: o.level,
       transpose: semis,
@@ -156,8 +209,7 @@
 
   /** La canción sin la parte que tocas: con transporte, solo la batería (el resto sonaría en otra tonalidad). */
   function applyGains() {
-    if (!detail?.stemlab) return;
-    for (const s of detail.stemlab.stems) {
+    for (const s of detail?.stemlab?.stems ?? []) {
       const off = (semis !== 0 && s.name !== "drums") || (s.name === melody && plays("rh"));
       player.setGain(s.name, off ? 0 : o.song);
     }
@@ -208,7 +260,7 @@
   }
 
   function toggle() {
-    if (loading || !detail) return;
+    if (loading || !loaded) return;
     if (player.playing) player.pause();
     else {
       waiting = null;
@@ -230,9 +282,20 @@
     if (loopA != null && loopB != null && loopB > loopA) loop = true;
   }
 
+  // la entrada (MIDI y teclado) es de esta vista salvo mientras se edita una pieza: entonces es del editor
+  $effect(() => {
+    if (editing) return;
+    return useInput(onMidi);
+  });
+
   onMount(() => {
-    const stop = useInput(onMidi);
     void loadPiano().catch(() => {}); // que la primera nota ya suene a piano
+    // desde Sesiones («Practicar en Aprender») llega con ?piece=<id>
+    const want = new URLSearchParams(location.search).get("piece");
+    void loadPieces().then(() => {
+      const pc = want && pieces.list.find((p) => p.id === want);
+      if (pc) ((o.tab = "piezas"), openPiece(pc));
+    });
     let raf = 0;
     const tick = () => {
       time = player.time();
@@ -256,7 +319,6 @@
     tick();
     return () => {
       cancelAnimationFrame(raf);
-      stop();
       for (const off of voices.values()) off();
       player.stop();
       void player.ctx.close();
@@ -266,28 +328,28 @@
   // ---------------------------------------------------------------- partitura
 
   const learnDir = `${paths.data}/aprender`;
-  const safe = $derived((key ?? "").replace(/[/:]/g, "_"));
+  const safe = $derived((key ?? piece?.id ?? "").replace(/[/:]/g, "_"));
   const scoreName = $derived(`${safe}__nivel${o.level}_${melody}${semis ? `_${semis > 0 ? "+" : ""}${semis}` : ""}`);
   let scorePath = $state("");
   $effect(() => {
-    if (o.view !== "score" || !arr || !detail) return;
+    if (o.view !== "score" || !arr || !loaded) return;
     const path = `${learnDir}/${scoreName}.musicxml`;
-    const xml = toMusicXML(arr, `${detail.title} · nivel ${o.level}`);
+    const xml = toMusicXML(arr, `${title} · nivel ${o.level}`);
     void writeBytes(path, new TextEncoder().encode(xml)).then(
       () => (scorePath = path),
       (e) => (error = `No se pudo guardar la partitura: ${e}`),
     );
   });
-  const scoreSong = $derived<Song>({ id: key ?? "", title: detail?.title ?? "", dir: learnDir, mix: "", bpm: detail?.bpm ?? 120, stems: [] });
+  const scoreSong = $derived<Song>({ id: key ?? piece?.id ?? "", title, dir: learnDir, mix: "", bpm: detail?.bpm ?? piece?.bpm ?? 120, stems: [] });
 
   const keyText = $derived(harmony ? keyName(harmony.key, notation.latin) + (semis && arr ? ` → ${keyName(arr.key, notation.latin)}` : "") : "");
   const fmtSemis = (n: number) => (n > 0 ? `+${n}` : String(n));
 </script>
 
-<svelte:window onkeydown={(e) => !(e.target as HTMLElement).closest("input[type=search]") && pcKey(e)} onkeyup={(e) => pcKey(e)} onblur={() => pcRelease()} />
+<svelte:window onkeydown={(e) => !editing && !(e.target instanceof Element && e.target.closest("input")) && pcKey(e)} onkeyup={(e) => !editing && pcKey(e)} onblur={() => !editing && pcRelease()} />
 
 {#snippet controls()}
-  <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !detail} ontoggle={toggle} onseek={seek}>
+  <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !loaded} ontoggle={toggle} onseek={seek}>
     <button class="ghost" class:on={loopA != null} onclick={() => setLoop("a")} title="Inicio del bucle aquí">A</button>
     <button class="ghost" class:on={loopB != null} onclick={() => setLoop("b")} title="Final del bucle aquí">B</button>
     <button class="ghost" class:on={loop} disabled={loopA == null || loopB == null} onclick={() => (loop = !loop)} title="Repetir de A a B">Bucle</button>
@@ -300,31 +362,69 @@
       <button class="ghost" onclick={onback} title="Volver al menú">← Menú</button>
       <strong>Aprender</strong>
     </header>
-    <input type="search" placeholder="Buscar canción…" bind:value={query} />
+    <div class="tabs">
+      <button class:on={o.tab === "canciones"} onclick={() => (o.tab = "canciones")}>Canciones</button>
+      <button class:on={o.tab === "piezas"} onclick={() => (o.tab = "piezas")}>Mis piezas</button>
+    </div>
+    <input type="search" placeholder="Buscar…" bind:value={query} />
     <div class="list">
-      {#each songs as t (t.key)}
-        <button class="item" class:on={key === t.key} onclick={() => open(t.key)}>
-          <span>{t.title}</span>
-          <small>{t.artist}</small>
-        </button>
+      {#if o.tab === "piezas"}
+        <div class="add">
+          <button class="ghost" onclick={() => newOrImport("new")} title="Escribirla en el editor (con el piano o el ratón)">＋ Nueva</button>
+          <button class="ghost" onclick={() => newOrImport("import")} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl)">Importar…</button>
+        </div>
+        {#each piecesShown as pc (pc.id)}
+          <div class="item piece" class:on={piece?.id === pc.id}>
+            <button class="open" onclick={() => openPiece(pc)}>
+              <span>{pc.title}</span>
+              <small>{pc.notes.length} notas · {pc.bpm} bpm</small>
+            </button>
+            <button class="icon-btn" onclick={() => (reset(), (editing = pc))} title="Editar" aria-label="Editar">✎</button>
+            <button class="icon-btn" onclick={() => removePiece(pc)} title="Borrar" aria-label="Borrar">✕</button>
+          </div>
+        {:else}
+          <p class="muted empty">Escribe una con «＋ Nueva» (tocando en el piano o con el ratón) o importa un MIDI o MusicXML.</p>
+        {/each}
       {:else}
-        <p class="muted empty">Hacen falta canciones con las pistas separadas y sus notas (en Analizar).</p>
-      {/each}
+        {#each songs as t (t.key)}
+          <button class="item" class:on={key === t.key} onclick={() => open(t.key)}>
+            <span>{t.title}</span>
+            <small>{t.artist}</small>
+          </button>
+        {:else}
+          <p class="muted empty">Hacen falta canciones con las pistas separadas y sus notas (en Analizar).</p>
+        {/each}
+      {/if}
     </div>
   </aside>
 
   <main>
+    {#if editing}
+      <PieceEditor piece={editing} onclose={() => ((editing = null), void loadPieces())}
+        onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
+    {:else}
     <div class="row">
       <InputBar />
       <span class="grow"></span>
-      {#if detail}
+      {#if loaded}
         <span class="mono score" title="Notas acertadas de las que ya tocaban · notas equivocadas · adelanto (−) o retraso (+) medio">
           {stats.hits}/{stats.due} · {stats.wrong} fallos{stats.hits ? ` · ${stats.ms > 0 ? "+" : ""}${stats.ms} ms` : ""}
         </span>
       {/if}
     </div>
-    {#if detail}
+    {#if loaded}
       <div class="row opts">
+        {#if piece}
+          <strong class="ptitle">{piece.title}</strong>
+          <label>
+            Derecha
+            <select value={o.pieceRight ? "si" : "no"} onchange={(e) => (o.pieceRight = e.currentTarget.value === "si")}>
+              <option value="si">la mano derecha de la pieza</option>
+              <option value="no">acordes (solo acompañamiento)</option>
+            </select>
+          </label>
+          <button class="ghost small" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
+        {:else}
         <label>
           Melodía
           <select value={o.melody} onchange={(e) => pickMelody(e.currentTarget.value)}>
@@ -334,6 +434,7 @@
             <option value="none">Ninguna: solo acompañamiento</option>
           </select>
         </label>
+        {/if}
         <div class="seg" title="Dificultad">
           {#each LEVELS as [n, label] (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={label}>{n}</button>{/each}
         </div>
@@ -358,9 +459,11 @@
         </div>
       </div>
       <div class="row opts">
-        <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
-          Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
-        </label>
+        {#if !piece}
+          <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
+            Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
+          </label>
+        {/if}
         <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
         <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
         {#if semis}<small class="muted">Transportada {fmtSemis(semis)}: de la canción solo suena la batería.</small>{/if}
@@ -371,14 +474,14 @@
           </small>
           {#if !notesJob}<button class="ghost small" onclick={() => pickMelody(o.melody)}>Sacar sus notas</button>{/if}
         {/if}
-        {#if !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
+        {#if detail && !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
       </div>
     {/if}
 
     {#if error}<p class="error-text">{error}</p>{/if}
     {#if loading}
       <div class="msg"><span class="spinner"></span></div>
-    {:else if detail && arr}
+    {:else if loaded && arr}
       {#if o.view === "roll"}
         <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
           lit={() => pressed}
@@ -388,7 +491,7 @@
           ]} />
       {:else if scorePath}
         {#key scorePath}
-          <Score song={scoreSong} stems={[]} path={scorePath} {player} {controls} bind:follow={settings.scoreFollow} title="{detail.title} · nivel {o.level}"
+          <Score song={scoreSong} stems={[]} path={scorePath} {player} {controls} bind:follow={settings.scoreFollow} title="{title} · nivel {o.level}"
             beatAt={(t) => toBeat(beats, t) - arr.start} pdfName={scoreName} />
         {/key}
       {/if}
@@ -396,6 +499,7 @@
     {:else if !error}
       <div class="welcome"><h1>Elige una canción<br />y <em>tócala</em>.</h1>
         <p class="muted">Melodía y acompañamiento para piano, del nivel 1 al 5. Con el teclado MIDI o el del ordenador.</p></div>
+    {/if}
     {/if}
   </main>
 </div>
@@ -412,6 +516,15 @@
   .item.on { background: var(--panel-hi); box-shadow: inset 2px 0 0 var(--accent); }
   .item small { color: var(--text-3); font-size: 11.5px; }
   .empty { padding: 12px; font-size: 13px; }
+  .tabs { display: flex; margin: 0 10px; padding: 3px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+  .tabs button { flex: 1; padding: 5px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font-size: 12.5px; }
+  .tabs button.on { background: var(--panel-hi); color: var(--text); }
+  .add { display: flex; gap: 6px; padding: 2px 4px 8px; }
+  .add button { flex: 1; padding: 6px 8px; font-size: 12.5px; }
+  .piece { flex-direction: row !important; align-items: center !important; padding: 0 4px 0 0 !important; }
+  .piece .open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; border: 0; background: none; color: var(--text); text-align: left; min-width: 0; }
+  .piece .open small { color: var(--text-3); font-size: 11.5px; }
+  .ptitle { font-family: var(--serif); font-weight: 400; font-size: 20px; color: var(--text); }
 
   main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 24px 16px; }
   .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }

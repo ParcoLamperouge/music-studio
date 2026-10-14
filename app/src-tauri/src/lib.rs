@@ -1075,6 +1075,25 @@ async fn director(brief: Value) -> Result<Value, String> {
     .await
 }
 
+/// Un MIDI o MusicXML que se elige para importar como pieza (puede estar en cualquier sitio: lo eligió el usuario en el
+/// diálogo). Solo esas extensiones y hasta 20 MB.
+#[tauri::command]
+async fn read_import(path: String) -> Result<tauri::ipc::Response, String> {
+    blocking(move || {
+        let p = PathBuf::from(&path);
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        if !["mid", "midi", "musicxml", "xml", "mxl"].contains(&ext.as_str()) {
+            return Err(format!("no se importa ese tipo de fichero: .{ext}"));
+        }
+        let len = std::fs::metadata(&p).map_err(|e| e.to_string())?.len();
+        if len > 20 << 20 {
+            return Err("el fichero es demasiado grande (más de 20 MB)".into());
+        }
+        std::fs::read(&p).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
+    })
+    .await
+}
+
 #[tauri::command]
 fn has_director() -> bool {
     std::env::var("ANTHROPIC_API_KEY").is_ok()
@@ -1413,7 +1432,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             paths_cmd, catalog, song, run_cmd, enqueue, import, jobs, job, cancel, cancel_all, retry, top, clear_finished, write_file, list_dir,
             remove_file, render, director, has_director, gpu_name, now_playing, player_seek, player_toggle, prefetch_now,
-            analyze_session, midi::midi_ports, midi::midi_open, midi::midi_send, midi::midi_close
+            analyze_session, read_import, midi::midi_ports, midi::midi_open, midi::midi_send, midi::midi_close
         ])
         .setup(|app| {
             let _ = APP.set(app.handle().clone());
