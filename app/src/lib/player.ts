@@ -10,6 +10,20 @@ export class DecodeError extends Error {
   }
 }
 
+type Note = [start: number, end: number, pitch: number, velocity: number];
+
+/** Primer índice de `notes` (ordenadas por inicio) que podría seguir sonando en `t`: como las notas duran poco, se
+ * busca el inicio y se retrocede un margen. */
+function firstEndingAfter(notes: Note[], t: number) {
+  let [lo, hi] = [0, notes.length];
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (notes[m][0] < t - 30) lo = m + 1;
+    else hi = m;
+  }
+  return lo;
+}
+
 /** Reproduce varias pistas sincronizadas: un AudioBufferSourceNode por pista, todas arrancadas en el mismo instante. */
 export class Player {
   ctx = new AudioContext();
@@ -30,6 +44,52 @@ export class Player {
   minDuration = 0;
   private get end() {
     return Math.max(this.duration, this.minDuration);
+  }
+
+  // pistas de notas (la guía de Aprender): se tocan en vivo con el piano de muestras, programadas un poco por delante
+  // del reloj; sin sintetizar nada antes, así suenan al momento y siguen al instante cualquier cambio
+  private live = new Map<string, Note[]>();
+  private voices: { end: number; off: () => void }[] = []; // end: en tiempo del contexto
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private scheduled = 0; // hasta dónde (en segundos de la canción) ya está programado
+
+  /** Notas [inicio, fin, nota, fuerza] que suenan por la ganancia `name`; sustituye a las que hubiera. */
+  setNotes(name: string, notes: Note[]) {
+    this.live.set(name, [...notes].sort((a, b) => a[0] - b[0]));
+    if (!this.gains.has(name)) this.gains.set(name, this.gainNode());
+    if (this.playing) this.reschedule();
+  }
+
+  private reschedule() {
+    this.silence();
+    this.scheduled = this.time();
+    this.schedule(true);
+  }
+
+  private silence() {
+    for (const v of this.voices) v.off();
+    this.voices = [];
+  }
+
+  /** Programa lo que empieza antes de medio segundo desde ahora (`fromHere`: también lo que ya estaba sonando). */
+  private schedule(fromHere = false) {
+    if (!this.playing) return;
+    const samples = ready;
+    if (!samples) return void loadPiano().catch(() => {});
+    const now = this.time(), until = now + 0.5;
+    const from = Math.max(this.scheduled, now - 0.1); // tras un parón (cargando el piano), nada atrasado de golpe
+    for (const [name, notes] of this.live) {
+      const dest = this.gains.get(name)!;
+      for (let i = firstEndingAfter(notes, from); i < notes.length && notes[i][0] < until; i++) {
+        const [s, e, p, v] = notes[i];
+        if (s < from && !(fromHere && e > from + 0.1)) continue; // ya programada (o casi acabada)
+        const at = Math.max(this.startedAt + s, this.ctx.currentTime);
+        const end = Math.max(at + 0.05, this.startedAt + e);
+        this.voices.push({ end: end + 0.7, off: playNote(this.ctx, dest, samples, p, v, at, end) });
+      }
+    }
+    this.scheduled = until;
+    this.voices = this.voices.filter((v) => v.end > this.ctx.currentTime); // las que ya se apagaron
   }
 
   /** Lanza DecodeError si alguna pista no se puede decodificar (se arregla convirtiéndola). */
@@ -67,17 +127,6 @@ export class Player {
       this.buffers.set(name, buf);
       if (!this.gains.has(name)) this.gains.set(name, this.gainNode());
     }
-    this.duration = Math.max(0, ...[...this.buffers.values()].map((b) => b.duration));
-    this.offset = Math.min(at, this.end);
-    if (was) this.play();
-  }
-
-  /** Quita una pista en memoria (la guía de otro tempo) sin cortar el resto. */
-  dropBuffer(name: string) {
-    if (!this.buffers.has(name)) return;
-    const [at, was] = [this.time(), this.playing];
-    this.stopSources();
-    this.buffers.delete(name);
     this.duration = Math.max(0, ...[...this.buffers.values()].map((b) => b.duration));
     this.offset = Math.min(at, this.end);
     if (was) this.play();
@@ -144,6 +193,9 @@ export class Player {
     });
     this.startedAt = at - this.offset;
     this.playing = true;
+    this.scheduled = this.offset;
+    this.schedule(true);
+    this.timer = setInterval(() => this.schedule(), 100);
   }
 
   pause() {
@@ -171,6 +223,8 @@ export class Player {
   }
 
   private stopSources() {
+    clearInterval(this.timer);
+    this.silence();
     for (const s of this.sources) s.stop();
     this.sources = [];
     this.playing = false;

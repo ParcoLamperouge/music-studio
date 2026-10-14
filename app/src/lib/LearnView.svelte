@@ -8,7 +8,7 @@
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
   import InputBar from "./InputBar.svelte";
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
-  import { Player, synth, voice } from "./player";
+  import { Player, voice } from "./player";
   import { loadPiano } from "./piano";
   import { keyOf, LESSONS, stars, type Practice as CoursePractice } from "./course";
   import { EX_LEVELS, EXERCISES, exercisePiece, type Exercise, type Hands } from "./exercises";
@@ -311,26 +311,18 @@
     return named(cs, arr.key, notation).map((c) => ({ ...c, deg: degree(c, arr.key) }));
   });
 
-  // la guía: el arreglo sintetizado (lo que no tocas, y si quieres también lo tuyo, más bajo)
-  let guideVersion = 0;
+  // la guía: el arreglo tocado en vivo con el piano (lo que no tocas, y si quieres también lo tuyo, más bajo); al
+  // cambiar de velocidad, nivel o manos, la nueva suena al momento
   $effect(() => {
     const [rh, lh] = [rhSec, lhSec];
-    const v = ++guideVersion;
-    const len = untrack(() => duration);
-    // la guía de antes (otro tempo u otro arreglo) se calla ya: mejor un momento sin guía que desincronizada
-    untrack(() => (player.dropBuffer("guia-rh"), player.dropBuffer("guia-lh")));
-    if (!len) return;
-    void Promise.all([synth(rh, len), synth(lh, len)])
-      .then(([a, b]) => {
-        if (v !== guideVersion) return;
-        player.setBuffer("guia-rh", a);
-        player.setBuffer("guia-lh", b);
-        applyGains();
-      })
-      .catch((e) => (error = `No se pudo preparar el sonido de la guía: ${e}`));
+    untrack(() => {
+      player.setNotes("guia-rh", rh);
+      player.setNotes("guia-lh", lh);
+      applyGains();
+    });
   });
 
-  // el reloj del reproductor corre lo que dura el arreglo aunque la guía aún no esté sintetizada
+  // el reloj del reproductor corre lo que dura el arreglo (una pieza no tiene pistas de audio, solo la guía en vivo)
   $effect(() => {
     player.minDuration = duration;
   });
