@@ -769,7 +769,7 @@
       <div class="msg"><span class="spinner"></span></div>
     {:else if loaded && arr}
       {#if o.view === "roll"}
-        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
+        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} fx {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
           lit={() => pressed}
           tracks={[
             { stem: "rh", name: melody === "none" ? "Derecha: acordes" : "Derecha: melodía", color: "#f29d38", path: "rh", hidden: false, notes: rhSec },

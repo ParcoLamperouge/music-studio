@@ -1,10 +1,12 @@
 import { readJson, settingsPath, writeJson } from "./engine";
+import { ROLL_DEFAULT } from "./rollfx";
 
 /** Ajustes generales (settings.json). Rust lee «spotify»; el resto es de la vista. Se guardan juntos y con retardo. */
 export const settings = $state({
   masterVolume: 1,
   showMini: false,
   rollSpeed: 2.5,
+  rollStyle: { ...ROLL_DEFAULT }, // aspecto del piano roll de Aprender (rollfx.ts)
   scoreFollow: true,
   spotify: true, // sincronizar sola lo que suena en Spotify
   notes: "fast" as "fast" | "precise", // basic-pitch o MuScriptor

@@ -1,4 +1,6 @@
 <script lang="ts" module>
+  import { tint } from "./rollfx";
+
   const BLACK = new Set([1, 3, 6, 8, 10]);
   const isBlack = (p: number) => BLACK.has(p % 12);
 
@@ -27,7 +29,13 @@
         if (k.black !== black) continue;
         const color = lit.get(p);
         const kh = black ? h * 0.62 : h;
-        g.fillStyle = color ?? (black ? "#15161c" : "#eceae4");
+        if (color && /^#[0-9a-f]{6}/i.test(color)) {
+          // pulsada: degradado del color hacia claro
+          const grad = g.createLinearGradient(0, top, 0, top + kh);
+          grad.addColorStop(0, tint(color, 0));
+          grad.addColorStop(1, tint(color, 0.6));
+          g.fillStyle = grad;
+        } else g.fillStyle = color ?? (black ? "#15161c" : "#eceae4");
         g.beginPath();
         g.roundRect(k.x + 0.5, top, k.w - 1, kh, [0, 0, 4, 4]);
         g.fill();
@@ -73,11 +81,13 @@
   import type { Snippet } from "svelte";
   import { setWindowFullscreen } from "./fullscreen";
   import type { Player } from "./player";
+  import { drawBackground, drawBar, ROLL_DEFAULT, ROLL_PRESETS, RollFx, type RollStyle } from "./rollfx";
+  import { settings } from "./settings.svelte";
 
   type Note = [start: number, end: number, pitch: number, velocity: number];
   type Track = { stem: string; name: string; color: string; path: string; hidden: boolean; notes?: Note[] }; // notes: ya en memoria
 
-  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality, lit, title = "Piano roll" }: {
+  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality, lit, title = "Piano roll", fx = false }: {
     player: Player;
     tracks: Track[];
     controls: Snippet; // transporte, para la pantalla completa
@@ -88,7 +98,12 @@
     tonality?: Key; // para escribir las notas como en su tonalidad (Sib en Fa mayor, no La#)
     lit?: () => Map<number, string>; // teclas que se iluminan además de lo que suena (lo que toca quien practica)
     title?: string;
+    fx?: boolean; // aspecto «de vídeo» (rollfx.ts): un solo color, brillo y chispas; para Aprender
   } = $props();
+
+  let styleOpen = $state(false);
+  const style = (): RollStyle => ({ ...ROLL_DEFAULT, ...settings.rollStyle });
+  const setStyle = (patch: Partial<RollStyle>) => (settings.rollStyle = { ...style(), ...patch });
 
   const KEYS_H = 90;
   let fullscreen = $state(false);
@@ -143,22 +158,48 @@
     const latin = loadNotation().latin;
     const k0 = tonality ?? { tonic: 0, minor: false };
     const name = (p: number) => noteName(p % 12, k0, latin);
+    const effects = fx ? new RollFx() : null;
+    let lastT = -1;
     const draw = () => {
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t = player.time();
       const rollH = HEIGHT - KEYS_H;
-      const bg = g.createLinearGradient(0, 0, 0, rollH);
-      bg.addColorStop(0, "#0d0b0a");
-      bg.addColorStop(1, "#1a1613");
-      g.fillStyle = bg;
-      g.fillRect(0, 0, width, rollH);
+      const st = style();
+      if (effects) drawBackground(g, width, rollH);
+      else {
+        const bg = g.createLinearGradient(0, 0, 0, rollH);
+        bg.addColorStop(0, "#0d0b0a");
+        bg.addColorStop(1, "#1a1613");
+        g.fillStyle = bg;
+        g.fillRect(0, 0, width, rollH);
+      }
 
       // guías en cada Do
-      g.fillStyle = "#ffffff0d";
+      g.fillStyle = effects ? "#ffffff08" : "#ffffff0d";
       for (const [p, k] of keys) if (p % 12 === 0) g.fillRect(k.x, 0, 1, rollH);
 
       const active = new Map<number, string>();
-      for (const track of tracks) {
+      if (effects) {
+        // las notas en la capa de efectos, que luego se funde con el desvanecido, la línea encendida y las chispas
+        const l = effects.begin(width, HEIGHT, dpr);
+        const sounding = new Map<number, { x: number; w: number }>();
+        for (const track of tracks) {
+          if (track.hidden) continue;
+          for (const [start, end, pitch, vel] of track.notes ?? notes[track.path] ?? []) {
+            if (end < t || start > t + windowSec) continue;
+            const k = keys.get(pitch);
+            if (!k) continue;
+            const bottom = Math.min(rollH * (1 - (start - t) / windowSec), rollH);
+            const top = rollH * (1 - (end - t) / windowSec);
+            const on = start <= t && t < end;
+            if (on) (active.set(pitch, st.color), sounding.set(pitch, k));
+            drawBar(l, st, k.x, k.w, top, bottom - top, on ? 1 : 0.7 + vel * 0.3, on);
+            drawBarLabel(l, k, bottom, bottom - Math.max(top, 0), name(pitch));
+          }
+        }
+        effects.compose(g, st, width, rollH, sounding, t !== lastT);
+        lastT = t;
+      } else for (const track of tracks) {
         if (track.hidden) continue;
         // ponytail: recorre todas las notas cada frame; con decenas de miles, búsqueda binaria por inicio
         for (const [start, end, pitch, vel] of track.notes ?? notes[track.path] ?? []) {
@@ -235,9 +276,11 @@
         }
       }
 
-      // línea de golpeo
-      g.fillStyle = "#ffffff55";
-      g.fillRect(0, rollH - 2, width, 2);
+      // línea de golpeo (con efectos, ya va encendida)
+      if (!effects) {
+        g.fillStyle = "#ffffff55";
+        g.fillRect(0, rollH - 2, width, 2);
+      }
 
       if (lit) for (const [p, c] of lit()) active.set(p, c);
       drawKeys(g, keys, rollH, KEYS_H, active, name);
@@ -262,6 +305,33 @@
       {#if !tracks.length}<small>Ninguna pista con notas suena ahora (revisa M/S).</small>{/if}
     </div>
     <div class="tools">
+      {#if fx}
+        <div class="style-wrap">
+          <button class="ghost" class:on={styleOpen} onclick={() => (styleOpen = !styleOpen)} title="Color, brillo y chispas">Estilo</button>
+          {#if styleOpen}
+            {@const st = style()}
+            <div class="style-pop">
+              <div class="presets">
+                {#each Object.entries(ROLL_PRESETS) as [label, p] (label)}
+                  <button class="chip" class:sel={st.color === p.color && st.sparkles === p.sparkles} onclick={() => setStyle(p)}><i style:background={p.color}></i>{label}</button>
+                {/each}
+              </div>
+              <label>Color <input type="color" value={st.color} oninput={(e) => setStyle({ color: e.currentTarget.value })} /></label>
+              <label>Brillo <input type="range" min="0" max="1" step="0.05" value={st.glow} oninput={(e) => setStyle({ glow: +e.currentTarget.value })} /></label>
+              <label title="Cuánto se desvanecen las notas al entrar por arriba">Desvanecido <input type="range" min="0" max="0.9" step="0.05" value={st.fade} oninput={(e) => setStyle({ fade: +e.currentTarget.value })} /></label>
+              <label title="Las esquinas de las notas">Redondez <input type="range" min="0" max="1" step="0.05" value={st.round} oninput={(e) => setStyle({ round: +e.currentTarget.value })} /></label>
+              <label>Estela
+                <select value={st.sparkles} onchange={(e) => setStyle({ sparkles: e.currentTarget.value as RollStyle["sparkles"] })}>
+                  <option value="polvo">Polvo brillante</option>
+                  <option value="estrellas">Destellos</option>
+                  <option value="corazones">Corazones</option>
+                  <option value="no">Ninguna</option>
+                </select>
+              </label>
+            </div>
+          {/if}
+        </div>
+      {/if}
       <label title="Cuántos segundos de notas se ven antes de sonar">
         Velocidad
         <input type="range" min="1" max="6" step="0.5" value={7 - windowSec} oninput={(e) => (windowSec = 7 - +e.currentTarget.value)} />
@@ -293,6 +363,18 @@
   .tools label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
   .tools label input { width: 90px; }
   .tools button { padding: 5px 12px; }
+  .tools button.on { border-color: var(--accent); color: var(--text); }
+  .style-wrap { position: relative; }
+  .style-pop {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; width: 300px; display: flex; flex-direction: column; gap: 10px;
+    padding: 12px 14px; border-radius: 12px; background: var(--panel-hi); border: 1px solid var(--line); box-shadow: 0 12px 32px #0008;
+  }
+  .style-pop label { justify-content: space-between; }
+  .style-pop input[type="range"] { width: 150px; }
+  .style-pop input[type="color"] { width: 44px; height: 24px; padding: 0; border: 0; background: none; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .presets .chip { padding: 3px 9px; }
+  .presets .chip.sel { border-color: var(--accent); color: var(--text); }
   canvas { width: 100%; display: block; }
 
   .fs { position: fixed; inset: 0; z-index: 50; margin: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; }
