@@ -1081,13 +1081,14 @@ fn has_director() -> bool {
 }
 
 const COACH: &str = "Eres profesor de piano y armonía. Te paso una sesión tocada en un teclado MIDI (JSON; el campo \"format\" \
-explica los datos; los acordes los sacó un algoritmo sin IA y pueden fallar). Dile a quien la tocó solo lo importante, en español \
-y en Markdown: muy directo, sin introducciones, advertencias ni relleno, viñetas de una línea, 150-250 palabras en total. Cita cada \
-momento como m:ss o m:ss.s (0:21, 2:38.4), nunca de otra forma. Secciones: ## Qué tocaste (tonalidad, partes, progresiones con \
-grados), ## Fallos (notas o acordes equivocados, acordes mal detectados, ritmo irregular) y ## Para practicar (3 ejercicios \
-concretos). Sin tablas.";
+explica los datos; los acordes los sacó un algoritmo sin IA y pueden fallar). Coméntasela a quien la tocó en español y en \
+Markdown, bastante directo: sin introducciones, advertencias ni relleno; viñetas cortas. Cita cada momento como m:ss o m:ss.s \
+(0:21, 2:38.4) y los tramos como m:ss–m:ss, nunca de otra forma. Secciones: ## Por tramos (cada zona de la sesión: qué se toca \
+y qué sensación o emoción transmite), ## Progresiones (cada progresión que aparece, con sus acordes, las notas de cada uno y sus \
+grados; qué sensación da y por qué, en breve) y ## Fallos (notas o acordes equivocados, acordes mal detectados, ritmo \
+irregular). Sin tablas.";
 
-/// Claude analiza una sesión del teclado con Claude Code (`claude -p`: la suscripción, sin API key) y lo deja al lado
+/// Claude (Opus 5.5, esfuerzo medio) analiza una sesión del teclado con Claude Code (`claude -p`: la suscripción, sin API key) y lo deja al lado
 /// como `<sesión>.analisis.md`.
 #[tauri::command]
 async fn analyze_session(path: String) -> Result<String, String> {
@@ -1099,7 +1100,7 @@ async fn analyze_session(path: String) -> Result<String, String> {
         let data = std::fs::read(&json).map_err(|e| e.to_string())?;
         // sin herramientas ni ajustes del usuario (hooks, plugins): solo el texto
         let mut child = Command::new("claude")
-            .args(["-p", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--system-prompt", COACH])
+            .args(["-p", "--model", "claude-opus-5-5", "--effort", "medium", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--system-prompt", COACH])
             .arg("Analiza esta sesión (JSON por la entrada estándar).")
             .current_dir(json.parent().ok_or("sin carpeta")?)
             .stdin(Stdio::piped())
