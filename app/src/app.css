@@ -1,192 +1,144 @@
-/* Estudio — mesa de grabación de noche: carbón cálido, crema, ámbar. Plano y monoespaciado. */
+/* Estudio — sistema de diseño. Oscuro sobrio, casi monocromo: el color es solo para datos musicales
+ * (funciones de acorde, pistas, tiempo, afinación). Un único acento de interfaz, magenta, y con cuentagotas.
+ * Primitivas en src/lib/ui (ver su README). */
 :root {
-  --bg: #0f0d0c;
-  --sidebar: #131110;
-  --panel: #1a1614;
-  --panel-hi: #241f1b;
-  --line: #2e2723;
-  --line-hi: #40362f;
-  --text: #f3ead9;
-  --text-2: #b9ac98;
-  --text-3: #7c7164;
-  --accent: #f29d38;
-  --accent-2: #e8573c;
-  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
-  --on-accent: #1c0f05;
-  --ok: #9bd37f;
-  --bad: #ff7a6b;
-  --warn: #ffc23d;
-  --early: #6aa9ff; /* adelantado */
-  --late: #ff5a5a; /* atrasado */
-  --mono: "JetBrains Mono", "JetBrainsMono Nerd Font", "JetBrains Mono Variable", ui-monospace, monospace;
+  /* superficies */
+  --bg: #0f1012;
+  --rail: #0b0c0d;
+  --panel: #17181b;
+  --panel-hi: #1f2024;
+  --line: #26282c;
+  --line-hi: #36383d;
+  --scrim: #000000a6;
+  --sidebar: var(--panel); /* alias para las vistas antiguas */
+
+  /* texto (≥4.5:1 sobre --bg y --panel) */
+  --text: #e8e8ea;
+  --text-2: #a3a5ac;
+  --text-3: #85888f;
+
+  /* acento de interfaz: foco, selección, primario */
+  --accent: #cf52f2;
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 55%, var(--line));
+  --on-accent: #17071c;
+
+  /* estado */
+  --ok: #5fd38d;
+  --bad: #ff6b6b;
+  --warn: #f5b83d;
+
+  /* datos: función del acorde respecto a la tonalidad (ui/music.ts) */
+  --fn-tonic: #ff7f6e; /* I */
+  --fn-sub: #5cb8f5; /* ii, IV */
+  --fn-dom: #f5b13d; /* V, vii° */
+  --fn-vi: #a98bff;
+  --fn-iii: #5fd6b2;
+  --fn-other: #8b8e95; /* prestado / cromático (borde discontinuo) */
+  --on-data: #101113; /* texto sobre un color de datos */
+
+  /* datos: pistas (copia en engine.ts STEM_INFO, para los canvas) */
+  --stem-vocals: #c26cff;
+  --stem-drums: #f2d13a;
+  --stem-bass: #6ad46a;
+  --stem-guitar: #4f9dff;
+  --stem-piano: #b4b8ff;
+  --stem-other: #8b8e95;
+  --stem-mix: #d0d2d8;
+
+  /* datos: tiempo al tocar y afinación al cantar */
+  --early: #3fd2e3; /* ← adelantado (y desafinado por abajo) */
+  --ontime: #5fd38d;
+  --late: #ff9b3d; /* → atrasado (y desafinado por arriba) */
+  --miss: #ff5c5c; /* × */
+  --pitch: #ffffff;
+
+  /* tipografía: todo en JetBrains Mono */
+  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
   --sans: var(--mono);
-  --serif: var(--mono);
-  --radius: 8px;
-  --radius-sm: 6px;
-  --shadow: 0 12px 32px -10px #000a;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --fs-2xl: 28px;
+
+  /* espacio (escala de 4) */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  /* radios */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-full: 999px;
+  --radius: var(--r-lg);
+  --radius-sm: var(--r-md);
+
+  /* movimiento */
+  --t-fast: 120ms;
+  --t: 160ms;
+  --t-slow: 200ms;
   --ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+
+  --shadow: 0 16px 40px -12px #000c, 0 0 0 1px var(--line-hi);
+
+  /* armazón */
+  --rail-w: 56px;
+  --player-h: 64px;
+
   color-scheme: dark;
-  font-family: var(--sans);
-  font-size: 13px;
+  font-family: var(--mono);
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t: 0ms; --t-slow: 0ms; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+#app { height: 100%; }
 
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; color: var(--text); }
-h1 { font-size: 22px; }
-h2 { font-size: 16px; }
-h3 { font-size: 13px; }
+h1 { font-size: var(--fs-xl); }
+h2 { font-size: var(--fs-lg); }
+h3 { font-size: var(--fs-md); }
+p { margin: 0; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
-input[type="range"] { accent-color: var(--accent); }
-input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
-input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="url"], input[type="password"], textarea, select {
-  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 5px 9px; outline: none;
-  font-size: 12.5px; transition: border-color 0.15s;
-}
-input:not([type]):focus, input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus,
-input[type="url"]:focus, input[type="password"]:focus, textarea:focus, select:focus { border-color: var(--line-hi); }
-select option { background: var(--panel); color: var(--text); }
+::selection { background: color-mix(in oklab, var(--accent) 40%, transparent); }
+input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #3a312b; border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background-color: #4c4038; }
+::-webkit-scrollbar-thumb { background: #2e3035; border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: #3d4046; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* botones: primary, ghost, icon-btn, link; .sm = pequeño; .on = activado */
-button.primary, button.ghost {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-sm);
-  font-size: 12.5px; line-height: 1.3; white-space: nowrap; transition: color 0.15s, background 0.15s, border-color 0.15s, filter 0.15s;
-}
-button.ghost { border: 1px solid var(--line); background: transparent; color: var(--text-2); }
-button.ghost:hover:not(:disabled) { color: var(--text); background: var(--panel-hi); border-color: var(--line-hi); }
-button.ghost.on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--accent-soft); }
-button.ghost.danger { color: var(--bad); }
-button.primary { border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
-button.primary:hover:not(:disabled) { filter: brightness(1.1); }
-button.primary:disabled, button.ghost:disabled { opacity: 0.4; }
-button.primary kbd { background: transparent; border-color: #0003; color: var(--on-accent); }
-button.sm, .icon-btn.sm { padding: 3px 9px; font-size: 12px; }
-button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; font-size: inherit; }
-button.link.danger { color: var(--bad); }
-.icon-btn {
-  width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; border-radius: var(--radius-sm); border: 1px solid transparent;
-  background: transparent; color: var(--text-3); flex-shrink: 0; transition: color 0.15s, background 0.15s;
-}
-.icon-btn.sm { width: 24px; height: 24px; padding: 0; }
-.icon-btn:hover:not(:disabled) { color: var(--text); background: var(--panel-hi); }
-.icon-btn:disabled { opacity: 0.4; }
-.icon-btn.on { color: var(--accent); background: var(--accent-soft); }
-.icon-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-
-/* M / S de una pista */
-.ms-btn {
-  width: 22px; height: 20px; padding: 0; border-radius: 4px; border: 1px solid var(--line); background: transparent;
-  color: var(--text-2); font-size: 10px; font-weight: 700; flex-shrink: 0;
-}
-.ms-btn:hover { color: var(--text); border-color: var(--line-hi); }
-.ms-btn.on { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
-.ms-btn.solo.on { background: #f5c542; border-color: #f5c542; color: #1a1a1a; }
-
-/* pestañas (subrayado) y conmutadores segmentados */
-.tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-.tabs > button {
-  padding: 8px 12px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none;
-  color: var(--text-2); font-size: 13px; transition: color 0.15s;
-}
-.tabs > button:hover { color: var(--text); }
-.tabs > button.on { color: var(--text); border-bottom-color: var(--accent); }
-.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--line); }
-.seg.wide { display: flex; align-self: stretch; }
-.seg.wide > button { flex: 1; }
-.seg > button {
-  display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 3px 9px; border: 0; border-radius: 4px;
-  background: none; color: var(--text-2); font-size: 12px; white-space: nowrap; transition: color 0.15s, background 0.15s;
-}
-.seg > button:hover:not(:disabled) { color: var(--text); }
-.seg > button.on { background: var(--panel-hi); color: var(--text); }
-.seg > button:disabled { opacity: 0.4; }
-
-/* elemento de lista seleccionable */
-.item {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 10px; border: 0; border-radius: var(--radius-sm);
-  background: none; color: var(--text); text-align: left; transition: background 0.12s;
-}
-.item:hover:not(:disabled) { background: var(--panel); }
-.item.on { background: var(--panel-hi); box-shadow: inset 2px 0 0 var(--accent); }
-.item small { color: var(--text-3); font-size: 11px; }
-
-/* pastillas */
-.chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line);
-  background: transparent; color: var(--text-2); font-size: 12px; white-space: nowrap; transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-button.chip:hover:not(:disabled) { color: var(--text); border-color: var(--line-hi); }
-.chip.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--text); }
-.chip.off { opacity: 0.45; text-decoration: line-through; }
-.chip.add { border-style: dashed; }
-.chip small { color: var(--text-3); font-size: 10.5px; }
-.chip.on small { color: var(--accent); }
-
-/* paneles, popovers y menús */
-.card { padding: 12px 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); }
-.pop {
-  display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius); z-index: 60;
-  background: var(--panel-hi); border: 1px solid var(--line-hi); box-shadow: var(--shadow); animation: rise 0.15s var(--ease);
-}
-.pop.menu { gap: 0; padding: 4px; min-width: 220px; }
-.menu > button { display: block; width: 100%; text-align: left; padding: 6px 10px; border: 0; border-radius: 4px; background: none; color: var(--text-2); font-size: 12.5px; }
-.menu > button:hover:not(:disabled) { background: var(--panel); color: var(--text); }
-.menu > button:disabled { opacity: 0.4; }
-.menu .danger { color: var(--bad); }
-.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px; }
-
-/* modales y cajones laterales */
-.backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: #0009; animation: fade 0.15s; }
-.dialog {
-  width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 60px); display: flex; flex-direction: column;
-  background: var(--sidebar); border: 1px solid var(--line-hi); border-radius: var(--radius); box-shadow: var(--shadow); animation: rise 0.2s var(--ease);
-}
-.scrim { position: fixed; inset: 0; background: #0006; border: 0; z-index: 40; animation: fade 0.15s; }
-.drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100vw); z-index: 41; display: flex; flex-direction: column;
-  background: var(--sidebar); border-left: 1px solid var(--line); box-shadow: var(--shadow); animation: slide 0.2s var(--ease);
-}
-/* cabecera de barra lateral / cajón: título + acciones */
-.side-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.side-head strong, .side-head h2 { font-size: 15px; font-weight: 600; }
-
 kbd {
-  font-family: var(--mono); font-size: 10.5px; padding: 0 5px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10.5px; line-height: 16px; padding: 0 5px; border-radius: var(--r-sm);
   border: 1px solid var(--line-hi); color: var(--text-3); background: transparent;
 }
-.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.kicker { font-size: 11px; color: var(--text-3); font-weight: 500; }
-.hint { margin: 0; font-size: 12px; color: var(--text-3); }
-.muted { color: var(--text-3); }
-.error-text { color: var(--bad); }
-.grow { flex: 1; }
+.mono, .num { font-variant-numeric: tabular-nums; }
+/* solo para lectores de pantalla */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.spinner {
-  width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-hi); border-top-color: var(--accent);
-  animation: spin 0.8s linear infinite; flex-shrink: 0;
-}
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 @keyframes fade { from { opacity: 0; } }
 @keyframes slide { from { transform: translateX(24px); opacity: 0; } }
 @keyframes pulse { 50% { opacity: 0.35; } }
-
-/* barra de progreso fina; indeterminada si no se sabe cuánto falta */
-.bar { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
-.bar > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s var(--ease); }
-.bar.indet > i { width: 35% !important; position: absolute; animation: indet 1.3s var(--ease) infinite; }
 @keyframes indet { from { left: -35%; } to { left: 100%; } }

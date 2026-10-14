@@ -165,7 +165,7 @@
 </div>
 
 <style>
-  .course { height: 100vh; display: grid; grid-template-columns: 300px 1fr; }
+  .course { height: 100%; display: grid; grid-template-columns: 300px 1fr; }
   aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; gap: 8px; }
   .stats { display: flex; align-items: center; gap: 12px; padding: 0 14px; font-size: 12.5px; color: var(--text-2); }
   .stats .sm { margin-left: auto; }

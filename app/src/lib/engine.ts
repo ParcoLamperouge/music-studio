@@ -181,14 +181,15 @@ export const finished = (j: Job) => j.status === "done" || j.status === "error" 
 
 // ---------------------------------------------------------------- presentación
 
+/** Nombre y color de cada pista. Los colores son copia de --stem-* (app.css), en hex para los canvas: cambiar los dos. */
 export const STEM_INFO: Record<string, { label: string; color: string }> = {
-  vocals: { label: "Voz", color: "#ff7a8a" },
-  drums: { label: "Batería", color: "#ffb347" },
-  bass: { label: "Bajo", color: "#8f8cff" },
-  guitar: { label: "Guitarra", color: "#5fd4a8" },
-  piano: { label: "Piano", color: "#74c6f0" },
-  other: { label: "Otros", color: "#d0a6ff" },
-  mix: { label: "Mezcla", color: "#f2b866" },
+  vocals: { label: "Voz", color: "#c26cff" },
+  drums: { label: "Batería", color: "#f2d13a" },
+  bass: { label: "Bajo", color: "#6ad46a" },
+  guitar: { label: "Guitarra", color: "#4f9dff" },
+  piano: { label: "Piano", color: "#b4b8ff" },
+  other: { label: "Otros", color: "#8b8e95" },
+  mix: { label: "Mezcla", color: "#d0d2d8" },
 };
 /** Pistas con altura de tono: la batería no se transcribe. */
 export const PITCHED = ["vocals", "bass", "guitar", "piano", "other"];

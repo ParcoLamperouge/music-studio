@@ -11,7 +11,7 @@
   import { fromSession } from "./piece";
   import { pickPieces, pieceToSession, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
-  import SearchInput from "./SearchInput.svelte";
+  import SearchInput from "./ui/Search.svelte";
   import { settings } from "./settings.svelte";
   import SongPlayer from "./SongPlayer.svelte";
   import { store } from "./store.svelte";
@@ -451,7 +451,7 @@
 {/if}
 
 <style>
-  .sessions { height: 100vh; display: grid; grid-template-columns: 280px 1fr 360px; }
+  .sessions { height: 100%; display: grid; grid-template-columns: 280px 1fr 360px; }
   aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .add { width: 100%; justify-content: flex-start; margin-bottom: 6px; border-style: dashed; }
   .side-head .seg { flex: 1; }

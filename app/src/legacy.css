@@ -1,0 +1,126 @@
+/* Clases de la interfaz antigua, con los colores nuevos: las usan las vistas que aún no se han rehecho
+ * (fase 2). Lo nuevo NO las usa: usa src/lib/ui. Borrar este fichero cuando ninguna vista las necesite. */
+input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="url"], input[type="password"], textarea, select {
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 5px 9px; outline: none;
+  font-size: 12.5px; transition: border-color 0.15s;
+}
+input:not([type]):focus, input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus,
+input[type="url"]:focus, input[type="password"]:focus, textarea:focus, select:focus { border-color: var(--line-hi); }
+select option { background: var(--panel); color: var(--text); }
+/* botones: primary, ghost, icon-btn, link; .sm = pequeño; .on = activado */
+button.primary, button.ghost {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-sm);
+  font-size: 12.5px; line-height: 1.3; white-space: nowrap; transition: color 0.15s, background 0.15s, border-color 0.15s, filter 0.15s;
+}
+button.ghost { border: 1px solid var(--line); background: transparent; color: var(--text-2); }
+button.ghost:hover:not(:disabled) { color: var(--text); background: var(--panel-hi); border-color: var(--line-hi); }
+button.ghost.on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--accent-soft); }
+button.ghost.danger { color: var(--bad); }
+button.primary { border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
+button.primary:hover:not(:disabled) { filter: brightness(1.1); }
+button.primary:disabled, button.ghost:disabled { opacity: 0.4; }
+button.primary kbd { background: transparent; border-color: color-mix(in oklab, var(--on-accent) 30%, transparent); color: var(--on-accent); }
+button.sm, .icon-btn.sm { padding: 3px 9px; font-size: 12px; }
+button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; font-size: inherit; }
+button.link.danger { color: var(--bad); }
+.icon-btn {
+  width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; border-radius: var(--radius-sm); border: 1px solid transparent;
+  background: transparent; color: var(--text-3); flex-shrink: 0; transition: color 0.15s, background 0.15s;
+}
+.icon-btn.sm { width: 24px; height: 24px; padding: 0; }
+.icon-btn:hover:not(:disabled) { color: var(--text); background: var(--panel-hi); }
+.icon-btn:disabled { opacity: 0.4; }
+.icon-btn.on { color: var(--accent); background: var(--accent-soft); }
+.icon-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* M / S de una pista */
+.ms-btn {
+  width: 22px; height: 20px; padding: 0; border-radius: 4px; border: 1px solid var(--line); background: transparent;
+  color: var(--text-2); font-size: 10px; font-weight: 700; flex-shrink: 0;
+}
+.ms-btn:hover { color: var(--text); border-color: var(--line-hi); }
+.ms-btn.on { background: var(--text-2); border-color: var(--text-2); color: var(--bg); }
+.ms-btn.solo.on { background: var(--warn); border-color: var(--warn); color: var(--on-data); }
+
+/* pestañas (subrayado) y conmutadores segmentados */
+.tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.tabs > button {
+  padding: 8px 12px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--text-2); font-size: 13px; transition: color 0.15s;
+}
+.tabs > button:hover { color: var(--text); }
+.tabs > button.on { color: var(--text); border-bottom-color: var(--accent); }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--line); }
+.seg.wide { display: flex; align-self: stretch; }
+.seg.wide > button { flex: 1; }
+.seg > button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 3px 9px; border: 0; border-radius: 4px;
+  background: none; color: var(--text-2); font-size: 12px; white-space: nowrap; transition: color 0.15s, background 0.15s;
+}
+.seg > button:hover:not(:disabled) { color: var(--text); }
+.seg > button.on { background: var(--panel-hi); color: var(--text); }
+.seg > button:disabled { opacity: 0.4; }
+
+/* elemento de lista seleccionable */
+.item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 10px; border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--text); text-align: left; transition: background 0.12s;
+}
+.item:hover:not(:disabled) { background: var(--panel); }
+.item.on { background: var(--panel-hi); box-shadow: inset 2px 0 0 var(--accent); }
+.item small { color: var(--text-3); font-size: 11px; }
+
+/* pastillas */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line);
+  background: transparent; color: var(--text-2); font-size: 12px; white-space: nowrap; transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+button.chip:hover:not(:disabled) { color: var(--text); border-color: var(--line-hi); }
+.chip.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--text); }
+.chip.off { opacity: 0.45; text-decoration: line-through; }
+.chip.add { border-style: dashed; }
+.chip small { color: var(--text-3); font-size: 10.5px; }
+.chip.on small { color: var(--accent); }
+
+/* paneles, popovers y menús */
+.card { padding: 12px 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); }
+.pop {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius); z-index: 60;
+  background: var(--panel-hi); border: 1px solid var(--line-hi); box-shadow: var(--shadow); animation: rise 0.15s var(--ease);
+}
+.pop.menu { gap: 0; padding: 4px; min-width: 220px; }
+.menu > button { display: block; width: 100%; text-align: left; padding: 6px 10px; border: 0; border-radius: 4px; background: none; color: var(--text-2); font-size: 12.5px; }
+.menu > button:hover:not(:disabled) { background: var(--panel); color: var(--text); }
+.menu > button:disabled { opacity: 0.4; }
+.menu .danger { color: var(--bad); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px; }
+
+/* modales y cajones laterales */
+.backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--scrim); animation: fade 0.15s; }
+.dialog {
+  width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 60px); display: flex; flex-direction: column;
+  background: var(--sidebar); border: 1px solid var(--line-hi); border-radius: var(--radius); box-shadow: var(--shadow); animation: rise 0.2s var(--ease);
+}
+.scrim { position: fixed; inset: 0; background: var(--scrim); border: 0; z-index: 40; animation: fade 0.15s; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100vw); z-index: 41; display: flex; flex-direction: column;
+  background: var(--sidebar); border-left: 1px solid var(--line); box-shadow: var(--shadow); animation: slide 0.2s var(--ease);
+}
+/* cabecera de barra lateral / cajón: título + acciones */
+.side-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.side-head strong, .side-head h2 { font-size: 15px; font-weight: 600; }
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.kicker { font-size: 11px; color: var(--text-3); font-weight: 500; }
+.hint { margin: 0; font-size: 12px; color: var(--text-3); }
+.muted { color: var(--text-3); }
+.error-text { color: var(--bad); }
+.grow { flex: 1; }
+.spinner {
+  width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-hi); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite; flex-shrink: 0;
+}
+/* barra de progreso fina; indeterminada si no se sabe cuánto falta */
+.bar { height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s var(--ease); }
+.bar.indet > i { width: 35% !important; position: absolute; animation: indet 1.3s var(--ease) infinite; }

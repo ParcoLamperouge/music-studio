@@ -3,7 +3,7 @@
   import { isPinned, pinId, playPreview, preview, stopPreview, togglePin } from "./preview.svelte";
   import { keyName, type Key } from "./harmony";
   import { chips, code, shift, nameOf, degreeOf, describe, loops, MIN_SCORE, parseQuery, search, type Seq, type SongHit } from "./progression";
-  import SearchInput from "./SearchInput.svelte";
+  import SearchInput from "./ui/Search.svelte";
   import { store } from "./store.svelte";
 
   // `current`: canción abierta (se buscan sus bucles); lo escrito a mano manda sobre ella.

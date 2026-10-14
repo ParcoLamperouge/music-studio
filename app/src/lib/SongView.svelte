@@ -11,6 +11,7 @@
   import Leds from "./Leds.svelte";
   import LyricsTab from "./LyricsTab.svelte";
   import MiniMixer from "./MiniMixer.svelte";
+  import { attachDeck, deck } from "./deck.svelte";
   import { CLICK, Player } from "./player";
   import Roll from "./Roll.svelte";
   import { settings } from "./settings.svelte";
@@ -18,8 +19,9 @@
   import Transport from "./Transport.svelte";
   import Waveform from "./Waveform.svelte";
 
-  let { key, initialTab, onrenamed, ondeleted, onopen, onsing }: {
+  let { key, initialTab, active = true, onrenamed, ondeleted, onopen, onsing }: {
     key: string;
+    active?: boolean; // false: sigue cargada (suena en el mini-reproductor) pero no se ve ni atiende al teclado
     initialTab?: string;
     onrenamed: (key: string) => void;
     ondeleted: () => void;
@@ -180,6 +182,9 @@
     playing = player.playing;
   }
   const seek = (t: number) => player.seek(t);
+  // el mini-reproductor de abajo la controla aunque se esté en otra vista
+  (() => attachDeck(untrack(() => key), { toggle, seek }));
+  (() => void Object.assign(deck, { playing, time, duration }));
 
   // ---- metrónomo: pulsos de StemLab o del audio de Letras (CPU, sin separar)
   const beatData = $derived(detail?.beatData?.beats?.length ? detail.beatData : null);
@@ -311,7 +316,7 @@
   function onkey(e: KeyboardEvent) {
     const t = e.target as HTMLElement;
     const typing = t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && !["range", "checkbox"].includes(t.type)) || t.isContentEditable;
-    if (typing || e.ctrlKey || e.metaKey || e.altKey || document.querySelector("[aria-modal='true']")) return;
+    if (!active || typing || e.ctrlKey || e.metaKey || e.altKey || document.querySelector("[aria-modal='true']")) return;
     if (e.code === "Space") toggle();
     else if (e.key === "ArrowLeft") player.seek(time - 5);
     else if (e.key === "ArrowRight") player.seek(time + 5);

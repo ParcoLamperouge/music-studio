@@ -19,7 +19,7 @@
   import { fromMidi, newPiece, pieceArrangement, pieceBeats, pieceDuration, pieceSeconds, type Piece } from "./piece";
   import { deletePiece, importPieces, loadPieces, pieces, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
-  import SearchInput from "./SearchInput.svelte";
+  import SearchInput from "./ui/Search.svelte";
   import Score from "./Score.svelte";
   import { saveSettings, settings } from "./settings.svelte";
   import { jobOf, jobText, store } from "./store.svelte";
@@ -993,7 +993,7 @@
 </div>
 
 <style>
-  .learn { height: 100vh; display: grid; grid-template-columns: 280px 1fr; }
+  .learn { height: 100%; display: grid; grid-template-columns: 280px 1fr; }
   .learn.nolist { grid-template-columns: 0 1fr; }
   .learn.nolist > aside { visibility: hidden; overflow: hidden; }
   .titlebar { gap: 12px; }

@@ -8,30 +8,40 @@
       return { letra: true, separate: false, notes: false };
     }
   }
-  /** Las acciones que encolar tras añadir. «Notas» ya incluye pistas y letra («todo»). */
+  /** Las acciones que encolar tras añadir. «Todo» ya incluye pistas y letra. */
   export const thenOf = (a: After): string[][] => (a.notes ? [["todo"]] : [...(a.letra ? [["letra"]] : []), ...(a.separate ? [["separate"]] : [])]);
+  /** ¿Es un enlace (YouTube, SoundCloud, Bandcamp…) y no una búsqueda? */
+  export const isUrl = (s: string) => /^(https?:\/\/|www\.)\S+$/i.test(s.trim());
 </script>
 
 <script lang="ts">
   import { open as pickFiles } from "@tauri-apps/plugin-dialog";
-  import { enqueue, importSources, run } from "./engine";
-  import SearchInput from "./SearchInput.svelte";
+  import { enqueue, fmtClock, importSources, run } from "./engine";
+  import Button from "./ui/Button.svelte";
+  import Dialog from "./ui/Dialog.svelte";
+  import Field from "./ui/Field.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import Search from "./ui/Search.svelte";
+  import Tabs from "./ui/Tabs.svelte";
+  import Toggle from "./ui/Toggle.svelte";
 
   let { open = $bindable(), onadded }: { open: boolean; onadded: (key?: string) => void } = $props();
 
   type Result = { url: string; title: string; channel: string; duration: number | null; thumbnail: string | null };
   const MEDIA = ["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "aiff", "wma", "webm", "mp4", "mkv", "mov"];
 
-  let mode = $state<"name" | "youtube" | "file">("name");
+  let mode = $state<"link" | "name" | "file">("link");
   let artist = $state("");
   let title = $state("");
   let query = $state("");
   let results = $state<Result[]>([]);
   let picked = $state<string[]>([]);
   let searching = $state(false);
+  let busy = $state(false);
   let error = $state("");
   let after = $state(loadAfter());
   let first: HTMLInputElement | undefined = $state();
+  const url = $derived(isUrl(query));
 
   $effect(() => {
     try {
@@ -39,153 +49,158 @@
     } catch {}
   });
   $effect(() => {
+    void mode;
     if (open) queueMicrotask(() => first?.focus());
   });
 
-  function close() {
+  function done(key?: string) {
     open = false;
     error = "";
+    onadded(key);
+  }
+  async function guard(f: () => Promise<void>) {
+    busy = true;
+    error = "";
+    try {
+      await f();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = false;
+    }
   }
 
-  async function addByName(e: Event) {
-    e.preventDefault();
-    if (!artist.trim() || !title.trim()) return;
-    try {
+  const addByName = () =>
+    guard(async () => {
+      if (!artist.trim() || !title.trim()) return;
       const { key } = await run<{ key: string }>("add", [artist, title]);
-      // por nombre: la letra siempre (es lo que lo identifica); el audio sale de YouTube
+      // por nombre: la letra siempre (es lo que la identifica); el audio sale de YouTube
       const then = thenOf(after);
       if (!then.length) await enqueue("letra", [key]);
       for (const [action] of then) await enqueue(action, [key]);
       artist = title = "";
-      close();
-      onadded(key);
-    } catch (err) {
-      error = String(err);
-    }
-  }
+      done(key);
+    });
 
-  async function search(e: Event) {
+  function submitLink(e: Event) {
     e.preventDefault();
     if (!query.trim()) return;
+    if (url) return void guard(async () => (await importSources([query.trim()], thenOf(after)), (query = ""), done()));
     searching = true;
     error = "";
-    try {
-      results = (await run<{ results: Result[] }>("search", [query.trim()])).results;
-      picked = results.length === 1 ? [results[0].url] : [];
-    } catch (err) {
-      error = String(err);
-    } finally {
-      searching = false;
-    }
+    run<{ results: Result[] }>("search", [query.trim()])
+      .then((r) => ((results = r.results), (picked = results.length === 1 ? [results[0].url] : [])))
+      .catch((err) => (error = String(err)))
+      .finally(() => (searching = false));
   }
 
-  async function importPicked() {
-    await importSources(picked, thenOf(after));
-    picked = [];
-    close();
-    onadded();
-  }
+  const importPicked = () => guard(async () => (await importSources(picked, thenOf(after)), (picked = []), done()));
 
-  async function chooseFiles() {
-    const files = await pickFiles({ multiple: true, filters: [{ name: "Audio o vídeo", extensions: MEDIA }] });
-    if (!files?.length) return;
-    await importSources(files, thenOf(after));
-    close();
-    onadded();
-  }
-
-  const dur = (s: number | null) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : "");
+  const chooseFiles = () =>
+    guard(async () => {
+      const files = await pickFiles({ multiple: true, filters: [{ name: "Audio o vídeo", extensions: MEDIA }] });
+      if (files?.length) (await importSources(files, thenOf(after)), done());
+    });
+  const toggle = (u: string) => (picked = picked.includes(u) ? picked.filter((x) => x !== u) : [...picked, u]);
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && open && close()} />
+<Dialog bind:open title="Añadir canciones" width={680}>
+  <div class="add">
+    <Tabs
+      bind:value={mode}
+      label="Cómo añadir"
+      options={[
+        { value: "link", label: "Enlace o YouTube", icon: "link" },
+        { value: "name", label: "Por nombre", icon: "lyrics" },
+        { value: "file", label: "Ficheros", icon: "upload" },
+      ]}
+    />
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="Añadir canciones">
-      <header>
-        <h2>Añadir canciones</h2>
-        <button class="icon-btn" onclick={close} aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
-      </header>
-
-      <nav class="tabs modes">
-        <button class:on={mode === "name"} onclick={() => (mode = "name")}>Por nombre</button>
-        <button class:on={mode === "youtube"} onclick={() => (mode = "youtube")}>YouTube o enlace</button>
-        <button class:on={mode === "file"} onclick={() => (mode = "file")}>Ficheros</button>
-      </nav>
-
-      <div class="body">
-        {#if mode === "name"}
-          <form onsubmit={addByName}>
-            <p class="hint">Busca la letra (LRCLIB, Genius…) y el audio en YouTube, como Letras.</p>
-            <div class="two">
-              <label>Artista<input bind:this={first} bind:value={artist} placeholder="Stela Cole" /></label>
-              <label>Canción<input bind:value={title} placeholder="Stereoqueen" /></label>
-            </div>
-            <button class="primary" disabled={!artist.trim() || !title.trim()}>Añadir</button>
-          </form>
-        {:else if mode === "youtube"}
-          <form class="row" onsubmit={search}>
-            <SearchInput bind:ref={first} bind:value={query} placeholder="Busca o pega un enlace (YouTube, SoundCloud, Bandcamp…)" />
-            <button class="ghost" disabled={searching}>{searching ? "Buscando…" : "Buscar"}</button>
-          </form>
-          <div class="results">
-            {#each results as r (r.url)}
-              {@const on = picked.includes(r.url)}
-              <button class="item result" class:on onclick={() => (picked = on ? picked.filter((u) => u !== r.url) : [...picked, r.url])}>
-                {#if r.thumbnail}<img src={r.thumbnail} alt="" loading="lazy" />{:else}<span class="thumb"></span>{/if}
-                <span class="r-title">{r.title}</span>
-                <span class="r-meta">{r.channel}{r.duration ? ` · ${dur(r.duration)}` : ""}</span>
-                <span class="check">{on ? "✓" : ""}</span>
-              </button>
-            {:else}
-              {#if searching}<div class="loading"><span class="spinner"></span> Buscando en YouTube…</div>{/if}
-            {/each}
-          </div>
-          {#if results.length}
-            <button class="primary" disabled={!picked.length} onclick={importPicked}>Importar {picked.length || ""}</button>
-          {/if}
-        {:else}
-          <div class="drop">
-            <p>Arrastra audio o vídeo a cualquier parte de la ventana,</p>
-            <button class="primary" onclick={chooseFiles}>o elige ficheros</button>
-            <small>Artista y título salen de las etiquetas o de «Artista - Título.mp3».</small>
-          </div>
-        {/if}
-        {#if error}<p class="error-text">{error}</p>{/if}
+    {#if mode === "link"}
+      <form class="row" onsubmit={submitLink}>
+        <Search bind:ref={first} bind:value={query} size="lg" placeholder="Pega un enlace o busca en YouTube" />
+        <Button size="lg" variant={url ? "primary" : "secondary"} type="submit" disabled={!query.trim() || searching || busy}>
+          {url ? "Importar" : searching ? "Buscando…" : "Buscar"}
+        </Button>
+      </form>
+      {#if searching}
+        <div class="grid">{#each Array(4) as _, i (i)}<div class="res skel"></div>{/each}</div>
+      {:else if results.length}
+        <div class="grid">
+          {#each results as r (r.url)}
+            {@const on = picked.includes(r.url)}
+            <button type="button" class="res" class:on aria-pressed={on} onclick={() => toggle(r.url)}>
+              <span class="thumb">
+                {#if r.thumbnail}<img src={r.thumbnail} alt="" loading="lazy" />{/if}
+                {#if r.duration}<span class="dur num">{fmtClock(r.duration)}</span>{/if}
+                {#if on}<span class="tick"><Icon name="check" size={14} /></span>{/if}
+              </span>
+              <span class="rt">{r.title}</span>
+              <span class="rc">{r.channel}</span>
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <p class="tip"><Icon name="link" size={14} /> YouTube, SoundCloud, Bandcamp… o escribe artista y canción.</p>
+      {/if}
+    {:else if mode === "name"}
+      <form class="two" onsubmit={(e) => (e.preventDefault(), addByName())}>
+        <Field label="Artista" bind:ref={first} bind:value={artist} placeholder="Stela Cole" />
+        <Field label="Canción" bind:value={title} placeholder="Stereoqueen" />
+        <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
+      </form>
+      <p class="tip"><Icon name="lyrics" size={14} /> La letra de LRCLIB, Genius…; el audio, de YouTube.</p>
+    {:else}
+      <div class="drop">
+        <Icon name="upload" size={28} />
+        <strong>Arrastra audio o vídeo a la ventana</strong>
+        <Button icon="folder" onclick={chooseFiles} disabled={busy}>Elegir ficheros</Button>
+        <small>Artista y título, de las etiquetas o de «Artista - Título.mp3».</small>
       </div>
-
-      <footer>
-        <span class="kicker">Después</span>
-        <label><input type="checkbox" bind:checked={after.letra} disabled={after.notes} /> Letra palabra a palabra</label>
-        <label><input type="checkbox" bind:checked={after.separate} disabled={after.notes} /> Separar pistas</label>
-        <label title="Pistas, letra y notas de cada instrumento, en el orden que menos GPU gasta"><input type="checkbox" bind:checked={after.notes} /> Todo (con partitura)</label>
-      </footer>
-    </div>
+    {/if}
+    {#if error}<p class="err" role="alert"><Icon name="alert" size={14} /> {error}</p>{/if}
   </div>
-{/if}
+
+  {#snippet footer()}
+    <span class="after">Después</span>
+    <Toggle bind:checked={after.letra} disabled={after.notes}>Letra</Toggle>
+    <Toggle bind:checked={after.separate} disabled={after.notes}>Pistas</Toggle>
+    <Toggle bind:checked={after.notes} title="Pistas, letra y notas de cada instrumento">Todo</Toggle>
+    <span class="grow"></span>
+    {#if mode === "link" && results.length}
+      <Button variant="primary" disabled={!picked.length || busy} onclick={importPicked}>Importar {picked.length || ""}</Button>
+    {:else if mode === "name"}
+      <Button variant="primary" disabled={!artist.trim() || !title.trim() || busy} onclick={addByName}>Añadir</Button>
+    {/if}
+  {/snippet}
+</Dialog>
 
 <style>
-  header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px 6px; }
-  .modes { padding: 0 18px; }
-  .body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 180px; }
-  .hint { margin-bottom: 12px; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
-  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
-  .row { display: flex; gap: 8px; }
-  .results { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; }
-  .result { display: grid; grid-template-columns: 80px 1fr 16px; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 6px; }
-  .result img, .thumb { grid-row: 1 / 3; width: 80px; height: 45px; object-fit: cover; border-radius: 4px; background: var(--panel-hi); }
-  .r-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .r-meta { grid-column: 2; color: var(--text-3); font-size: 12px; }
-  .check { grid-row: 1 / 3; grid-column: 3; color: var(--accent); font-weight: 700; }
-  .loading { display: flex; gap: 10px; align-items: center; color: var(--text-2); padding: 16px 4px; }
-  .drop {
-    display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 20px; text-align: center;
-    border: 1px dashed var(--line-hi); border-radius: var(--radius); color: var(--text-2);
+  .add { display: flex; flex-direction: column; gap: var(--s4); min-height: 280px; }
+  .row { display: flex; gap: var(--s2); align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--s3); max-height: 46vh; overflow-y: auto; padding: 2px; }
+  .res {
+    display: flex; flex-direction: column; gap: 4px; padding: 0 0 var(--s2); border: 0; background: none; text-align: left; min-width: 0;
+    border-radius: var(--r-lg); color: var(--text);
   }
-  .drop p { margin: 0; }
-  .drop small { color: var(--text-3); font-size: 11.5px; }
-  footer { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--line); }
-  footer label { flex-direction: row; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text); }
-  form > .primary, .body > .primary { align-self: flex-start; }
+  .thumb { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: var(--r-lg); overflow: hidden; background: var(--panel-hi); box-shadow: 0 0 0 1px var(--line); transition: box-shadow var(--t-fast); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .res:hover .thumb { box-shadow: 0 0 0 1px var(--line-hi); }
+  .res.on .thumb { box-shadow: 0 0 0 2px var(--accent); }
+  .dur { position: absolute; right: 6px; bottom: 6px; padding: 0 5px; border-radius: var(--r-sm); background: #000c; color: #fff; font-size: var(--fs-xs); }
+  .tick { position: absolute; left: 6px; top: 6px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+  .rt { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--fs-sm); font-weight: 500; line-height: 1.35; }
+  .rc { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .skel { aspect-ratio: 16 / 11; background: var(--panel-hi); animation: pulse 1.2s ease-in-out infinite; }
+  .tip { display: flex; align-items: center; gap: var(--s2); color: var(--text-3); font-size: var(--fs-sm); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+  .drop {
+    display: flex; flex-direction: column; align-items: center; gap: var(--s3); padding: var(--s6) var(--s4); text-align: center;
+    border: 1.5px dashed var(--line-hi); border-radius: var(--r-lg); color: var(--text-2);
+  }
+  .drop strong { color: var(--text); font-weight: 500; }
+  .drop small { color: var(--text-3); font-size: var(--fs-xs); }
+  .err { display: flex; align-items: flex-start; gap: var(--s2); color: var(--bad); font-size: var(--fs-sm); }
+  .after { color: var(--text-3); font-size: var(--fs-sm); margin-right: var(--s1); }
+  .grow { flex: 1; }
 </style>
