@@ -67,11 +67,17 @@ export class Player {
         d[start + k] += amp * Math.sin((2 * Math.PI * f * k) / rate) * Math.exp(-k / (rate * 0.007));
       }
     });
+    this.setBuffer(CLICK, buf);
+  }
+
+  /** Una pista ya en memoria (el metrónomo, una sesión del teclado sintetizada), sin cortar lo que suena. */
+  setBuffer(name: string, buf: AudioBuffer) {
     const was = this.playing;
     const t = this.time();
     this.stopSources();
-    this.buffers.set(CLICK, buf);
-    if (!this.gains.has(CLICK)) this.gains.set(CLICK, this.gainNode());
+    this.buffers.set(name, buf);
+    if (!this.gains.has(name)) this.gains.set(name, this.gainNode());
+    this.duration = Math.max(this.duration, buf.duration);
     this.offset = t;
     if (was) this.play();
   }
@@ -130,6 +136,33 @@ export class Player {
     this.sources = [];
     this.playing = false;
   }
+}
+
+/** Un piano sencillo (armónicos que se apagan, los graves más despacio) para oír las sesiones del teclado.
+ * notes: [inicio, fin, nota MIDI, velocidad 0-1]. */
+export function synth(notes: [number, number, number, number][], duration: number) {
+  const rate = 22050; // ponytail: todo en un buffer (~5 MB por minuto); para sesiones de horas, por tramos
+  const ctx = new OfflineAudioContext(1, Math.ceil((duration + 1.5) * rate), rate);
+  const wave = ctx.createPeriodicWave(new Float32Array(6), new Float32Array([0, 1, 0.5, 0.25, 0.12, 0.06]));
+  const comp = ctx.createDynamicsCompressor(); // muchas notas a la vez no saturan
+  comp.connect(ctx.destination);
+  const out = ctx.createGain();
+  out.gain.value = 0.3;
+  out.connect(comp);
+  for (const [s, e, p, v] of notes) {
+    const o = ctx.createOscillator();
+    o.setPeriodicWave(wave);
+    o.frequency.value = 440 * 2 ** ((p - 69) / 12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, s);
+    g.gain.linearRampToValueAtTime(0.15 + 0.6 * v, s + 0.005);
+    g.gain.setTargetAtTime(0, s + 0.005, 0.3 + 2.2 * Math.max(0, (108 - p) / 87));
+    g.gain.setTargetAtTime(0, e, 0.06); // al soltar (o levantar el pedal)
+    o.connect(g).connect(out);
+    o.start(s);
+    o.stop(e + 0.5);
+  }
+  return ctx.startRendering();
 }
 
 /** Picos por columna para dibujar la forma de onda. */

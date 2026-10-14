@@ -1080,6 +1080,45 @@ fn has_director() -> bool {
     std::env::var("ANTHROPIC_API_KEY").is_ok()
 }
 
+const COACH: &str = "Eres profesor de piano y armonía. Te paso una sesión tocada en un teclado MIDI (JSON; el campo \"format\" \
+explica los datos; los acordes los sacó un algoritmo sin IA y pueden fallar). Analízala para quien la tocó, en español, en Markdown, \
+breve y concreto, con tiempos (m:ss) cuando señales algo: ## Qué tocaste (tonalidad, estilo, partes, progresiones con grados), \
+## Armonía (funciones, cadencias, acordes mal detectados o incompletos), ## Ritmo y dinámica (pulso estimado, regularidad, \
+velocidades, pedal), ## Errores probables (notas fuera de lugar, tropiezos) y ## Para practicar (3 ejercicios concretos). Sin tablas: títulos, viñetas y párrafos cortos.";
+
+/// Claude analiza una sesión del teclado con Claude Code (`claude -p`: la suscripción, sin API key) y lo deja al lado
+/// como `<sesión>.analisis.md`.
+#[tauri::command]
+async fn analyze_session(path: String) -> Result<String, String> {
+    blocking(move || {
+        let json = inside(Path::new(&path))?;
+        if json.extension().is_none_or(|e| e != "json") {
+            return Err("no es una sesión".into());
+        }
+        let data = std::fs::read(&json).map_err(|e| e.to_string())?;
+        // sin herramientas ni ajustes del usuario (hooks, plugins): solo el texto
+        let mut child = Command::new("claude")
+            .args(["-p", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--system-prompt", COACH])
+            .arg("Analiza esta sesión (JSON por la entrada estándar).")
+            .current_dir(json.parent().ok_or("sin carpeta")?)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("falta Claude Code (claude en el PATH): {e}"))?;
+        child.stdin.take().unwrap().write_all(&data).map_err(|e| e.to_string())?;
+        let out = child.wait_with_output().map_err(|e| e.to_string())?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !out.status.success() || text.is_empty() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            return Err(err.trim().lines().last().filter(|l| !l.is_empty()).unwrap_or(&text).to_string());
+        }
+        std::fs::write(json.with_extension("analisis.md"), &text).map_err(|e| e.to_string())?;
+        Ok(text)
+    })
+    .await
+}
+
 #[tauri::command]
 fn gpu_name() -> String {
     // «… Navi 23 [Radeon RX 6600/6600 XT/6600M] (rev c7)» -> «Radeon RX 6600/6600 XT/6600M»
@@ -1370,7 +1409,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             paths_cmd, catalog, song, run_cmd, enqueue, import, jobs, job, cancel, cancel_all, retry, top, clear_finished, write_file, list_dir,
             remove_file, render, director, has_director, gpu_name, now_playing, player_seek, player_toggle, prefetch_now,
-            midi::midi_ports, midi::midi_open, midi::midi_send, midi::midi_close
+            analyze_session, midi::midi_ports, midi::midi_open, midi::midi_send, midi::midi_close
         ])
         .setup(|app| {
             let _ = APP.set(app.handle().clone());

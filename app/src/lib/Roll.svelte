@@ -57,7 +57,8 @@
     for (const t of tracks) {
       if (notes[t.path]) continue;
       readBytes(t.path).then((buf) => {
-        notes = { ...notes, [t.path]: JSON.parse(new TextDecoder().decode(buf)) };
+        const data = JSON.parse(new TextDecoder().decode(buf));
+        notes = { ...notes, [t.path]: Array.isArray(data) ? data : data.notes }; // o una sesión del teclado
       });
     }
   });

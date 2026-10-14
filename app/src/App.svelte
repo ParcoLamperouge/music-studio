@@ -5,6 +5,7 @@
   import { enqueue, finished, fmtBytes, gpuName, importSources, initPaths, run } from "./lib/engine";
   import Library from "./lib/Library.svelte";
   import PlayView from "./lib/PlayView.svelte";
+  import SessionsView from "./lib/SessionsView.svelte";
   import Queue from "./lib/Queue.svelte";
   import SettingsPanel from "./lib/SettingsPanel.svelte";
   import { loadSettings, saveSettings, settings } from "./lib/settings.svelte";
@@ -16,7 +17,8 @@
   let fatal = $state("");
   let selected = $state<string | null>(params.get("song"));
   // qué se va a hacer: analizar canciones o tocar el teclado; sin elegir, el menú
-  let mode = $state<"analizar" | "tocar" | null>(params.get("song") ? "analizar" : (params.get("mode") as "analizar" | "tocar" | null));
+  type Mode = "analizar" | "tocar" | "sesiones";
+  let mode = $state<Mode | null>(params.get("song") ? "analizar" : (params.get("mode") as Mode | null));
   let initialTab = $state(params.get("tab") ?? undefined);
   let picked = $state<string[]>([]);
   let queueOpen = $state(false);
@@ -100,7 +102,8 @@
   function onkey(e: KeyboardEvent) {
     const typing = (e.target as HTMLElement).closest("input, textarea, select, [contenteditable]");
     if (typing || e.ctrlKey || e.metaKey || e.altKey || adding) return;
-    if (!mode && (e.key === "1" || e.key === "2")) return go(e.key === "1" ? "analizar" : "tocar");
+    const pick = ({ "1": "analizar", "2": "tocar", "3": "sesiones" } as const)[e.key as "1"];
+    if (!mode && pick) return go(pick);
     if (mode !== "analizar") return;
     if (e.key === "q" || e.key === "Q") ((queueOpen = !queueOpen), e.preventDefault());
     else if (e.key === "n" || e.key === "N") ((adding = true), e.preventDefault());
@@ -132,10 +135,17 @@
         <strong>Tocar</strong>
         <span>Teclado MIDI: piano roll en vivo, el acorde que suena y la sesión guardada para analizarla luego.</span>
       </button>
+      <button onclick={() => go("sesiones")}>
+        <kbd>3</kbd>
+        <strong>Sesiones</strong>
+        <span>Lo que tocaste: volver a oírlo con su piano roll y sus acordes, y analizarlo con Claude.</span>
+      </button>
     </div>
   </div>
 {:else if mode === "tocar"}
   <main class="solo"><PlayView onback={() => go(null)} /></main>
+{:else if mode === "sesiones"}
+  <SessionsView onback={() => go(null)} />
 {:else}
   <div class="app">
     <aside class="side">
@@ -261,10 +271,10 @@
   .stats { margin-top: 30px; color: var(--text-3) !important; font-size: 12px !important; }
 
   .solo { height: 100vh; }
-  .menu { height: 100vh; display: flex; flex-direction: column; justify-content: center; max-width: 820px; margin: 0 auto; padding: 32px; animation: rise 0.6s var(--ease); }
+  .menu { height: 100vh; display: flex; flex-direction: column; justify-content: center; max-width: 1080px; margin: 0 auto; padding: 32px; animation: rise 0.6s var(--ease); }
   .menu h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(48px, 6vw, 80px); line-height: 0.95; margin: 14px 0 32px; }
   .menu em { color: var(--accent); }
-  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .choices button {
     display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 22px; border-radius: var(--radius); text-align: left;
     border: 1px solid var(--line); background: var(--panel); color: var(--text-2); transition: border-color 0.15s, background 0.15s, transform 0.15s var(--ease);

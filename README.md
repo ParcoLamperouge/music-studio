@@ -55,7 +55,10 @@ escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
 
 ## Uso
 
-- **Menú** al abrir: «Analizar canciones» (todo lo de abajo) o «Tocar» (`1`/`2`; la casita de arriba vuelve).
+- **Menú** al abrir: «Analizar canciones» (todo lo de abajo), «Tocar» o «Sesiones» (`1`/`2`/`3`; la casita de arriba vuelve).
+- **Sesiones**: las guardadas en Tocar, con el piano roll y el transporte de las canciones (suenan con un piano
+  sintetizado), tonalidad, acordes que más suenan y la progresión (clic = ir ahí). «Analizar con Claude» usa Claude Code
+  (`claude -p`, la suscripción; sin herramientas ni tus hooks) y deja `<sesión>.analisis.md` al lado (~1 min).
 - **Tocar**: teclado MIDI por USB (`midir`, ALSA; se conecta solo al enchufarlo, el último usado o el único). Piano roll
   al revés (la barra sale de la tecla al tocarla y sube), pedal de resonancia, el acorde que suena con su grado y la
   tonalidad de lo tocado (sin IA, `live.ts` con las plantillas de `harmony.ts`), volumen del teclado por CC7. Para probar sin piano, el teclado del ordenador: fila A–Ñ blancas, W E T Y U O P negras,
