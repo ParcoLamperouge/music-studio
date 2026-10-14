@@ -59,6 +59,7 @@
   let songChords = $state<{ t: number; end: number; name: string; deg?: string }[]>([]);
   let songKey = $state("");
   let songInfo = $state<Detail | null>(null);
+  let songFromNotes = $state(false);
   // instrumentos que se le pasan a Claude: al abrir una canción, todos los que tienen notas
   const noted = $derived(songInfo?.stemlab?.stems.filter((s) => s.roll) ?? []);
   let aiStems = $state<string[]>([]);
@@ -314,7 +315,7 @@
 
   <main>
     {#if song}
-      {#key song}<SongPlayer bind:this={songPlayer} key={song} bind:time={songTime} bind:chords={songChords} bind:keyLabel={songKey} bind:detail={songInfo} />{/key}
+      {#key song}<SongPlayer bind:this={songPlayer} key={song} bind:time={songTime} bind:chords={songChords} bind:keyLabel={songKey} bind:detail={songInfo} bind:fromNotes={songFromNotes} />{/key}
     {:else if sel?.s}
       {#key sel.base}
         <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} chords={sel.s.chords} keyLabel={sel.s.key ?? ""} tonality={parseKey(sel.s.key) ?? undefined}
@@ -337,6 +338,7 @@
         {#if t?.bpm}<dt>Tempo</dt><dd>{Math.round(t.bpm)} bpm</dd>{/if}
       </dl>
       {#if top.length}
+        {#if songFromNotes}<p class="muted note">De las notas transcritas: los del audio (lv-chordia) están en la cola y saldrán la próxima vez que la abras.</p>{/if}
         <span class="kicker">Acordes que más suenan</span>
         <div class="chips">{#each top as [name, d] (name)}<span>{name} <small>{fmt(d)}</small></span>{/each}</div>
         <span class="kicker">Progresión <small>(clic para ir)</small></span>
@@ -346,7 +348,7 @@
           {/each}
         </div>
       {:else}
-        <p class="muted">Sin acordes todavía: sácalos en Analizar (pestaña Acordes).</p>
+        <p class="muted">Sin acordes todavía: sus pistas no tienen notas y los del audio (lv-chordia) están en la cola.</p>
       {/if}
       <span class="kicker">Instrumentos para Claude</span>
       {#if noted.length}
@@ -467,6 +469,7 @@
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chips span { padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--text); font-size: 13px; }
   .chips small { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; }
+  .note { margin: 0; font-size: 12px; }
   .pick button { padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); background: none; color: var(--text-3); font-size: 12.5px; }
   .pick button.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--text); }
   .pick small { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }

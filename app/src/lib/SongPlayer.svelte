@@ -1,19 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { loadNotation } from "./ChordsTab.svelte";
-  import { readJson, songDetail, STEM_INFO, viewPath, type Detail } from "./engine";
-  import { degree, fromModel, keyName, named, type Key, type Note } from "./harmony";
+  import { enqueue, readJson, songDetail, STEM_INFO, viewPath, type Detail } from "./engine";
+  import { analyze, degree, fromModel, keyName, named, type Key, type Note } from "./harmony";
   import MiniMixer from "./MiniMixer.svelte";
   import { Player } from "./player";
   import Roll from "./Roll.svelte";
   import { settings } from "./settings.svelte";
+  import { jobOf } from "./store.svelte";
   import Transport from "./Transport.svelte";
 
   /** Una canción separada, para tocar encima: pistas con su volumen y M/S, piano roll por instrumento y acordes (lv-chordia).
    * Versión corta de SongView, sin pestañas ni cola. */
-  let { key, time = $bindable(0), chords = $bindable([]), keyLabel = $bindable(""), detail = $bindable(null) }: {
+  let { key, time = $bindable(0), chords = $bindable([]), keyLabel = $bindable(""), detail = $bindable(null), fromNotes = $bindable(false) }: {
     key: string;
     detail?: Detail | null; // la ficha, para quien la use fuera (el análisis)
+    fromNotes?: boolean; // acordes de las notas transcritas: aún no hay los del audio (lv-chordia)
     time?: number;
     chords?: { t: number; end: number; name: string; deg?: string }[];
     keyLabel?: string;
@@ -55,11 +57,14 @@
         await player.load(d.stemlab.stems.map((s) => ({ name: s.name, path: `${d.stemlab!.dir}/${s.file}` })));
         duration = player.duration;
         const cs = d.chordData?.chords;
-        if (cs?.length) {
-          // revisados con las notas de cada pista (el V7 que el modelo dio como v menor…)
-          const dir = d.stemlab.dir;
-          const tracks = await Promise.all(d.stemlab.stems.filter((s) => s.roll).map(async (s) => ({ stem: s.name, notes: await readJson<Note[]>(`${dir}/${s.roll}`, []) })));
-          const h = fromModel(cs, tracks);
+        const dir = d.stemlab.dir;
+        const tracks = await Promise.all(d.stemlab.stems.filter((s) => s.roll).map(async (s) => ({ stem: s.name, notes: await readJson<Note[]>(`${dir}/${s.roll}`, []) })));
+        // sin acordes del modelo (lv-chordia) se piden a la cola y, mientras, salen de las notas, como en Analizar
+        if (!cs?.length && d.audio && !jobOf(key, "chords")) void enqueue("chords", [key]);
+        // los del modelo, revisados con las notas de cada pista (el V7 que dio como v menor…)
+        const h = cs?.length ? fromModel(cs, tracks) : tracks.length ? analyze(tracks, d.beatData?.beats ?? [], d.duration) : null;
+        fromNotes = !cs?.length && !!h;
+        if (h) {
           chords = named(h.chords, h.key, loadNotation()).map((c) => ({ ...c, deg: degree(c, h.key) }));
           keyLabel = keyName(h.key, loadNotation().latin);
           tonality = h.key;
