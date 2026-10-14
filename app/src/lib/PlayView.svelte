@@ -8,7 +8,7 @@
   import { keyLayout } from "./Roll.svelte";
   import { settings } from "./settings.svelte";
 
-  let { onback }: { onback: () => void } = $props();
+  let { onback, onsessions }: { onback: () => void; onsessions: () => void } = $props();
 
   const KEYS_H = 90;
   const LO = 21, HI = 108; // piano de 88 teclas
@@ -149,6 +149,12 @@
       dirty = true;
       error = `No se guardó la sesión: ${e}`;
     }
+  }
+
+  /** Guardada antes de salir, para que ya salga en la lista. */
+  async function toSessions() {
+    await save();
+    onsessions();
   }
 
   async function fresh() {
@@ -296,6 +302,7 @@
     {#if error}<span class="error-text err" title={error}>{error}</span>{/if}
     <span class="mono muted" title={saved}>{count} notas{saved ? " · guardada" : ""}</span>
     <button class="ghost" onclick={save} disabled={!count} title="Se guarda sola cada 15 s: .mid para reproducir y .json para la IA">Guardar</button>
+    <button class="ghost" onclick={toSessions} title="Volver a oír y analizar lo tocado (se guarda esta antes)">Sesiones</button>
     <button class="primary" onclick={fresh} disabled={!count} title="Guarda esta y empieza otra">Nueva sesión</button>
   </header>
   <div class="stage" bind:clientWidth={width} bind:clientHeight={height}>

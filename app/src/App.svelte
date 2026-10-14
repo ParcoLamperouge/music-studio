@@ -143,7 +143,7 @@
     </div>
   </div>
 {:else if mode === "tocar"}
-  <main class="solo"><PlayView onback={() => go(null)} /></main>
+  <main class="solo"><PlayView onback={() => go(null)} onsessions={() => go("sesiones")} /></main>
 {:else if mode === "sesiones"}
   <SessionsView onback={() => go(null)} />
 {:else}
