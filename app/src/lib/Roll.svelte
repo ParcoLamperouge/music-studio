@@ -104,6 +104,8 @@
   let styleOpen = $state(false);
   const style = (): RollStyle => ({ ...ROLL_DEFAULT, ...settings.rollStyle });
   const setStyle = (patch: Partial<RollStyle>) => (settings.rollStyle = { ...style(), ...patch });
+  /** Con efectos, la primera pista (la derecha) va en el color principal y la segunda (la izquierda) en el otro. */
+  const fxColor = (st: RollStyle, i: number) => (i === 0 ? st.color : st.color2);
 
   const KEYS_H = 90;
   let fullscreen = $state(false);
@@ -182,9 +184,10 @@
       if (effects) {
         // las notas en la capa de efectos, que luego se funde con el desvanecido, la línea encendida y las chispas
         const l = effects.begin(width, HEIGHT, dpr);
-        const sounding = new Map<number, { x: number; w: number }>();
-        for (const track of tracks) {
+        const sounding = new Map<number, { x: number; w: number; color: string }>();
+        for (const [ti, track] of tracks.entries()) {
           if (track.hidden) continue;
+          const color = fxColor(st, ti);
           for (const [start, end, pitch, vel] of track.notes ?? notes[track.path] ?? []) {
             if (end < t || start > t + windowSec) continue;
             const k = keys.get(pitch);
@@ -192,8 +195,8 @@
             const bottom = Math.min(rollH * (1 - (start - t) / windowSec), rollH);
             const top = rollH * (1 - (end - t) / windowSec);
             const on = start <= t && t < end;
-            if (on) (active.set(pitch, st.color), sounding.set(pitch, k));
-            drawBar(l, st, k.x, k.w, top, bottom - top, on ? 1 : 0.7 + vel * 0.3, on);
+            if (on) (active.set(pitch, color), sounding.set(pitch, { ...k, color }));
+            drawBar(l, st, k.x, k.w, top, bottom - top, on ? 1 : 0.7 + vel * 0.3, on, color);
             drawBarLabel(l, k, bottom, bottom - Math.max(top, 0), name(pitch));
           }
         }
@@ -299,7 +302,7 @@
       <strong>{title}</strong>
       {#each tracks as t (t.stem)}
         <button class="chip" class:off={t.hidden} onclick={() => ontoggle(t.stem)} title={t.hidden ? "Mostrar" : "Ocultar"}>
-          <i style:background={t.color}></i>{t.name}
+          <i style:background={fx ? fxColor(style(), tracks.indexOf(t)) : t.color}></i>{t.name}
         </button>
       {/each}
       {#if !tracks.length}<small>Ninguna pista con notas suena ahora (revisa M/S).</small>{/if}
@@ -313,10 +316,13 @@
             <div class="style-pop">
               <div class="presets">
                 {#each Object.entries(ROLL_PRESETS) as [label, p] (label)}
-                  <button class="chip" class:sel={st.color === p.color && st.sparkles === p.sparkles} onclick={() => setStyle(p)}><i style:background={p.color}></i>{label}</button>
+                  <button class="chip" class:sel={st.color === p.color && st.color2 === p.color2 && st.sparkles === p.sparkles} onclick={() => setStyle(p)}>
+                    <i style:background={p.color}></i><i style:background={p.color2}></i>{label}
+                  </button>
                 {/each}
               </div>
-              <label>Color <input type="color" value={st.color} oninput={(e) => setStyle({ color: e.currentTarget.value })} /></label>
+              <label>Mano derecha <input type="color" value={st.color} oninput={(e) => setStyle({ color: e.currentTarget.value })} /></label>
+              <label>Mano izquierda <input type="color" value={st.color2} oninput={(e) => setStyle({ color2: e.currentTarget.value })} /></label>
               <label>Brillo <input type="range" min="0" max="1" step="0.05" value={st.glow} oninput={(e) => setStyle({ glow: +e.currentTarget.value })} /></label>
               <label title="Cuánto se desvanecen las notas al entrar por arriba">Desvanecido <input type="range" min="0" max="0.9" step="0.05" value={st.fade} oninput={(e) => setStyle({ fade: +e.currentTarget.value })} /></label>
               <label title="Las esquinas de las notas">Redondez <input type="range" min="0" max="1" step="0.05" value={st.round} oninput={(e) => setStyle({ round: +e.currentTarget.value })} /></label>
@@ -373,7 +379,8 @@
   .style-pop input[type="range"] { width: 150px; }
   .style-pop input[type="color"] { width: 44px; height: 24px; padding: 0; border: 0; background: none; }
   .presets { display: flex; flex-wrap: wrap; gap: 6px; }
-  .presets .chip { padding: 3px 9px; }
+  .presets .chip { padding: 3px 9px; gap: 3px; }
+  .presets i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
   .presets .chip.sel { border-color: var(--accent); color: var(--text); }
   canvas { width: 100%; display: block; }
 

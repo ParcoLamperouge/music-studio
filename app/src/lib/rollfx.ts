@@ -3,7 +3,8 @@
  * desde ella y se desvanece. Personalizable desde el panel «Estilo» (se guarda en los ajustes). */
 
 export type RollStyle = {
-  color: string; // #rrggbb
+  color: string; // #rrggbb: la mano derecha (o la única pista)
+  color2: string; // la mano izquierda
   glow: number; // 0-1: halo de las notas, línea del teclado y destellos
   fade: number; // 0-1: cuánto se desvanecen las notas lejos del teclado
   sparkles: "no" | "polvo" | "estrellas" | "corazones";
@@ -11,12 +12,12 @@ export type RollStyle = {
 };
 
 export const ROLL_PRESETS: Record<string, RollStyle> = {
-  Ámbar: { color: "#f29d38", glow: 0.9, fade: 0.35, sparkles: "polvo", round: 0.25 },
-  Dorado: { color: "#ffc233", glow: 1, fade: 0.35, sparkles: "polvo", round: 0.2 },
-  Nieve: { color: "#dff3ff", glow: 0.9, fade: 0.4, sparkles: "estrellas", round: 0.6 },
-  Magenta: { color: "#e04bd8", glow: 1, fade: 0.4, sparkles: "corazones", round: 1 },
-  Menta: { color: "#5ef2c2", glow: 0.8, fade: 0.3, sparkles: "polvo", round: 0.4 },
-  Sobrio: { color: "#f29d38", glow: 0.3, fade: 0, sparkles: "no", round: 0.15 },
+  Ámbar: { color: "#f29d38", color2: "#4da3ff", glow: 0.9, fade: 0.35, sparkles: "polvo", round: 0.25 },
+  Dorado: { color: "#ffc233", color2: "#5ab4ff", glow: 1, fade: 0.35, sparkles: "polvo", round: 0.2 },
+  Nieve: { color: "#f4f8ff", color2: "#7fb2ff", glow: 0.9, fade: 0.4, sparkles: "estrellas", round: 0.6 },
+  Magenta: { color: "#e04bd8", color2: "#5b7cff", glow: 1, fade: 0.4, sparkles: "corazones", round: 1 },
+  Menta: { color: "#5ef2c2", color2: "#4c8dff", glow: 0.8, fade: 0.3, sparkles: "polvo", round: 0.4 },
+  Sobrio: { color: "#f29d38", color2: "#74c6f0", glow: 0.3, fade: 0, sparkles: "no", round: 0.15 },
 };
 export const ROLL_DEFAULT = ROLL_PRESETS.Ámbar;
 
@@ -36,16 +37,16 @@ export function drawBackground(g: CanvasRenderingContext2D, w: number, h: number
 }
 
 /** Una nota: degradado de los bordes al centro, casi blanco, y halo; `on` si suena ahora. */
-export function drawBar(g: CanvasRenderingContext2D, s: RollStyle, x: number, w: number, top: number, h: number, alpha: number, on: boolean) {
+export function drawBar(g: CanvasRenderingContext2D, s: RollStyle, x: number, w: number, top: number, h: number, alpha: number, on: boolean, color = s.color) {
   const inset = Math.min(w * 0.12, 2.5);
   const bx = x + 1 + inset, bw = Math.max(2, w - 2 - inset * 2);
   h = Math.max(h, 4);
   const fill = g.createLinearGradient(bx, 0, bx + bw, 0);
-  fill.addColorStop(0, tint(s.color, 0, 1));
-  fill.addColorStop(0.5, tint(s.color, on ? 0.75 : 0.5, 1));
-  fill.addColorStop(1, tint(s.color, 0, 1));
+  fill.addColorStop(0, tint(color, 0, 1));
+  fill.addColorStop(0.5, tint(color, on ? 0.75 : 0.5, 1));
+  fill.addColorStop(1, tint(color, 0, 1));
   g.globalAlpha = alpha;
-  g.shadowColor = s.color;
+  g.shadowColor = color;
   g.shadowBlur = (on ? 28 : 12) * s.glow;
   g.fillStyle = fill;
   g.beginPath();
@@ -55,7 +56,7 @@ export function drawBar(g: CanvasRenderingContext2D, s: RollStyle, x: number, w:
   g.shadowBlur = 0;
 }
 
-type Particle = { x: number; y: number; vx: number; vy: number; age: number; life: number; size: number; spin: number; wob: number };
+type Particle = { x: number; y: number; vx: number; vy: number; age: number; life: number; size: number; spin: number; wob: number; color: string };
 const KIND = {
   polvo: { rate: 170, burst: 40, size: [0.7, 1.9], vy: [30, 130], life: [1.4, 3.2] },
   estrellas: { rate: 22, burst: 10, size: [1.8, 3.8], vy: [40, 150], life: [0.9, 1.8] },
@@ -82,8 +83,8 @@ export class RollFx {
     return this.g;
   }
 
-  /** `active`: teclas que suenan (x y ancho); `lineY`: el borde del teclado; `emit`: si salen chispas (no en pausa). */
-  compose(g: CanvasRenderingContext2D, s: RollStyle, w: number, lineY: number, active: Map<number, { x: number; w: number }>, emit = true) {
+  /** `active`: teclas que suenan (x, ancho y color); `lineY`: el borde del teclado; `emit`: si salen chispas (no en pausa). */
+  compose(g: CanvasRenderingContext2D, s: RollStyle, w: number, lineY: number, active: Map<number, { x: number; w: number; color: string }>, emit = true) {
     const now = performance.now() / 1000;
     const dt = Math.min(0.1, this.last ? now - this.last : 0);
     this.last = now;
@@ -117,6 +118,7 @@ export class RollFx {
             size: rnd(k.size),
             spin: Math.random() * 6.28,
             wob: 8 + Math.random() * 18,
+            color: key.color,
           });
       }
       for (const q of this.parts) {
@@ -136,12 +138,12 @@ export class RollFx {
     // las chispas, delante y sumando luz
     g.save();
     g.globalCompositeOperation = "lighter";
-    g.shadowColor = s.color;
     g.shadowBlur = s.sparkles === "polvo" ? 0 : 8 * s.glow;
     for (const q of this.parts) {
       const a = 1 - q.age / q.life;
       g.globalAlpha = a * a;
-      g.fillStyle = tint(s.color, 0.35 + Math.sin(q.spin + q.age * 9) * 0.25); // centellea
+      g.shadowColor = q.color;
+      g.fillStyle = tint(q.color, 0.35 + Math.sin(q.spin + q.age * 9) * 0.25); // centellea
       shape(g, s.sparkles, q.x, q.y, q.size, q.spin + q.age * 2);
     }
     g.restore();
@@ -167,9 +169,9 @@ export class RollFx {
         g.translate(cx, lineY);
         g.scale(1.25, 0.5);
         const flare = g.createRadialGradient(0, 0, 0, 0, 0, r);
-        flare.addColorStop(0, tint(s.color, 0.85, 0.9));
-        flare.addColorStop(0.2, tint(s.color, 0.3, 0.45));
-        flare.addColorStop(1, tint(s.color, 0, 0));
+        flare.addColorStop(0, tint(key.color, 0.85, 0.9));
+        flare.addColorStop(0.2, tint(key.color, 0.3, 0.45));
+        flare.addColorStop(1, tint(key.color, 0, 0));
         g.fillStyle = flare;
         g.fillRect(-r, -r, 2 * r, 2 * r);
         g.restore();
