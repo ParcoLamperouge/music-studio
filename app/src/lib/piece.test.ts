@@ -134,5 +134,36 @@ console.log("piezas ok");
       assert.ok(tonesOf(c.kind).some((i) => (c.root + i) % 12 === x.p % 12), `nivel 2: ${x.p} en el acorde de ${x.b}`);
     }
   }
+  // la forma de la melodía en todos los niveles y estilos: cada nota del arreglo con la del original de la que sale
+  // (misma nota, a menos de un pulso); entre dos seguidas, si el original sube el arreglo sube (las octavas por frases
+  // no la rompen); y las cumbres (la más aguda en dos pulsos alrededor) siguen siendo cumbre
+  const orig: ANote[] = [];
+  for (const n of [...rh].sort((x, y) => x.b - y.b || y.p - x.p)) {
+    const l = orig[orig.length - 1];
+    if (l && (n.b - l.b < 1e-3 || (n.b < l.b + l.d - 1e-3 && n.p < l.p))) continue; // voz interior
+    if (l && n.b < l.b + l.d) l.d = n.b - l.b;
+    orig.push({ ...n });
+  }
+  const isPeak = (xs: ANote[], i: number) => xs.every((y, j) => j === i || Math.abs(y.b - xs[i].b) > 2 || y.p < xs[i].p || (y.p === xs[i].p && j > i));
+  for (const style of ["clasico", "pop"] as const)
+    for (const [level, minCtr, minPeak] of [[1, 0.9, 0.8], [2, 0.97, 0.97], [3, 0.97, 0.97], [4, 0.97, 0.97], [6, 0.97, 0.97], [7, 0.97, 0.97]] as const) {
+      const a = arrange({ melody: ns[0].notes, chords: h.chords, beats: bs, downbeats: [0], meter: pc.meter, key: h.key, level, style });
+      const byOnset = new Map<number, ANote>();
+      for (const n of a.rh) if ((byOnset.get(n.b)?.p ?? -1) < n.p) byOnset.set(n.b, n); // la de arriba de cada golpe
+      const tops = [...byOnset.values()].sort((x, y) => x.b - y.b);
+      const src = (y: ANote) => orig.filter((x) => (x.p - y.p) % 12 === 0 && Math.abs(x.b - y.b) <= 1).sort((x, z) => Math.abs(x.b - y.b) - Math.abs(z.b - y.b))[0];
+      let same = 0, steps = 0;
+      for (let i = 1; i < tops.length; i++) {
+        const [x1, x2] = [src(tops[i - 1]), src(tops[i])];
+        if (!x1 || !x2 || x1.p === x2.p) continue;
+        steps++;
+        same += +(Math.sign(x2.p - x1.p) === Math.sign(tops[i].p - tops[i - 1].p));
+      }
+      assert.ok(same / steps >= minCtr, `${style} nivel ${level}: la melodía sube y baja como la original (${same}/${steps})`);
+      const peaks = orig.filter((x, i) => x.d >= 0.25 && isPeak(orig, i));
+      const kept = peaks.filter((x) => tops.some((y, j) => (y.p - x.p) % 12 === 0 && Math.abs(y.b - x.b) <= 1 && isPeak(tops, j)));
+      assert.ok(kept.length / peaks.length >= minPeak, `${style} nivel ${level}: las cumbres (${kept.length}/${peaks.length})`);
+      if (process.env.DEBUG) console.log(style, level, same / steps, kept.length / peaks.length);
+    }
 }
 console.log("obra ok");

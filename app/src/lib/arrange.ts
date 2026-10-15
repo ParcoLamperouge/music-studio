@@ -69,45 +69,71 @@ export function easyTranspose(k: Key) {
 /** Cuadrícula de cada nivel (en pulsos): la melodía cuadra a negras, corcheas o semicorcheas. */
 const GRID: Record<Level, number> = { 1: 1, 2: 0.5, 3: 0.25, 4: 0.25, 5: 0, 6: 0.25, 7: 0 };
 
-/** Melodía limpia en pulsos: una sola voz (en cada casilla de la cuadrícula, la nota que más suena), sin notas sueltas
- * muy cortas, y las casillas seguidas de la misma nota cantada unidas en una. Con `grid` 0, tal cual (`lowest`: si se
- * pisan, la grave; para un bajo). */
+/** Melodía limpia en pulsos: una sola voz y cuadrada a la cuadrícula. Se simplifica el ritmo, no las notas: la voz de
+ * arriba (lo que se oye encima de cada instante; una voz interior solo cuenta donde no suena nada más agudo), cada nota
+ * a su casilla más cercana, y si dos caen en la misma se queda la que más importa (la larga, la que cae en la casilla,
+ * la cumbre de la frase): las que sobran son notas de paso cortas y adornos. Sin notas sueltas muy cortas; la misma
+ * nota cantada dos veces son dos. Con `grid` 0, tal cual (`lowest`: si se pisan, la grave; para un bajo). */
 export function melodyLine(notes: Note[], beats: number[], grid: number, lowest = false): ANote[] {
   const src = notes
     .filter(([s, e]) => e - s >= 0.08)
-    .map(([s, e, p, v], i) => ({ b: toBeat(beats, s), e: toBeat(beats, e), p, v, i }))
+    .map(([s, e, p, v]) => ({ b: toBeat(beats, s), e: toBeat(beats, e), p, v }))
     .sort((a, b) => a.b - b.b);
   if (!src.length) return [];
   if (!grid) return monophonic(src, lowest).map((n) => ({ b: n.b, d: n.e - n.b, p: n.p, v: n.v }));
-  const out: (ANote & { src: number })[] = [];
-  const from = Math.floor(src[0].b / grid) * grid;
-  const to = Math.max(...src.map((n) => n.e));
-  let j = 0;
-  for (let c = from; c < to; c += grid) {
-    const ce = c + grid;
-    while (j < src.length && src[j].e <= c) j++;
-    let best: (typeof src)[number] | null = null, bestO = 0;
-    for (let k = j; k < src.length && src[k].b < ce; k++) {
-      const o = Math.min(ce, src[k].e) - Math.max(c, src[k].b);
-      if (o <= 0) continue;
-      // la nota que más suena en la casilla, con ventaja para la que ataca al principio (es la que se oye en el pulso);
-      // a igualdad, la más aguda (la melodía suele ir arriba)
-      const w = o + (src[k].b >= c - 0.05 * grid && src[k].b < c + 0.25 * grid ? 0.25 * grid : 0);
-      if (w > bestO + 1e-9 || (best && Math.abs(w - bestO) < 1e-9 && src[k].p > best.p)) [best, bestO] = [src[k], w];
+  // lo que cada nota está por encima de las demás: desde cuándo (b) y cuánto rato seguido (vis); lo que asoma después
+  // (una voz interior larga cuando calla la de arriba) no es otra nota de la melodía
+  const vis = new Array<number>(src.length).fill(0), first = new Array<number>(src.length).fill(NaN);
+  const times = [...new Set(src.flatMap((n) => [n.b, n.e]))].sort((x, y) => x - y);
+  let active: number[] = [], k = 0, last = -1;
+  for (let t = 0; t + 1 < times.length; t++) {
+    const t0 = times[t];
+    while (k < src.length && src[k].b <= t0) active.push(k++);
+    active = active.filter((i) => src[i].e > t0);
+    const top = active.length ? active.reduce((x, y) => (src[y].p > src[x].p ? y : x)) : -1;
+    if (top >= 0 && (isNaN(first[top]) || top === last)) {
+      if (isNaN(first[top])) first[top] = t0;
+      vis[top] += times[t + 1] - t0;
     }
-    if (!best || bestO < 0.35 * grid) continue; // casi silencio: silencio
-    const last = out[out.length - 1];
-    if (last && last.src === best.i && Math.abs(last.b + last.d - c) < 1e-6) last.d += grid;
-    else out.push({ b: c, d: grid, p: best.p, v: best.v, src: best.i });
+    last = top;
   }
+  const cand = src.map((n, i) => ({ ...n, b: first[i], vis: vis[i] })).filter((n) => n.vis > 0).sort((x, y) => x.b - y.b);
+  // cumbre: la más aguda en dos pulsos alrededor (y que dure algo: un destello agudo no lo es)
+  const peak = (i: number) => {
+    if (cand[i].vis < 0.25) return false;
+    for (let j = i - 1; j >= 0 && cand[i].b - cand[j].b <= 2; j--) if (cand[j].p >= cand[i].p) return false;
+    for (let j = i + 1; j < cand.length && cand[j].b - cand[i].b <= 2; j++) if (cand[j].p > cand[i].p) return false;
+    return true;
+  };
+  const ranked = cand
+    .map((n, i) => {
+      const slot = Math.round(n.b / grid), near = 1 - Math.abs(n.b / grid - slot); // near: 1 en la casilla, 0,5 a medio camino
+      return { ...n, slot, w: Math.min(n.vis, 4 * grid) + 0.25 * grid * near + (peak(i) ? 4 * grid : 0), keep: Math.min(n.vis, grid) + 0.25 * grid * near >= 0.35 * grid };
+    })
+    .filter((n) => n.keep) // casi nada en la casilla: silencio
+    .sort((x, y) => y.w - x.w);
+  // de la más importante a la menos, cada una a su casilla; las que se quedan sin ella, luego, a la de al lado si quedó
+  // libre y no cambia el orden de las notas (una síncopa a la casilla anterior vacía); si no, fuera
+  const slots = new Map<number, (typeof ranked)[number]>();
+  const fits = (s: number, b: number) => !slots.has(s) && !((slots.get(s - 1)?.b ?? -Infinity) > b) && !((slots.get(s + 1)?.b ?? Infinity) < b);
+  const left = ranked.filter((n) => (fits(n.slot, n.b) ? (slots.set(n.slot, n), false) : true));
+  for (const n of left) {
+    const alt = n.b / grid < n.slot ? n.slot - 1 : n.slot + 1;
+    if (Math.abs(n.b / grid - alt) < 1 && fits(alt, n.b)) slots.set(alt, n);
+  }
+  const out = [...slots.entries()].sort((x, y) => x[0] - y[0]).map(([slot, n]) => ({ b: slot * grid, e: n.e, p: n.p, v: n.v }));
+  const res: ANote[] = out.map((n, i) => {
+    const next = out[i + 1]?.b ?? Infinity;
+    return { b: n.b, d: Math.min(next, Math.max(n.b + grid, Math.round(n.e / grid) * grid)) - n.b, p: n.p, v: n.v };
+  });
   // al cantar, las notas salen picadas: los huecos pequeños se rellenan alargando la nota (legato), que si no la
   // partitura se llena de silencios de semicorchea
   const fill = grid >= 1 ? 1 : 0.5;
-  for (let i = 0; i + 1 < out.length; i++) {
-    const gap = out[i + 1].b - (out[i].b + out[i].d);
-    if (gap > 1e-6 && gap <= fill + 1e-6) out[i].d += gap;
+  for (let i = 0; i + 1 < res.length; i++) {
+    const gap = res[i + 1].b - (res[i].b + res[i].d);
+    if (gap > 1e-6 && gap <= fill + 1e-6) res[i].d += gap;
   }
-  return out.map(({ src: _, ...n }) => n);
+  return res;
 }
 
 /** Una sola voz: si dos notas se pisan, la aguda manda (la grave, en un bajo) y la otra se corta. */
@@ -126,33 +152,38 @@ function monophonic(src: { b: number; e: number; p: number; v: number }[], lowes
 }
 
 /** Sube o baja toda la línea por octavas para centrarla; lo que se salga del rango se mueve por frases (separadas por
- * silencios de un pulso o más) a una misma octava, así la melodía no cambia de forma; si una frase no cabe, por
- * compases; y si ni el compás cabe, nota a nota. De las octavas que caben, la más cercana a la del trozo anterior. */
-function fold(notes: ANote[], lo: number, hi: number, meter: number, start: number) {
+ * silencios de un pulso o más) a una misma octava, así la melodía no cambia de forma. Una frase que no cabe entera se
+ * parte en los menos trozos posibles (cada uno lo más largo que quepa), y cada trozo va a la octava que cabe más
+ * cercana a la del anterior: la forma solo se rompe en esos cortes. */
+function fold(notes: ANote[], lo: number, hi: number) {
   if (!notes.length) return notes;
-  const sorted = notes.map((n) => n.p).sort((a, b) => a - b);
-  const mid = sorted[sorted.length >> 1];
-  const shift = Math.round(((lo + hi) / 2 - mid) / 12) * 12;
+  // la octava en la que más notas caben dentro (a igualdad, la que menos mueve): una pieza ya en su sitio no se toca
+  let shift = 0, most = -1;
+  for (const k of [0, 12, -12, 24, -24, 36, -36]) {
+    const n = notes.filter((x) => x.p + k >= lo && x.p + k <= hi).length;
+    if (n > most) [shift, most] = [k, n];
+  }
   const out = notes.map((n) => ({ ...n, p: n.p + shift }));
   let prev = 0; // octavas que se movió el trozo anterior
-  const place = (g: ANote[]) => {
-    const kLo = Math.ceil((lo - Math.min(...g.map((n) => n.p))) / 12), kHi = Math.floor((hi - Math.max(...g.map((n) => n.p))) / 12);
-    if (kLo > kHi) return false;
+  // las octavas a las que se puede mover un trozo de notas entre min y max (vacío si no cabe)
+  const fits = (min: number, max: number): [number, number] => [Math.ceil((lo - min) / 12), Math.floor((hi - max) / 12)];
+  const move = (g: ANote[], min: number, max: number) => {
+    const [kLo, kHi] = fits(min, max);
     prev = Math.min(kHi, Math.max(kLo, prev));
     for (const n of g) n.p += prev * 12;
-    return true;
   };
-  const split = (g: ANote[], same: (a: ANote, b: ANote) => boolean) =>
-    g.reduce<ANote[][]>((gs, n) => (gs.length && same(gs[gs.length - 1][gs[gs.length - 1].length - 1], n) ? gs[gs.length - 1].push(n) : gs.push([n]), gs), []);
-  const bar = (n: ANote) => Math.floor((n.b - start) / meter + 1e-6);
-  for (const phrase of split(out, (a, b) => b.b - (a.b + a.d) < 1 - 1e-6))
-    if (!place(phrase))
-      for (const g of split(phrase, (a, b) => bar(a) === bar(b)))
-        if (!place(g))
-          for (const n of g) {
-            while (n.p < lo) n.p += 12;
-            while (n.p > hi) n.p -= 12;
-          }
+  let g: ANote[] = [], min = Infinity, max = -Infinity;
+  for (const n of out) {
+    const last = g[g.length - 1];
+    const [kLo, kHi] = fits(Math.min(min, n.p), Math.max(max, n.p));
+    if (last && n.b - (last.b + last.d) < 1 - 1e-6 && kLo <= kHi) [min, max] = [Math.min(min, n.p), Math.max(max, n.p)];
+    else {
+      if (g.length) move(g, min, max);
+      [g, min, max] = [[], n.p, n.p];
+    }
+    g.push(n);
+  }
+  move(g, min, max);
   return out;
 }
 
@@ -416,7 +447,7 @@ export function arrange(o: {
   let rh: ANote[];
   let lh: ANote[];
   if (o.melody) {
-    rh = fold(melodyLine(o.melody, beats, GRID[level]), level === 7 ? 64 : 60, level <= 2 ? 79 : level >= 6 ? 88 : 84, meter, start);
+    rh = fold(melodyLine(o.melody, beats, GRID[level]), level === 7 ? 64 : 60, level === 1 ? 84 : level >= 6 ? 100 : 96);
     if (level === 4 || level >= 6) rh = harmonize(rh, segs, meter, start, level);
     lh = level === 5 ? transcribedLeft(o.piano ?? [], o.bass ?? [], segs, beats)
       : o.style === "pop" ? pop(segs, level, "lh", meter, start, popEnergy(o.melody, beats, meter, start))

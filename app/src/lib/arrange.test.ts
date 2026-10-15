@@ -32,6 +32,17 @@ assert.deepEqual(q2.map((n) => [n.b, n.d, n.p]), [[0, 2, 64], [2, 0.5, 67], [2.5
 // la misma nota cantada dos veces son dos notas, no una larga
 const twice = melodyLine([[1, 1.5, 60, 0.8], [1.5, 2, 60, 0.8]], beats, 0.5);
 assert.equal(twice.length, 2);
+// se simplifica el ritmo, no las notas: (pulsos a 0,5 s desde 1 s)
+const at = (b: number, d: number, p: number): Note => [1 + b / 2, 1 + (b + d) / 2, p, 0.8];
+// una voz interior larga (Sol4 redonda) no tapa la melodía picada de arriba
+const inner = melodyLine([at(0, 4, 67), ...[72, 74, 76, 77].map((p, i) => at(i, 0.5, p))], beats, 1);
+assert.deepEqual(inner.map((n) => n.p), [72, 74, 76, 77], "la voz de arriba");
+// en negras, la cumbre a contratiempo (Sol5 entre Do y Mi) se queda: la que sobra es la de paso
+const peakOff = melodyLine([at(0, 0.5, 72), at(0.5, 0.5, 79), at(1, 0.5, 76), at(1.5, 0.5, 74), at(2, 2, 72)], beats, 1);
+assert.deepEqual(peakOff.map((n) => n.p), [72, 79, 72], "Do, la cumbre, Do");
+// síncopa: la nota que cae entre dos pulsos ocupados pasa a la casilla libre de antes, no se pierde
+const sync = melodyLine([at(0, 1, 72), at(1.5, 0.5, 74), at(2, 2, 76)], beats, 1);
+assert.deepEqual(sync.map((n) => [n.b, n.p]), [[0, 72], [1, 74], [2, 76]]);
 
 // acompañamiento: Do – Sol por compás (4/4)
 const ch = (t: number, end: number, root: number, kind = ""): Chord => ({ t, end, root, kind, bass: root });
@@ -39,7 +50,7 @@ const chords = [ch(1, 3, 0), ch(3, 5, 7), ch(5, 7, 9, "m"), ch(7, 9, 5)];
 const base = { chords, beats, downbeats: [1], meter: 4, key: { tonic: 0, minor: false } };
 const l1 = arrange({ ...base, melody: sung, level: 1 });
 assert.deepEqual(l1.lh.map((n) => [n.b, n.d, n.p % 12]), [[0, 4, 0], [4, 4, 7], [8, 4, 9], [12, 4, 5]], "nivel 1: la fundamental, un compás cada una");
-assert.ok(l1.rh.every((n) => n.p >= 60 && n.p <= 79), "derecha en su rango");
+assert.ok(l1.rh.every((n) => n.p >= 60 && n.p <= 84), "derecha en su rango");
 const l3 = arrange({ ...base, melody: sung, level: 3 });
 const triads = [0, 4, 8, 12].map((b) => l3.lh.filter((n) => n.b === b).map((n) => n.p).sort((x, y) => x - y));
 assert.deepEqual(triads[0].map((p) => p % 12).sort(), [0, 4, 7]);
