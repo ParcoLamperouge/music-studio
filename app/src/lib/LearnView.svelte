@@ -827,7 +827,7 @@
           </div>
           {#if o.level !== 5}
             <span class="lbl">Estilo del arreglo</span>
-            <Tabs size="sm" label="Estilo" bind:value={o.style} options={[{ value: "clasico", label: "Clásico", title: "Arpegios y bajo-acorde" }, { value: "pop", label: "Pop", title: "El ritmo y las octavas del pop" }]} />
+            <Tabs size="sm" label="Estilo" bind:value={o.style} options={[{ value: "clasico", label: "Clásico", title: "Bajo-acorde; en los más difíciles, la textura del original (acordes o arpegios)" }, { value: "pop", label: "Pop", title: "El ritmo y las octavas del pop" }]} />
           {/if}
         {/if}
 

@@ -11,7 +11,8 @@ export type Level = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export const LEVELS: [Level, string][] = [
   [1, "Principiante"], [2, "Fácil"], [3, "Intermedio"], [4, "Avanzado"],
   [5, "Original: tal cual, sin arreglar (puede ser más fácil o más difícil que los arreglos)"],
-  [6, "Experto: melodía armonizada en cada pulso y arpegios en semicorcheas"], [7, "Virtuoso: acordes y octavas en la melodía, arpegios en semicorcheas"],
+  [6, "Experto: melodía armonizada en cada pulso y acordes al ritmo del original (arpegios si el original arpegia)"],
+  [7, "Virtuoso: acordes y octavas en la melodía, la izquierda en semicorcheas como el original"],
 ];
 /** Los arreglos en orden de dificultad, y cómo se llaman (el 6 y el 7 se ven como 5 y 6). */
 export const ARRANGED: Level[] = [1, 2, 3, 4, 6, 7];
@@ -284,9 +285,10 @@ function harmonize(mel: ANote[], segs: Seg[], meter: number, start: number, leve
   return [...mel, ...extra];
 }
 
-/** Niveles 6 y 7: el acorde arpegiado en semicorcheas. Izquierda: abierto desde el bajo (fundamental, quinta, octava,
- * décima; en el 7 hasta la doceava y con la octava grave en cada cambio). Derecha (sin melodía): la tríada y su octava. */
-function arpeggios(segs: Seg[], level: Level, hand: Hand): ANote[] {
+/** Niveles 6 y 7 si el piano original arpegia: el acorde arpegiado en semicorcheas. Izquierda: abierto desde el bajo
+ * (fundamental, quinta, octava, décima; en el 7 hasta la doceava y con la octava grave en cada cambio). Derecha (sin
+ * melodía): la tríada y su octava. Solo sube (y vuelve a empezar), salvo que el original también baje (`down`). */
+function arpeggios(segs: Seg[], level: Level, hand: Hand, down = true): ANote[] {
   const out: ANote[] = [];
   const step = 0.25;
   let prev: number[] | null = null;
@@ -301,11 +303,50 @@ function arpeggios(segs: Seg[], level: Level, hand: Hand): ANote[] {
       const vo: number[] = (prev = voicing(c, 60, prev));
       tones = [...vo, vo[0] + 12, ...(level === 7 ? [vo[1] + 12] : [])];
     }
-    const path = [...tones, ...tones.slice(1, -1).reverse()]; // sube y baja
+    const path = down ? [...tones, ...tones.slice(1, -1).reverse()] : tones; // sube y baja, o solo sube
     let i = 0;
     for (let x = b; x < e - 1e-6; x += step) out.push({ b: x, d: Math.min(step, e - x) * 0.95, p: path[i++ % path.length], v: 0.55 });
   }
   return out;
+}
+
+/** Niveles 6 y 7 si el piano original toca acordes (o no hay piano): acordes en bloque al ritmo con el que ataca el
+ * piano (`on`, en pulsos), cuadrado a corcheas (6) o semicorcheas (7); donde no ataca, en corcheas. Izquierda: el bajo
+ * en el primer golpe (en el 7, en octava si cambia) y el acorde cerrado en todos; sin `chords`, solo el bajo en cada
+ * golpe. Derecha (sin melodía): la tríada (en el 7, con la octava de arriba). */
+function blocks(segs: Seg[], level: Level, hand: Hand, on: number[], chords = true): ANote[] {
+  const out: ANote[] = [];
+  const g = level === 7 ? 0.25 : 0.5;
+  let prev: number[] | null = null, last = -1;
+  for (const { b, e, c } of segs) {
+    const mine = on.filter((x) => x >= b - g / 2 && x < e - g / 2).map((x) => Math.round(x / g) * g);
+    const xs = [...new Set([b, ...(mine.length ? mine : Array.from({ length: Math.round((e - b) / 0.5) }, (_, i) => b + i * 0.5))])].sort((x, y) => x - y);
+    const root = inRange(c.bass ?? c.root, 36), change = root !== last; // Do2…Si2
+    last = root;
+    const vo: number[] = (prev = voicing(c, hand === "rh" ? 60 : 48, prev));
+    xs.forEach((x, i) => {
+      const bass = i === 0 ? (level === 7 && change ? [root - 12, root] : [root]) : chords ? [] : [root];
+      const ps = hand === "rh" ? (level === 7 ? [...vo, vo[0] + 12] : vo) : [...bass, ...(chords ? vo : [])];
+      for (const p of ps) out.push({ b: x, d: ((xs[i + 1] ?? e) - x) * 0.9, p, v: p < 48 ? 0.65 : 0.5 });
+    });
+  }
+  return out;
+}
+
+/** Cómo toca el piano original, si es de verdad (`realPiano`); null si no. `arp`: casi todos los ataques son notas
+ * sueltas una tras otra (arpegio; `down`, también bajando por grados del acorde); si no, acordes, que atacan en `on`
+ * (pulsos con dos notas o más en 40 ms). */
+function texture(piano: Note[], segs: Seg[], beats: number[]) {
+  if (!realPiano(piano, segs, beats)) return null;
+  const groups: Note[][] = [];
+  for (const n of piano.filter(([s, e]) => e - s >= 0.06).sort((x, y) => x[0] - y[0])) {
+    const g = groups[groups.length - 1];
+    if (g && n[0] - g[0][0] <= 0.04) g.push(n);
+    else groups.push([n]);
+  }
+  const single = groups.filter((g) => g.length === 1).map((g) => g[0][2]);
+  const downs = single.filter((p, i) => i && single[i - 1] - p > 0 && single[i - 1] - p <= 7).length; // la vuelta a la raíz de un arpegio que solo sube salta más
+  return { arp: single.length > 0.6 * groups.length, down: downs > 0.25 * single.length, on: groups.filter((g) => g.length > 1).map((g) => toBeat(beats, g[0][0])) };
 }
 
 /** Estilo pop, medido en las versiones de Pianella Piano (7 canciones transcritas con basic-pitch): la izquierda casi
@@ -436,7 +477,7 @@ export function arrange(o: {
   key: Key;
   level: Level;
   transpose?: number;
-  style?: "clasico" | "pop"; // cómo acompaña: arpegios y bajo-acorde clásicos, o el ritmo y las octavas del pop
+  style?: "clasico" | "pop"; // cómo acompaña: bajo-acorde clásico (en el 6 y el 7, con la textura del original), o el ritmo y las octavas del pop
 }): Arrangement {
   const { beats, level } = o;
   const meter = o.meter && o.meter >= 2 && o.meter <= 7 ? o.meter : 4;
@@ -446,12 +487,15 @@ export function arrange(o: {
   const segs = segments(o.chords, beats, meter, start, level <= 2 ? 1 : 0.5);
   let rh: ANote[];
   let lh: ANote[];
+  // 6 y 7 clásicos: con la textura del piano original; arpegios solo si el original arpegia
+  const tex = level >= 6 && o.style !== "pop" ? texture(o.piano ?? [], segs, beats) : null;
+  const classic = (hand: Hand) => (tex?.arp ? arpeggios(segs, level, hand, tex.down) : blocks(segs, level, hand, tex?.on ?? []));
   if (o.melody) {
     rh = fold(melodyLine(o.melody, beats, GRID[level]), level === 7 ? 64 : 60, level === 1 ? 84 : level >= 6 ? 100 : 96);
     if (level === 4 || level >= 6) rh = harmonize(rh, segs, meter, start, level);
     lh = level === 5 ? transcribedLeft(o.piano ?? [], o.bass ?? [], segs, beats)
       : o.style === "pop" ? pop(segs, level, "lh", meter, start, popEnergy(o.melody, beats, meter, start))
-      : level >= 6 ? arpeggios(segs, level, "lh") : accompaniment(segs, level, "lh");
+      : level >= 6 ? classic("lh") : accompaniment(segs, level, "lh");
   } else {
     // solo acompañamiento: la derecha, los acordes; la izquierda, el bajo, cada vez más cerca del de la canción
     if (o.style === "pop" && level !== 5) {
@@ -460,8 +504,8 @@ export function arrange(o: {
       const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));
       return { rh: shift(rh), lh: shift(lh), key: { tonic: (o.key.tonic + t + 12) % 12, minor: o.key.minor }, transpose: t, meter, start };
     }
-    rh = level >= 6 ? arpeggios(segs, level, "rh") : accompaniment(segs, level, "rh");
-    lh = level >= 6 ? arpeggios(segs, 6, "lh").filter((n) => n.p < 52) : level <= 2 ? accompaniment(segs, 1, "lh") : level === 3 ? accompaniment(segs, 2, "lh") : level === 4 ? bassOnBeats(segs) : (realBass(o.bass ?? [], beats) ?? bassOnBeats(segs));
+    rh = level >= 6 ? classic("rh") : accompaniment(segs, level, "rh");
+    lh = level >= 6 ? (tex?.arp ? arpeggios(segs, 6, "lh", tex.down).filter((n) => n.p < 52) : blocks(segs, level, "lh", tex?.on ?? [], false)) : level <= 2 ? accompaniment(segs, 1, "lh") : level === 3 ? accompaniment(segs, 2, "lh") : level === 4 ? bassOnBeats(segs) : (realBass(o.bass ?? [], beats) ?? bassOnBeats(segs));
   }
   const t = o.transpose ?? 0;
   const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));
@@ -472,13 +516,19 @@ export function arrange(o: {
  * menos el 40 % de la canción: muchas pistas «piano» son restos que el separador dejó ahí); si no, la línea real del bajo
  * (una voz, en registro de izquierda) con los acordes en los pulsos; sin bajo, el acompañamiento del nivel 4. */
 function transcribedLeft(piano: Note[], bass: Note[], segs: Seg[], beats: number[]): ANote[] {
-  const low = piano.filter(([s, e, p]) => p < 60 && e - s >= 0.06).map(([s, e, p, v]) => ({ b: toBeat(beats, s), d: toBeat(beats, e) - toBeat(beats, s), p, v }));
-  const span = segs.reduce((n, x) => n + x.e - x.b, 0);
-  if (span && covered(low) / span >= 0.4) return low;
+  const low = realPiano(piano, segs, beats);
+  if (low) return low;
   const line = realBass(bass, beats);
   if (!line) return accompaniment(segs, 4, "lh");
   // los acordes del nivel 4 sin su bajo (lo pone la línea real)
   return [...line, ...accompaniment(segs, 4, "lh").filter((n) => !segs.some((x) => Math.abs(x.b - n.b) < 1e-6 && n.p < 48))];
+}
+
+/** Lo que toca el piano por debajo del Do central, si es piano de verdad (suena en al menos el 40 % de la canción); null si no. */
+function realPiano(piano: Note[], segs: Seg[], beats: number[]): ANote[] | null {
+  const low = piano.filter(([s, e, p]) => p < 60 && e - s >= 0.06).map(([s, e, p, v]) => ({ b: toBeat(beats, s), d: toBeat(beats, e) - toBeat(beats, s), p, v }));
+  const span = segs.reduce((n, x) => n + x.e - x.b, 0);
+  return span && covered(low) / span >= 0.4 ? low : null;
 }
 
 /** La línea real del bajo (una voz, la nota grave si se pisan) en registro de mano izquierda; null si no hay. */

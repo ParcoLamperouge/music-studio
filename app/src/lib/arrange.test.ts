@@ -233,7 +233,21 @@ console.log("espectador ok");
     const tops = [...new Set(lh.map((n) => n.b))].sort((x, y) => x - y).map((b) => Math.max(...lh.filter((n) => n.b === b).map((n) => n.p)));
     return tops.some((_, i) => tops[i] < tops[i + 1] && tops[i + 1] < tops[i + 2] && tops[i + 3] === tops[i + 1] && tops[i + 4] < tops[i + 3]);
   };
-  assert.ok(upDown(lhOf(6, "clasico")), "el clásico sí arpegia arriba y abajo (la comprobación funciona)");
+  // clásico 6 y 7: la textura del piano original. Arpegio que sube y baja (semicorcheas, 32 s), arpegio que solo sube, acordes en cada pulso
+  const arpOf = (ps: number[]) => Array.from({ length: 256 }, (_, i): Note => [i * 0.125, i * 0.125 + 0.12, ps[i % ps.length], 0.6]);
+  const block: Note[] = Array.from({ length: 64 }, (_, i) => [36, 48, 52, 55].map((p): Note => [i * 0.5, i * 0.5 + 0.45, p, 0.6])).flat();
+  const clas = (level: Level, piano: Note[], melody: Note[] | null = mel) => arrange({ ...song, melody, level, style: "clasico", piano });
+  assert.ok(upDown(clas(6, arpOf([36, 43, 48, 52, 48, 43])).lh), "el clásico sí arpegia arriba y abajo si el original lo hace (la comprobación funciona)");
+  const up = clas(6, arpOf([36, 43, 48, 52])).lh;
+  assert.ok(!upDown(up) && up.every((n) => !up.some((m) => m !== n && m.b === n.b)), "arpegio que solo sube: notas sueltas, sin bajar");
+  for (const l of [6, 7] as const) for (const melody of [mel, null]) {
+    const a = clas(l, block, melody), hand = melody ? a.lh : a.rh;
+    const at = new Map<number, number>();
+    for (const n of hand) at.set(n.b, (at.get(n.b) ?? 0) + 1);
+    assert.ok([...at.values()].every((k) => k >= 3), `acordes ${l}${melody ? "" : " sin melodía"}: en bloque, no arpegio`);
+    assert.ok([...at.keys()].every((b) => b % 1 === 0), `acordes ${l}: al ritmo del original (en los pulsos)`);
+  }
+  assert.ok(!upDown(lhOf(6, "clasico")), "sin piano, tampoco arpegia");
   for (const l of [2, 3, 4, 6, 7] as const) {
     const lh = lhOf(l);
     assert.ok(!upDown(lh), `pop ${l}: sin arpegios de ida y vuelta`);
