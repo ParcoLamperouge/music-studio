@@ -764,6 +764,9 @@
   <div class="ctl">
     {#if !exercise}
       <Tabs size="sm" label="Nivel" options={levelOpts} bind:value={() => String(o.level), (v) => (o.level = +v as Level)} />
+      {#if o.level !== 5}
+        <Tabs size="sm" label="Estilo del arreglo" bind:value={o.style} options={[{ value: "clasico", label: "Clásico", title: "Bajo-acorde; en los más difíciles, la textura del original (acordes o arpegios)" }, { value: "pop", label: "Pop", title: "Al estilo Pianella Piano / Jova Musique: el ritmo y las octavas del pop" }]} />
+      {/if}
       <Tabs size="sm" label="Manos" bind:value={o.hands} options={[{ value: "lh", label: "Izq.", title: "Tocas la izquierda; la guía, la derecha" }, { value: "both", label: "Ambas" }, { value: "rh", label: "Der.", title: "Tocas la derecha; la guía, la izquierda" }]} />
     {/if}
     <IconButton icon="eye" size="sm" label={o.watch ? "Espectador: ver y escuchar, sin contar nada. Pulsa para practicar" : "Espectador: ver y escuchar, sin contar nada"} active={o.watch} onclick={toggleWatch} />
@@ -825,10 +828,6 @@
               <Stepper bind:value={() => o.transpose as number, (v) => (o.transpose = v)} min={-6} max={6} label="Semitonos" format={fmtSemis} />
             {/if}
           </div>
-          {#if o.level !== 5}
-            <span class="lbl">Estilo del arreglo</span>
-            <Tabs size="sm" label="Estilo" bind:value={o.style} options={[{ value: "clasico", label: "Clásico", title: "Bajo-acorde; en los más difíciles, la textura del original (acordes o arpegios)" }, { value: "pop", label: "Pop", title: "El ritmo y las octavas del pop" }]} />
-          {/if}
         {/if}
 
         <span class="lbl">Volumen</span>
