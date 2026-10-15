@@ -7,6 +7,7 @@
   import { chordName, keyName, noteName, type Chord, type Key } from "./harmony";
   import { connect, input, pcKey, pcRelease, send, useInput } from "./keys.svelte";
   import { Live } from "./live";
+  import { voice } from "./player";
   import { drawBarLabel, drawKeys, keyLayout, keysHeight } from "./Roll.svelte";
   import { settings } from "./settings.svelte";
   import Button from "./ui/Button.svelte";
@@ -57,7 +58,29 @@
     if (force || now - keyAt > 0.3) ((key = live.key(now)), (keyAt = now));
   }
 
+  // Sin piano MIDI conectado (que suena solo), las notas suenan con las muestras del piano de la app
+  let ctx: AudioContext | null = null;
+  const ringing = new Map<number, () => void>(), held = new Set<number>();
+  let pedalDown = false;
+  function monitor([st, p, v]: number[]) {
+    if (input.connected) return;
+    const type = st & 0xf0;
+    if (type === 0xb0 && p === 64) {
+      pedalDown = v >= 64;
+      if (!pedalDown) for (const q of [...ringing.keys()]) if (!held.has(q)) (ringing.get(q)!(), ringing.delete(q));
+    } else if (type === 0x90 && v > 0) {
+      ctx ??= new AudioContext();
+      ringing.get(p)?.();
+      ringing.set(p, voice(ctx, p, v / 127));
+      held.add(p);
+    } else if (type === 0x80 || type === 0x90) {
+      held.delete(p);
+      if (!pedalDown) (ringing.get(p)?.(), ringing.delete(p));
+    }
+  }
+
   function feed(msg: number[]) {
+    monitor(msg);
     if (!live.midi(msg, performance.now() / 1000)) return;
     started ??= live.t0 >= 0 ? new Date() : null;
     dirty = started != null;
@@ -117,6 +140,7 @@
       clearInterval(keyTick);
       stop();
       void save();
+      void ctx?.close();
     };
   });
 
