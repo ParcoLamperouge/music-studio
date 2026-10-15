@@ -25,6 +25,7 @@ nada de degradados en botones, nada de emoji (iconos de `Icon`).
 | `Card` | `pad` none/sm/md · `selected` |
 | `Search` | `bind:value` `bind:ref` `kbd` `size` sm/md/lg + atributos de input |
 | `Field` | `label` `bind:value` `bind:ref` + atributos de input |
+| `Textarea` | `label` `bind:value` + atributos de textarea |
 | `Slider` | `bind:value` `min` `max` `step` `label` `color` |
 | `Toggle` | `bind:checked` `disabled` `title`, texto como hijo |
 | `Popover` | `bind:open` `side` bottom/top/right · `align` · `width` · snippet `trigger({open,toggle})` |
@@ -37,11 +38,17 @@ nada de degradados en botones, nada de emoji (iconos de `Icon`).
 | `ChordChip` | `chord {root,kind}` `tonality` `name` · `showDegree` `active` `size` `onclick` |
 | `StemBadge` | `stem` · `muted` · `dot` |
 | `WaveThumb` | `peaks` (0–1) · `bars` `color` `progress` `height` |
-| `MasterStrip` | `duration` `time` `onseek` · `sections` `chords` (+`tonality`) `energy` · `compact` |
+| `MasterStrip` | `duration` `time` `onseek` · `sections` `chords` (+`tonality`) `energy` · `compact`/`big` · `loop` + `onloop` (Mayús+arrastrar) |
+| `PlayButton` | `playing` `disabled` `size` `onclick`: el redondo de cada transporte |
+| `MuteSolo` | `bind:muted` `bind:solo` `label`: M/S de una pista |
 | `Heatmap` | `days` (AAAA-MM-DD, `progress.days`) · `weeks` |
+| `FifthsWheel` | círculo de quintas: `tonality` (o null) · `chords [{root,kind,w?}]` (peso 0–1) · `current` · `size` `latin`. Color por función, tónica con aro |
+| `Stepper` | `bind:value` `min` `max` `step` `label` `format` `onchange`: número con −/+ (rueda y flechas): tempo, latencia, semitonos |
+| `Answer` | `state` idle/right/wrong/dim · `kbd` · `onclick`, hijo = la respuesta: botón grande de prueba (oído) |
 
 ## Datos (`ui/music.ts`, `peaks.svelte.ts`, `deck.svelte.ts`)
 - `chordFn(chord, key)` → `{fn,label,color,minor,borrowed}` (sobre `harmony.degree`); `chordColor`; `FN_LABEL`.
+- `barsOf(chords, beatData, duration)` → compases `{t,end,chords,repeat}` (rejilla de acordes).
 - `stemColor(stem)` → `var(--stem-…)`; `cssVar("--fn-tonic")` para canvas; `TIMING` (color + símbolo + texto).
 - `sectionsFromLyrics(lines, duration, offset)` → secciones (Intro/Estrofa/Estribillo/Inst./Final) desde la letra.
 - `wantPeaks(key, hasAudio)` + `waves[key]`: onda RMS cacheada en `data/peaks/`, calculada en segundo plano.

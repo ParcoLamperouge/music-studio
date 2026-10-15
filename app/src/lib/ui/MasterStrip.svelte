@@ -4,8 +4,9 @@
   import { chordFn, type Section } from "./music";
 
   // La canción entera en una tira: secciones, acordes (color por función) y energía, con el cursor de reproducción.
-  // Pulsar o arrastrar en cualquier sitio salta ahí; flechas ←/→ mueven 5 s. `compact`: la del mini-reproductor.
-  let { duration, time, sections = [], chords = [], tonality, energy, compact = false, onseek }: {
+  // Pulsar o arrastrar en cualquier sitio salta ahí; flechas ←/→ mueven 5 s. `compact`: la del mini-reproductor; `big`: la
+  // de la página de la canción. Con `onloop`, Mayús+arrastrar marca un bucle (`loop`, franja de acento).
+  let { duration, time, sections = [], chords = [], tonality, energy, compact = false, big = false, loop = null, onloop, onseek }: {
     duration: number;
     time: number;
     sections?: Section[];
@@ -13,6 +14,9 @@
     tonality?: Key | null;
     energy?: number[] | null;
     compact?: boolean;
+    big?: boolean;
+    loop?: { a: number; b: number } | null;
+    onloop?: (loop: { a: number; b: number } | null) => void;
     onseek: (t: number) => void;
   } = $props();
 
@@ -33,14 +37,27 @@
     return `M0 1${energy.map((v, i) => `L${(i + 0.5) / n} ${1 - v * 0.95}`).join("")}L1 1Z`;
   });
 
+  let anchor: number | null = null; // Mayús+arrastrar: dónde empezó el bucle
   function down(e: PointerEvent) {
     if (!duration) return;
     el.setPointerCapture(e.pointerId);
+    if (onloop && e.shiftKey) {
+      anchor = at(e);
+      return onloop({ a: anchor, b: anchor });
+    }
     onseek(at(e));
   }
   function move(e: PointerEvent) {
     hover = at(e);
-    if (el.hasPointerCapture(e.pointerId)) onseek(hover);
+    if (!el.hasPointerCapture(e.pointerId)) return;
+    if (anchor != null) onloop?.({ a: Math.min(anchor, hover), b: Math.max(anchor, hover) });
+    else onseek(hover);
+  }
+  function up() {
+    if (anchor == null) return;
+    anchor = null;
+    if (loop && loop.b - loop.a < 0.5) onloop?.(null);
+    else if (loop) onseek(loop.a);
   }
   function key(e: KeyboardEvent) {
     const d = e.key === "ArrowRight" ? 5 : e.key === "ArrowLeft" ? -5 : e.key === "Home" ? -Infinity : 0;
@@ -54,6 +71,7 @@
 <div
   class="strip"
   class:compact
+  class:big
   bind:this={el}
   bind:clientWidth={width}
   role="slider"
@@ -65,6 +83,7 @@
   aria-valuetext={fmtClock(time)}
   onpointerdown={down}
   onpointermove={move}
+  onpointerup={up}
   onpointerleave={() => (hover = null)}
   onkeydown={key}
 >
@@ -103,6 +122,7 @@
       <path d={area} class="e-played" clip-path="url(#played-{uid})" />
     </svg>
   {/if}
+  {#if loop}<i class="loop" style:left={pct(loop.a)} style:width={span(loop.a, loop.b)}></i>{/if}
   {#if hover != null}
     <i class="hov" style:left={pct(hover)}><span class="num">{fmtClock(hover)}</span></i>
   {/if}
@@ -121,6 +141,15 @@
   .compact .secs { height: 4px; }
   .compact .chords { height: 6px; }
   .compact .energy { height: 14px; }
+  .big .secs { height: 20px; }
+  .big .chords { height: 28px; }
+  .big .energy { height: 56px; }
+  .big .sec em { font-size: var(--fs-xs); }
+  .big .ch b { font-size: var(--fs-sm); padding: 0 6px; }
+  .loop {
+    position: absolute; top: -2px; bottom: -2px; pointer-events: none; border-radius: var(--r-sm);
+    background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent), inset -2px 0 0 var(--accent);
+  }
 
   .sec, .ch { position: absolute; top: 0; bottom: 0; overflow: hidden; border-radius: 2px; }
   .sec { background: var(--line); box-shadow: inset -1px 0 0 var(--bg); display: flex; align-items: center; }

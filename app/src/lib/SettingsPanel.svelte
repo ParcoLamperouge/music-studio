@@ -1,7 +1,15 @@
 <script lang="ts">
-  import { enqueue, paths, prefetchNow, readBytes, run, settingsPath, writeBytes, writeJson } from "./engine";
+  import { enqueue, gpuName, paths, prefetchNow, readBytes, run, settingsPath, writeBytes, writeJson } from "./engine";
   import { settings } from "./settings.svelte";
   import { refresh, store } from "./store.svelte";
+  import Button from "./ui/Button.svelte";
+  import Dialog from "./ui/Dialog.svelte";
+  import Field from "./ui/Field.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import Slider from "./ui/Slider.svelte";
+  import Tabs from "./ui/Tabs.svelte";
+  import Textarea from "./ui/Textarea.svelte";
+  import Toggle from "./ui/Toggle.svelte";
 
   let { open = $bindable(), onopen }: { open: boolean; onopen: (key: string) => void } = $props();
 
@@ -9,6 +17,7 @@
   let playlists = $state("");
   let saved = $state("");
   let msg = $state("");
+  let gpu = $state("");
 
   $effect(() => {
     if (!open) return;
@@ -16,6 +25,7 @@
       (b) => (playlists = saved = new TextDecoder().decode(b)),
       () => (playlists = saved = ""),
     );
+    gpuName().then((g) => (gpu = g), () => (gpu = ""));
   });
 
   async function save() {
@@ -28,7 +38,7 @@
     msg = "";
     try {
       await prefetchNow();
-      msg = "Prefetch en marcha (en segundo plano; la cola de aquí espera a la GPU si hace falta)";
+      msg = "Prefetch en marcha, en segundo plano";
     } catch (e) {
       msg = `No arranca el timer: ${e}`;
     }
@@ -63,94 +73,101 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && open && (open = false)} />
-
-{#if open}
-  <button class="scrim" onclick={() => (open = false)} aria-label="Cerrar ajustes"></button>
-  <aside class="drawer panel">
-    <header>
-      <div><span class="kicker">Estudio</span><h2>Ajustes</h2></div>
-      <button class="icon-btn" onclick={() => (open = false)} aria-label="Cerrar (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
-    </header>
-
+<Dialog bind:open title="Ajustes" width={600}>
+  <div class="sets">
     <section>
-      <h3>Spotify</h3>
-      <label class="row">
-        <input type="checkbox" bind:checked={settings.spotify} />
-        <span>Lo que suena se busca y, si su letra no trae tiempos, se sincroniza solo (primero en la cola). El escritorio la enseña al momento.</span>
-      </label>
+      <h3>Reproducción</h3>
+      <div class="row">
+        <span class="lbl">Volumen general</span>
+        <div class="ctl"><Slider bind:value={settings.masterVolume} label="Volumen general" /></div>
+      </div>
+      <div class="row">
+        <span class="lbl">Velocidad del piano roll<small>ventana en segundos</small></span>
+        <div class="ctl"><Slider bind:value={settings.rollSpeed} min={1} max={6} step={0.5} label="Ventana del piano roll" /></div>
+      </div>
+      <Toggle bind:checked={settings.scoreFollow}>La partitura sigue la música</Toggle>
+      <Toggle bind:checked={settings.showMini}>Mezclador pequeño en la canción</Toggle>
     </section>
 
     <section>
-      <h3>Notas por defecto</h3>
-      <div class="seg">
-        <button class:on={settings.notes === "fast"} onclick={() => (settings.notes = "fast")}>Rápidas · basic-pitch</button>
-        <button class:on={settings.notes === "precise"} onclick={() => (settings.notes = "precise")}>Precisas · MuScriptor</button>
+      <h3>Aprender</h3>
+      <div class="row">
+        <span class="lbl">Latencia teclado a oído<small>ms que se restan al juzgar el tiempo</small></span>
+        <div class="ctl narrow">
+          <Field label="ms" type="number" min="0" max="300" step="5" value={String(settings.latencyMs)} oninput={(e) => (settings.latencyMs = Math.max(0, Math.round(+e.currentTarget.value || 0)))} />
+        </div>
       </div>
-      <p class="hint">
-        Rápidas: CPU, segundos por pista. Precisas: GPU, minutos por pista y mucho mejores (sobre todo guitarra y piano).
-        MuScriptor pide aceptar su licencia (no comercial) en
-        <a href="https://huggingface.co/MuScriptor/muscriptor-medium" target="_blank">Hugging Face</a> y, una vez, en una terminal:
-        <code>~/Projects/estudio/engine/.venv/bin/hf auth login</code>
-      </p>
+    </section>
+
+    <section>
+      <h3>Análisis</h3>
+      <Toggle bind:checked={settings.spotify}>Sincronizar la letra de lo que suena en Spotify</Toggle>
+      <div class="row">
+        <span class="lbl">Notas por defecto</span>
+        <Tabs size="sm" label="Notas por defecto" bind:value={settings.notes} options={[{ value: "fast", label: "Rápidas", title: "basic-pitch · CPU, segundos por pista" }, { value: "precise", label: "Precisas", title: "MuScriptor · GPU, minutos por pista, mucho mejor en guitarra y piano" }]} />
+      </div>
+      {#if settings.notes === "precise"}
+        <p class="note">
+          MuScriptor pide aceptar su licencia (no comercial) en
+          <a href="https://huggingface.co/MuScriptor/muscriptor-medium" target="_blank" rel="noreferrer">Hugging Face</a> y, una vez:
+          <code>~/Projects/estudio/engine/.venv/bin/hf auth login</code>
+        </p>
+      {/if}
+      {#if gpu}<p class="note gpu"><Icon name="gpu" size={14} /> {gpu}</p>{/if}
     </section>
 
     <section>
       <h3>Servidor</h3>
-      <p class="hint">
-        Lo ya procesado (audio, pistas, Whisper, acordes, notas, letra y edits) se guarda allí, y en otro ordenador se baja
-        en vez de volver a sacarlo. Si las dos copias cambiaron, gana la más nueva. Se arranca con
-        <code>python3 server/server.py</code> desde el repo (variables PORT y ESTUDIO_TOKEN).
-      </p>
-      <input type="url" placeholder="http://127.0.0.1:8765" bind:value={settings.remote} spellcheck="false" />
-      <input type="password" placeholder="Token (si el servidor lo pide)" bind:value={settings.remoteToken} />
-      <div class="actions">
-        <button class="ghost" disabled={!settings.remote} onclick={test}>Probar</button>
-        <button class="primary" disabled={!settings.remote} onclick={syncAll}>Sincronizar todo</button>
-        {#if remoteMsg}<span class="muted">{remoteMsg}</span>{/if}
+      <Field label="Dirección" type="url" placeholder="http://127.0.0.1:8765" spellcheck="false" bind:value={settings.remote} />
+      <Field label="Token" type="password" placeholder="si el servidor lo pide" bind:value={settings.remoteToken} />
+      <div class="acts">
+        <Button size="sm" icon="link" disabled={!settings.remote} onclick={test}>Probar</Button>
+        <Button size="sm" icon="cloud" disabled={!settings.remote} onclick={syncAll}>Sincronizar todo</Button>
+        {#if remoteMsg}<span class="note">{remoteMsg}</span>{/if}
       </div>
+      <p class="note">Lo procesado se guarda allí y otro ordenador lo baja en vez de rehacerlo. <code>python3 server/server.py</code></p>
     </section>
 
     <section>
       <h3>Playlists de Spotify</h3>
-      <p class="hint">Una URL por línea (públicas). Cada 6 h se sincronizan sus canciones con IA en segundo plano; con un juego abierto espera.</p>
-      <textarea bind:value={playlists} rows="5" placeholder="https://open.spotify.com/playlist/…"></textarea>
-      <div class="actions">
-        <button class="ghost" disabled={playlists === saved} onclick={save}>Guardar</button>
-        <button class="primary" onclick={now}>Procesar ahora</button>
-        {#if msg}<span class="muted">{msg}</span>{/if}
+      <Textarea label="Una URL pública por línea" rows={4} placeholder="https://open.spotify.com/playlist/…" bind:value={playlists} />
+      <div class="acts">
+        <Button size="sm" disabled={playlists === saved} onclick={save}>Guardar</Button>
+        <Button size="sm" icon="retry" onclick={now}>Procesar ahora</Button>
+        {#if msg}<span class="note">{msg}</span>{/if}
       </div>
+      <p class="note">Cada 6 h se sincronizan con IA en segundo plano.</p>
     </section>
 
     {#if failed.length}
       <section>
         <h3>Fallaron en el prefetch · {failed.length}</h3>
         {#each failed as t (t.key)}
-          <div class="failed">
-            <button class="link" onclick={() => ((open = false), onopen(t.key))}>{t.title} <span class="muted">· {t.artist}</span></button>
-            <button class="ghost sm" onclick={() => retry([t.key])}>Reintentar</button>
+          <div class="row">
+            <Button variant="ghost" size="sm" onclick={() => ((open = false), onopen(t.key))}>{t.title} · {t.artist}</Button>
+            <Button size="sm" icon="retry" onclick={() => retry([t.key])}>Reintentar</Button>
           </div>
         {/each}
-        <button class="ghost" onclick={() => retry(failed.map((t) => t.key))}>Reintentar todas</button>
+        <Button size="sm" icon="retry" onclick={() => retry(failed.map((t) => t.key))}>Reintentar todas</Button>
       </section>
     {/if}
-  </aside>
-{/if}
+  </div>
+</Dialog>
 
 <style>
-  .panel { width: min(480px, 100vw); overflow-y: auto; padding: 0 18px 24px; }
-  header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 0 6px; }
-  h2 { margin-top: 2px; }
-  section { padding: 14px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-  section > .seg { align-self: flex-start; }
-  .row { display: flex; gap: 10px; align-items: flex-start; color: var(--text-2); font-size: 12.5px; }
-  .row input { margin-top: 3px; }
-  .hint a { color: var(--accent); }
-  code { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); word-break: break-all; }
-  input[type="url"], input[type="password"], textarea { width: 100%; font-size: 12px; }
-  textarea { resize: vertical; }
-  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .actions .muted { font-size: 12px; }
-  .failed { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-  .failed .link { text-decoration: none; color: var(--text); text-align: left; }
+  .sets { display: flex; flex-direction: column; }
+  section { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4) 0; border-top: 1px solid var(--line); align-items: flex-start; }
+  section:first-child { border-top: 0; padding-top: var(--s2); }
+  section > :global(.field) { align-self: stretch; }
+  h3 { color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); align-self: stretch; min-width: 0; }
+  .lbl { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--fs-md); }
+  .lbl small { color: var(--text-3); font-size: var(--fs-xs); }
+  .ctl { width: 220px; flex-shrink: 0; }
+  .ctl.narrow { width: 100px; }
+  .acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+  .note { font-size: var(--fs-sm); color: var(--text-3); }
+  .note a { color: var(--text-2); }
+  .gpu { display: flex; align-items: center; gap: var(--s2); }
+  code { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-2); word-break: break-all; }
 </style>

@@ -2,197 +2,260 @@
   import { onMount, tick } from "svelte";
   import { LESSONS, practiceSteps, STAGES, stars, type Area, type Lesson, type Practice } from "./course";
   import EarQuiz from "./EarQuiz.svelte";
-  import EarView from "./EarView.svelte";
   import { EXERCISES } from "./exercises";
   import KeyDiagram from "./KeyDiagram.svelte";
   import { OBRAS } from "./obras";
   import { bestOf, courseDone, lessonDone, lessonStars, loadProgress, markOpened, nextLesson, progress, record, streak } from "./progress.svelte";
   import { midiOf, SONGS } from "./songs";
+  import Button from "./ui/Button.svelte";
+  import Chip from "./ui/Chip.svelte";
+  import Heatmap from "./ui/Heatmap.svelte";
+  import Icon, { type IconName } from "./ui/Icon.svelte";
+  import ProgressRing from "./ui/ProgressRing.svelte";
+  import Tabs from "./ui/Tabs.svelte";
 
-  /** El curso: la ruta de 0 a experto (o por temas), con teoría y práctica en cada lección. */
-  let { onback, onpractice }: { onback: () => void; onpractice: (lesson: string, step: number) => void } = $props();
+  /** El curso: un mapa de lecciones (la ruta por etapas, o por temas) con el progreso de cada una, la racha y el
+   * calendario; cada lección, su teoría y su práctica en una línea de pasos. */
+  let { onpractice }: { onback: () => void; onpractice: (lesson: string, step: number) => void } = $props();
 
   let view = $state<"ruta" | "temas">("ruta");
   let lesson = $state<Lesson | null>(null);
   let quizOpen = $state<number | null>(null);
-  let earOpen = $state(false); // el entrenador de oído en vez de la lección
   let main: HTMLElement;
 
   onMount(async () => {
     await loadProgress();
-    // vuelve de practicar a la lección de la que salió
+    // vuelve de practicar a la lección de la que salió, al paso que se estaba practicando
     const params = new URLSearchParams(location.search);
-    open(LESSONS.find((l) => l.id === params.get("leccion")) ?? nextLesson() ?? LESSONS[0]);
-    // y al paso que se estaba practicando, para seguir desde ahí
+    const l = LESSONS.find((x) => x.id === params.get("leccion"));
+    if (!l) return;
+    open(l);
     if (params.get("paso")) {
       await tick();
       document.getElementById(`paso-${params.get("paso")}`)?.scrollIntoView({ block: "center" });
     }
   });
 
-  function open(l: Lesson) {
+  function open(l: Lesson | null) {
     lesson = l;
     quizOpen = null;
-    earOpen = false;
-    void markOpened(l.id);
+    if (l) void markOpened(l.id);
     main?.scrollTo({ top: 0 });
   }
 
   const byId = (id: string) => LESSONS.find((l) => l.id === id)!;
-  const AREAS = $derived([...new Set(LESSONS.map((l) => l.area))] as Area[]);
+  const AREAS = [...new Set(LESSONS.map((l) => l.area))] as Area[];
+  const groups = $derived(
+    view === "ruta"
+      ? STAGES.map((s, i) => ({ label: `${i + 1} · ${s}`, list: LESSONS.filter((l) => l.stage === i + 1) }))
+      : AREAS.map((a) => ({ label: a, list: LESSONS.filter((l) => l.area === a) })),
+  );
   const next = $derived.by(() => (void progress.results, nextLesson()));
-  const pct = $derived.by(() => (void progress.results, Math.round(courseDone() * 100)));
+  const pct = $derived.by(() => (void progress.results, courseDone()));
   const days = $derived.by(() => (void progress.days, streak()));
+
+  /** Cuántas prácticas de la lección llegan a su objetivo (0-1). */
+  function passed(l: Lesson) {
+    void progress.results;
+    const ps = practiceSteps(l);
+    return ps.length ? ps.filter(([s, i]) => (bestOf(l.id, i) ?? 0) >= (s.goal ?? 0.85)).length / ps.length : lessonDone(l) ? 1 : 0;
+  }
 
   /** Texto con **negritas**, sin HTML. */
   const parts = (t: string) => t.split("**").map((s, i) => ({ s, b: i % 2 === 1 }));
 
-  function describe(p: Practice) {
-    if (p.kind === "ejercicio") return `Ejercicio · ${EXERCISES.find((e) => e.id === p.id)?.title ?? p.id}${p.key ? ` · ${p.key}` : ""}`;
-    if (p.kind === "cancion") return `Canción · ${SONGS.find((s) => s.id === p.id)?.title ?? p.id}`;
+  function describe(p: Practice): [IconName, string] {
+    if (p.kind === "ejercicio") return ["learn", `${EXERCISES.find((e) => e.id === p.id)?.title ?? p.id}${p.key ? ` · ${p.key}` : ""}`];
+    if (p.kind === "cancion") return ["notes", SONGS.find((s) => s.id === p.id)?.title ?? p.id];
     if (p.kind === "obra") {
       const o = OBRAS.find((x) => x.id === p.id);
-      return o ? `Obra · ${o.composer}: ${o.title}` : "Obra";
+      return ["score", o ? `${o.composer}: ${o.title}` : "Obra"];
     }
-    return "Prueba de oído";
+    return ["ear", "Prueba de oído"];
   }
-  const hands = (p: Practice) => ("hands" in p && p.hands ? { rh: "derecha", lh: "izquierda", both: "manos juntas" }[p.hands] : "");
+  const hands = (p: Practice) => ("hands" in p && p.hands ? { rh: "derecha", lh: "izquierda", both: "dos manos" }[p.hands] : "");
+  const ringColor = (best: number | undefined, goal: number) => (best == null ? "var(--line-hi)" : best >= goal ? "var(--ok)" : "var(--warn)");
 </script>
 
-<div class="course">
-  <aside>
-    <header class="side-head">
-      <button class="ghost sm" onclick={onback} title="Volver al menú">← Menú</button>
-      <strong>Curso</strong>
-      <button class="ghost sm" style:margin-left="auto" class:on={earOpen} onclick={() => (earOpen = true)} title="Entrenador de oído: intervalos, acordes, grados, progresiones, dictado y trozos de tus canciones">♪ Oído</button>
+{#snippet starRow(n: number, size = 12)}
+  <span class="stars" aria-label="{n} de 3 estrellas">{#each [0, 1, 2] as i (i)}<span class:on={i < n}><Icon name="star" {size} /></span>{/each}</span>
+{/snippet}
+
+<section class="course" bind:this={main}>
+  {#if !lesson}
+    <header class="hero">
+      <div class="big">
+        <ProgressRing value={pct} size={88} stroke={7} label="Curso hecho"><strong class="num">{Math.round(pct * 100)}<small>%</small></strong></ProgressRing>
+        <div class="who">
+          <h1>Curso</h1>
+          <span class="streak" title="Días seguidos practicando"><Icon name="flame" size={16} /> <b class="num">{days}</b> {days === 1 ? "día" : "días"} seguidos</span>
+          {#if next}<Button variant="primary" icon="play" onclick={() => open(next)} title="La siguiente recomendada">{next.title}</Button>{/if}
+        </div>
+      </div>
+      <div class="cal" title="Días con práctica"><Heatmap days={progress.days} weeks={20} /></div>
     </header>
-    <div class="stats">
-      <span title="Días seguidos practicando">🔥 {days} {days === 1 ? "día" : "días"}</span>
-      <span title="Lecciones hechas">{pct} %</span>
-      {#if next}<button class="primary sm" onclick={() => open(next)} title={next.title}>Continuar</button>{/if}
-    </div>
-    <div class="bar"><i style:width="{pct}%"></i></div>
-    <div class="seg wide">
-      <button class:on={view === "ruta"} onclick={() => (view = "ruta")}>Ruta</button>
-      <button class:on={view === "temas"} onclick={() => (view = "temas")}>Por temas</button>
-    </div>
-    <div class="list">
-      {#if view === "ruta"}
-        {#each STAGES as stage, si (stage)}
-          <span class="kicker group">{si + 1} · {stage}</span>
-          {#each LESSONS.filter((l) => l.stage === si + 1) as l (l.id)}
-            {@render item(l)}
-          {/each}
-        {/each}
-      {:else}
-        {#each AREAS as area (area)}
-          <span class="kicker group">{area}</span>
-          {#each LESSONS.filter((l) => l.area === area) as l (l.id)}
-            {@render item(l)}
-          {/each}
-        {/each}
-      {/if}
-    </div>
-  </aside>
 
-  {#snippet item(l: Lesson)}
-    {@const done = (void progress.results, lessonDone(l))}
-    <button class="item" class:on={lesson?.id === l.id} class:done onclick={() => open(l)}>
-      <span class="check">{done ? "✓" : next?.id === l.id ? "→" : ""}</span>
-      <span class="name">{l.title}</span>
-      <span class="st">{"★".repeat(lessonStars(l))}</span>
-    </button>
-  {/snippet}
+    <div class="order"><Tabs bind:value={view} variant="underline" options={[{ value: "ruta", label: "Ruta" }, { value: "temas", label: "Por temas" }]} label="Orden" /></div>
 
-  <main bind:this={main}>
-    {#if earOpen}
-      <EarView />
-    {:else if lesson}
-      <span class="kicker">Etapa {lesson.stage} · {STAGES[lesson.stage - 1]} · {lesson.area}</span>
-      <h1>{lesson.title}</h1>
-      <p class="summary">{lesson.summary}</p>
-      {#if lesson.requires?.length || lesson.related?.length}
-        <p class="links">
-          {#if lesson.requires?.length}
-            Conviene antes:
-            {#each lesson.requires as r (r)}<button class="chip" class:done={lessonDone(byId(r))} onclick={() => open(byId(r))}>{byId(r).title}</button>{/each}
-          {/if}
-          {#if lesson.related?.length}
-            Se complementa con:
-            {#each lesson.related as r (r)}<button class="chip" onclick={() => open(byId(r))}>{byId(r).title}</button>{/each}
-          {/if}
-        </p>
-      {/if}
-
-      {#each lesson.steps as step, i (i)}
-        {#if "t" in step}
-          <section class="card theory">
-            <p>{#each parts(step.t) as x, j (j)}{#if x.b}<strong>{x.s}</strong>{:else}{x.s}{/if}{/each}</p>
-            {#if step.keys?.length}<KeyDiagram keys={step.keys.map(midiOf)} together={step.together} />{/if}
-          </section>
-        {:else}
-          {@const best = (void progress.results, bestOf(lesson.id, i))}
-          {@const goal = step.goal ?? 0.85}
-          <section class="card practice" id="paso-{i}" class:passed={(best ?? 0) >= goal}>
-            <div class="ph">
-              <span class="badge">{step.p.kind === "oido" ? "Oído" : "Práctica"}</span>
-              <strong>{step.title}</strong>
-              <span class="stars" title={best != null ? `Mejor: ${Math.round(best * 100)} %` : "Sin hacer"}>{"★".repeat(stars(best))}{"☆".repeat(3 - stars(best))}</span>
-            </div>
-            <p class="muted desc">{describe(step.p)}{hands(step.p) ? ` · ${hands(step.p)}` : ""} · objetivo {Math.round(goal * 100)} %{best != null ? ` · tu mejor: ${Math.round(best * 100)} %` : ""}</p>
-            {#if step.p.kind === "oido"}
-              {#if quizOpen === i}
-                <EarQuiz quiz={step.p.quiz} onresult={(acc) => lesson && record(lesson.id, i, acc)} />
-              {:else}
-                <button class="primary" onclick={() => (quizOpen = i)}>Hacer la prueba</button>
-              {/if}
-            {:else}
-              <button class="primary" onclick={() => lesson && onpractice(lesson.id, i)}>Practicar</button>
-            {/if}
-          </section>
-        {/if}
+    <div class="map">
+      {#each groups as g (g.label)}
+        {@const done = g.list.filter((l) => passed(l) >= 1).length}
+        <section class="stage" class:all={done === g.list.length}>
+          <h2>{g.label} <small class="num">{done}/{g.list.length}</small></h2>
+          <ol class="path">
+            {#each g.list as l (l.id)}
+              {@const p = passed(l)}
+              <li>
+                <button type="button" class="node" class:next={next?.id === l.id} class:done={p >= 1} onclick={() => open(l)} title={l.summary}>
+                  <ProgressRing value={p} size={52} stroke={4} color={p >= 1 ? "var(--ok)" : next?.id === l.id ? "var(--accent)" : "var(--text-2)"} label={l.title}>
+                    {#if p >= 1}<Icon name="check" size={20} />{:else if next?.id === l.id}<Icon name="play" size={16} />{:else}<span class="num">{LESSONS.indexOf(l) + 1}</span>{/if}
+                  </ProgressRing>
+                  <span class="t">{l.title}</span>
+                  {@render starRow(lessonStars(l), 10)}
+                </button>
+              </li>
+            {/each}
+          </ol>
+        </section>
       {/each}
-
-      {@const idx = LESSONS.indexOf(lesson)}
-      <nav class="pager">
-        {#if idx > 0}<button class="ghost" onclick={() => open(LESSONS[idx - 1])}>← {LESSONS[idx - 1].title}</button>{/if}
-        <span class="grow"></span>
-        {#if idx < LESSONS.length - 1}<button class="ghost" onclick={() => open(LESSONS[idx + 1])}>{LESSONS[idx + 1].title} →</button>{/if}
+      <p class="foot">Nada está bloqueado: abre las lecciones en el orden que quieras. Estrellas: 70 · 85 · 95 %.</p>
+    </div>
+  {:else}
+    {@const idx = LESSONS.indexOf(lesson)}
+    <article class="lesson">
+      <nav class="crumb">
+        <Button size="sm" variant="ghost" icon="back" onclick={() => open(null)}>Curso</Button>
+        <span class="eyebrow">Etapa {lesson.stage} · {STAGES[lesson.stage - 1]} · {lesson.area}</span>
       </nav>
-      <p class="hint foot">{practiceSteps(lesson).length} prácticas · las estrellas salen de tu mejor resultado (★ 70 %, ★★ 85 %, ★★★ 95 %). Nada está bloqueado: abre las lecciones en el orden que quieras.</p>
-    {/if}
-  </main>
-</div>
+      <header class="lh">
+        <ProgressRing value={passed(lesson)} size={56} stroke={5} color={passed(lesson) >= 1 ? "var(--ok)" : "var(--accent)"} label="Lección">
+          {@render starRow(lessonStars(lesson), 9)}
+        </ProgressRing>
+        <div>
+          <h1>{lesson.title}</h1>
+          <p class="summary">{lesson.summary}</p>
+        </div>
+      </header>
+      {#if lesson.requires?.length || lesson.related?.length}
+        <div class="links">
+          {#each lesson.requires ?? [] as r (r)}
+            <Chip icon={lessonDone(byId(r)) ? "check" : "back"} onclick={() => open(byId(r))} title="Conviene antes">{byId(r).title}</Chip>
+          {/each}
+          {#each lesson.related ?? [] as r (r)}
+            <Chip icon="link" onclick={() => open(byId(r))} title="Se complementa con">{byId(r).title}</Chip>
+          {/each}
+        </div>
+      {/if}
+
+      <ol class="steps">
+        {#each lesson.steps as step, i (i)}
+          {#if "t" in step}
+            <li class="step theory">
+              <span class="pin"></span>
+              <div class="body">
+                <p>{#each parts(step.t) as x, j (j)}{#if x.b}<strong>{x.s}</strong>{:else}{x.s}{/if}{/each}</p>
+                {#if step.keys?.length}<KeyDiagram keys={step.keys.map(midiOf)} together={step.together} />{/if}
+              </div>
+            </li>
+          {:else}
+            {@const best = (void progress.results, bestOf(lesson.id, i))}
+            {@const goal = step.goal ?? 0.85}
+            {@const [icon, what] = describe(step.p)}
+            <li class="step practice" id="paso-{i}" class:passed={(best ?? 0) >= goal}>
+              <span class="pin ring">
+                <ProgressRing value={best ?? 0} size={36} stroke={3.5} color={ringColor(best, goal)} label="Tu mejor">
+                  {#if (best ?? 0) >= goal}<Icon name="check" size={14} />{:else}<Icon name={icon} size={13} />{/if}
+                </ProgressRing>
+              </span>
+              <div class="body tcard">
+                <div class="ph">
+                  <strong>{step.title}</strong>
+                  {@render starRow(stars(best))}
+                  <span class="fill"></span>
+                  <small class="num" title="Tu mejor / objetivo">{best != null ? `${Math.round(best * 100)} %` : "–"} / {Math.round(goal * 100)} %</small>
+                </div>
+                <small class="desc"><Icon name={icon} size={12} /> {what}{hands(step.p) ? ` · ${hands(step.p)}` : ""}</small>
+                {#if step.p.kind === "oido"}
+                  {#if quizOpen === i}
+                    <EarQuiz quiz={step.p.quiz} onresult={(acc) => lesson && record(lesson.id, i, acc)} />
+                  {:else}
+                    <div><Button variant={best == null ? "primary" : "secondary"} icon="ear" onclick={() => (quizOpen = i)}>Hacer la prueba</Button></div>
+                  {/if}
+                {:else}
+                  <div><Button variant={best == null || best < goal ? "primary" : "secondary"} icon="play" onclick={() => lesson && onpractice(lesson.id, i)}>Practicar</Button></div>
+                {/if}
+              </div>
+            </li>
+          {/if}
+        {/each}
+      </ol>
+
+      <nav class="pager">
+        {#if idx > 0}<Button variant="ghost" icon="chevron-left" onclick={() => open(LESSONS[idx - 1])}>{LESSONS[idx - 1].title}</Button>{/if}
+        <span class="fill"></span>
+        {#if idx < LESSONS.length - 1}<Button variant="ghost" onclick={() => open(LESSONS[idx + 1])}>{LESSONS[idx + 1].title} <Icon name="chevron-right" /></Button>{/if}
+      </nav>
+    </article>
+  {/if}
+</section>
 
 <style>
-  .course { height: 100%; display: grid; grid-template-columns: 300px 1fr; }
-  aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; gap: 8px; }
-  .stats { display: flex; align-items: center; gap: 12px; padding: 0 14px; font-size: 12.5px; color: var(--text-2); }
-  .stats .sm { margin-left: auto; }
-  aside .bar { margin: 0 14px; }
-  aside .seg { margin: 0 10px; }
-  .list { overflow-y: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 1px; }
-  .group { padding: 12px 8px 4px; }
-  .item { display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 6px; padding: 5px 10px; color: var(--text-2); font-size: 12.5px; }
-  .item:hover, .item.on, .item.done .name { color: var(--text); }
-  .check { color: var(--ok); font-size: 12px; }
-  .st { color: var(--accent); font-size: 11px; letter-spacing: 1px; }
+  .course { height: 100%; min-height: 0; overflow-y: auto; padding: var(--s5) var(--s6) var(--s7); }
+  .fill { flex: 1; }
+  .stars { display: inline-flex; gap: 1px; color: var(--line-hi); }
+  .stars .on { color: var(--warn); }
+  .stars .on :global(svg) { fill: currentColor; }
 
-  main { overflow-y: auto; padding: 24px 40px 56px; max-width: 920px; }
-  h1 { margin: 6px 0 4px; }
-  .summary { margin: 0 0 12px; color: var(--text-2); }
-  .links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); margin: 0 0 16px; }
-  .chip.done { border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
-  .card { margin: 10px 0; padding: 14px 16px; }
-  .theory p { margin: 0; line-height: 1.7; }
-  .theory strong { color: var(--accent); font-weight: 600; }
-  .practice { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-  .practice.passed { border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
-  .ph { display: flex; align-items: center; gap: 10px; width: 100%; }
-  .ph strong { font-weight: 600; }
-  .badge { font-size: 11px; padding: 1px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
-  .ph .stars { margin-left: auto; color: var(--accent); letter-spacing: 2px; }
-  .desc { margin: 0; font-size: 12px; }
-  .pager { display: flex; gap: 10px; margin-top: 24px; }
-  .foot { margin-top: 16px; }
+  .hero { display: flex; align-items: center; justify-content: space-between; gap: var(--s5); flex-wrap: wrap; }
+  .big { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
+  .big strong { font-size: var(--fs-xl); }
+  .big strong small { font-size: var(--fs-sm); color: var(--text-2); }
+  .who { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); min-width: 0; }
+  .streak { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--fs-sm); }
+  .streak b { color: var(--text); font-size: var(--fs-lg); }
+  .cal { overflow-x: auto; max-width: 100%; }
+  .order { display: flex; margin: var(--s5) 0 var(--s2); }
+
+  .map { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: var(--s5) var(--s6); }
+  .foot { grid-column: 1 / -1; }
+  .stage h2 { font-size: var(--fs-md); color: var(--text-2); font-weight: 500; margin-bottom: var(--s3); }
+  .stage h2 small { color: var(--text-3); margin-left: var(--s2); }
+  .stage.all h2 small { color: var(--ok); }
+  .path { position: relative; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s1); margin: 0; padding: 0; list-style: none; }
+  .path li { position: relative; width: 120px; }
+  /* el camino: una línea por detrás de los anillos, de uno al siguiente */
+  .path li:not(:last-child)::after { content: ""; position: absolute; top: 31px; left: calc(50% + 30px); width: calc(100% - 56px); height: 2px; background: var(--line); }
+  .node {
+    display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; padding: var(--s1) var(--s1) var(--s2); border: 0;
+    border-radius: var(--r-lg); background: none; color: var(--text-2); transition: background var(--t-fast), color var(--t-fast);
+  }
+  .node:hover { background: var(--panel); color: var(--text); }
+  .node.done, .node.next { color: var(--text); }
+  .node.done :global(.in) { color: var(--ok); }
+  .node.next :global(.in) { color: var(--accent); }
+  .node .t { font-size: var(--fs-sm); text-align: center; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .node .num { font-size: var(--fs-sm); color: var(--text-3); }
+  .foot { font-size: var(--fs-xs); color: var(--text-3); }
+
+  .lesson { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--s4); }
+  .crumb { display: flex; align-items: center; gap: var(--s3); margin-left: calc(-1 * var(--s2)); }
+  .eyebrow { font-size: var(--fs-xs); color: var(--text-3); }
+  .lh { display: flex; align-items: center; gap: var(--s4); }
+  .lh h1 { font-size: var(--fs-2xl); }
+  .summary { color: var(--text-2); margin-top: var(--s1); }
+  .links { display: flex; flex-wrap: wrap; gap: var(--s1); }
+
+  .steps { position: relative; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s3); }
+  .steps::before { content: ""; position: absolute; left: 17px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
+  .step { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: var(--s3); align-items: start; }
+  .pin { justify-self: center; margin-top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--line-hi); box-shadow: 0 0 0 4px var(--bg); }
+  .pin.ring { width: auto; height: auto; margin-top: var(--s2); background: var(--bg); }
+  .theory p { line-height: 1.75; color: var(--text); }
+  .theory strong { font-weight: 700; color: var(--text); background: var(--panel-hi); padding: 0 3px; border-radius: var(--r-sm); }
+  .tcard { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3) var(--s4); border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); }
+  .passed .tcard { border-color: color-mix(in oklab, var(--ok) 40%, var(--line)); }
+  .ph { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+  .ph small { color: var(--text-2); font-size: var(--fs-sm); }
+  .desc { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: var(--fs-sm); }
+  .pager { display: flex; gap: var(--s2); margin-top: var(--s4); }
 </style>

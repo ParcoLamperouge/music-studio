@@ -1,7 +1,11 @@
 <script lang="ts">
-  import { STEM_INFO, type Stem } from "./engine";
+  import type { Stem } from "./engine";
+  import MuteSolo from "./ui/MuteSolo.svelte";
+  import Slider from "./ui/Slider.svelte";
+  import StemBadge from "./ui/StemBadge.svelte";
+  import { stemColor } from "./ui/music";
 
-  /** Volumen + M/S de todas las pistas en una tira compacta. Comparte estado con el mezclador grande. */
+  /** Volumen + M/S de todas las pistas en una tira compacta. Comparte estado con las pistas grandes. */
   let { stems, volume = $bindable(), muted = $bindable(), solo = $bindable() }: {
     stems: Stem[];
     volume: Record<string, number>;
@@ -10,25 +14,21 @@
   } = $props();
 </script>
 
-<div class="card mini">
+<div class="mixer">
   {#each stems as st (st.name)}
-    {@const info = STEM_INFO[st.name]}
-    <div class="ch" class:absent={!st.present} class:off={muted[st.name]} style:--c={info.color}>
-      <span class="dot"></span>
-      <span class="name">{info.label}</span>
-      <input type="range" min="0" max="1.5" step="0.01" bind:value={volume[st.name]} title="{info.label}: {Math.round(volume[st.name] * 100)}%" />
-      <button class="ms-btn" class:on={muted[st.name]} onclick={() => (muted[st.name] = !muted[st.name])} title="Silenciar">M</button>
-      <button class="ms-btn solo" class:on={solo[st.name]} onclick={() => (solo[st.name] = !solo[st.name])} title="Solo">S</button>
+    <div class="ch" class:absent={!st.present}>
+      <StemBadge stem={st.name} muted={muted[st.name]} />
+      <Slider bind:value={volume[st.name]} max={1.5} label="Volumen" color={stemColor(st.name)} />
+      <MuteSolo bind:muted={muted[st.name]} bind:solo={solo[st.name]} />
     </div>
   {/each}
 </div>
 
 <style>
-  .mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; padding: 8px 12px; margin-bottom: 8px; }
-  .ch { display: flex; align-items: center; gap: 6px; min-width: 0; }
-  .ch.absent { opacity: 0.5; }
-  .ch.off .name { color: var(--text-3); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
-  .name { width: 62px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  input { flex: 1; min-width: 50px; accent-color: var(--c); }
+  .mixer {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s1) var(--s4); padding: var(--s2) var(--s3);
+    border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line);
+  }
+  .ch { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: var(--s2); min-width: 0; }
+  .absent { opacity: 0.45; }
 </style>

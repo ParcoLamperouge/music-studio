@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { arrange, judge, median, easyTranspose, fifths, fromBeat, melodyLine, Practice, toBeat, toMusicXML, toSeconds } from "./arrange.ts";
+import { type ANote, type Level, arrange, judge, median, easyTranspose, fifths, fromBeat, melodyLine, Practice, toBeat, toMusicXML, toSeconds } from "./arrange.ts";
 import type { Chord, Note } from "./harmony.ts";
 
 // pulsos a 120 bpm empezando en 1 s
@@ -200,3 +200,45 @@ tm.press(60, 1.04);
 tm.press(62, 2.08);
 assert.deepEqual([tm.stats(3).ms, tm.stats(3).sd], [60, 20]);
 console.log("tiempo ok");
+
+// Espectador (Aprender): sin nada que tocar no hay nada pendiente, no se espera ni se suelta nada
+const watch = new Practice([]);
+assert.deepEqual([watch.stats(30).due, watch.blocking(5), watch.released(5, () => false)], [0, null, false]);
+console.log("espectador ok");
+
+// estilo pop por secciones: estrofa (compases 0-7, melodía floja y grave) y estribillo (8-15, llena y aguda)
+{
+  const bt = Array.from({ length: 80 }, (_, i) => i * 0.5);
+  const roots = [0, 7, 9, 5];
+  const chs = Array.from({ length: 16 }, (_, k) => ch(k * 2, k * 2 + 2, roots[k % 4], roots[k % 4] === 9 ? "m" : ""));
+  const mel: Note[] = [
+    ...Array.from({ length: 8 }, (_, k): Note => [k * 2, k * 2 + 0.5, 60, 0.7]),
+    ...Array.from({ length: 64 }, (_, i): Note => [16 + i * 0.25, 16 + i * 0.25 + 0.24, 72 + (i % 3), 0.8]),
+  ];
+  const song = { chords: chs, beats: bt, downbeats: [0], meter: 4, key: { tonic: 0, minor: false }, melody: mel, style: "pop" as const };
+  const lhOf = (level: Level, style: "pop" | "clasico" = "pop") => arrange({ ...song, level, style }).lh;
+  // ni ida y vuelta: en la línea de arriba de la izquierda, nunca a < b < c > b > e (subir y bajar por las mismas notas)
+  const upDown = (lh: ANote[]) => {
+    const tops = [...new Set(lh.map((n) => n.b))].sort((x, y) => x - y).map((b) => Math.max(...lh.filter((n) => n.b === b).map((n) => n.p)));
+    return tops.some((_, i) => tops[i] < tops[i + 1] && tops[i + 1] < tops[i + 2] && tops[i + 3] === tops[i + 1] && tops[i + 4] < tops[i + 3]);
+  };
+  assert.ok(upDown(lhOf(6, "clasico")), "el clásico sí arpegia arriba y abajo (la comprobación funciona)");
+  for (const l of [2, 3, 4, 6, 7] as const) {
+    const lh = lhOf(l);
+    assert.ok(!upDown(lh), `pop ${l}: sin arpegios de ida y vuelta`);
+    assert.ok(lh.every((n) => n.p >= 36 && n.p <= 67), `pop ${l}: izquierda en Do2…Sol4`);
+    const bass = Array.from({ length: 16 }, (_, k) => Math.min(...lh.filter((n) => n.b === k * 4).map((n) => n.p)));
+    assert.ok(bass.every((p) => p <= 55), `pop ${l}: el bajo del 1 no pasa de Sol3`);
+    // estrofa y estribillo, patrones distintos (y el estribillo más lleno)
+    const inBar = (k: number) => lh.filter((n) => n.b >= k * 4 && n.b < k * 4 + 4);
+    const shape = (k: number) => inBar(k).map((n) => `${n.b - k * 4}:${n.p % 12}`).join();
+    assert.notEqual(shape(4), shape(8), `pop ${l}: cambia de patrón al estribillo`);
+    assert.ok(inBar(9).length > inBar(1).length, `pop ${l}: estribillo más lleno (${inBar(1).length} → ${inBar(9).length})`);
+    // desde el 3: la raíz del acorde siguiente, adelantada al «y» del 4
+    const ant = lh.some((n) => n.b % 4 === 3.5 && n.p % 12 === roots[(n.b / 4 + 1 | 0) % 4] && n.p % 12 !== roots[(n.b / 4 | 0) % 4]);
+    assert.equal(ant, l >= 3, `pop ${l}: anticipación`);
+  }
+  const counts = ([1, 2, 3, 4, 6, 7] as const).map((l) => { const a = arrange({ ...song, level: l }); return a.rh.length + a.lh.length; });
+  for (let i = 1; i < counts.length; i++) assert.ok(counts[i] > counts[i - 1], `pop: cada nivel más notas: ${counts}`);
+}
+console.log("pop ok");

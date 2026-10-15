@@ -73,3 +73,37 @@ export function sectionsFromLyrics(lines: { t: number | null; end?: number; text
   }
   return out;
 }
+
+// ---------------------------------------------------------------- compases
+
+export type Bar<C> = { t: number; end: number; chords: C[]; repeat: boolean };
+
+/** Rejilla de compases: los acordes que suenan en cada compás (los que ocupan al menos ¼ de él; si ninguno, el que más).
+ * Compases de los primeros tiempos reales (`downbeats`); si no, de `meter` en `meter` pulsos; sin pulsos, uno por acorde.
+ * `repeat`: igual que el anterior (se pinta «%»). */
+export function barsOf<C extends { t: number; end: number; name: string }>(
+  chords: C[],
+  beat: { beats: number[]; downbeats?: number[]; meter?: number } | null | undefined,
+  duration: number,
+): Bar<C>[] {
+  if (!chords.length) return [];
+  const end = Math.max(duration, chords[chords.length - 1].end);
+  const m = beat?.meter || 4;
+  let edges = beat?.downbeats?.length && beat.downbeats.length > 1 ? beat.downbeats : (beat?.beats ?? []).filter((_, i) => i % m === 0);
+  if (edges.length < 2) edges = chords.map((c) => c.t);
+  if (edges[0] > 0.5) edges = [0, ...edges];
+  const out: Bar<C>[] = [];
+  edges.forEach((t, i) => {
+    const e = edges[i + 1] ?? end;
+    if (e - t < 0.05) return;
+    const over = (c: C) => Math.min(c.end, e) - Math.max(c.t, t);
+    const live = chords.filter((c) => c.t < e && c.end > t);
+    if (!live.length) return;
+    let cs = live.filter((c) => over(c) >= (e - t) / 4);
+    if (!cs.length) cs = [live.reduce((a, b) => (over(b) > over(a) ? b : a))];
+    const prev = out[out.length - 1];
+    const repeat = !!prev && cs.length === 1 && prev.chords.length === 1 && prev.chords[0].name === cs[0].name;
+    out.push({ t, end: e, chords: cs, repeat });
+  });
+  return out;
+}

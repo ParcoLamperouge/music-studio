@@ -1,21 +1,41 @@
 <script lang="ts">
+  /** Sesiones: lo tocado en Tocar (o importado de MIDI / MusicXML) y canciones separadas para escuchar por instrumentos.
+   * A la izquierda, tarjetas con su mini piano roll (o su onda) y la tira de acordes; a la derecha, carriles por
+   * instrumento, acordes que más suenan, la tonalidad en el círculo de quintas, la progresión y el análisis de Claude. */
   import { invoke } from "@tauri-apps/api/core";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
-  import { listDir, paths, readBytes, readJson, removeFile, STEM_INFO, writeBytes, writeJson, type Detail } from "./engine";
-  import { parseKey, type Note } from "./harmony";
+  import { loadNotation } from "./ChordsTab.svelte";
+  import { enqueue, fmtClock, listDir, paths, readBytes, readJson, removeFile, songDetail, STEM_INFO, viewPath, writeBytes, writeJson, type Detail } from "./engine";
+  import { analyze as analyzeNotes, degree, fromModel, keyName, named, parseKey, type Key, type Note } from "./harmony";
   import { sessionForAI, songForAI, stamps } from "./live";
-  import { toToon } from "./toon";
-  import { Player, synth } from "./player";
   import { loadPiano } from "./piano";
+  import { toToon } from "./toon";
   import { fromSession } from "./piece";
   import { pickPieces, pieceToSession, savePiece } from "./pieces.svelte";
-  import Roll from "./Roll.svelte";
-  import SearchInput from "./ui/Search.svelte";
+  import { waves, wantPeaks } from "./peaks.svelte";
+  import { Player, synth } from "./player";
+  import SessionLanes from "./SessionLanes.svelte";
   import { settings } from "./settings.svelte";
-  import SongPlayer from "./SongPlayer.svelte";
-  import { store } from "./store.svelte";
-  import Transport from "./Transport.svelte";
+  import { jobOf, store } from "./store.svelte";
+  import Button from "./ui/Button.svelte";
+  import Card from "./ui/Card.svelte";
+  import Chip from "./ui/Chip.svelte";
+  import ChordChip from "./ui/ChordChip.svelte";
+  import Dialog from "./ui/Dialog.svelte";
+  import EmptyState from "./ui/EmptyState.svelte";
+  import FifthsWheel from "./ui/FifthsWheel.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import IconButton from "./ui/IconButton.svelte";
+  import MasterStrip from "./ui/MasterStrip.svelte";
+  import Menu, { type MenuItem } from "./ui/Menu.svelte";
+  import { chordFn, cssVar, stemColor } from "./ui/music";
+  import ProgressRing from "./ui/ProgressRing.svelte";
+  import Search from "./ui/Search.svelte";
+  import Slider from "./ui/Slider.svelte";
+  import Tabs from "./ui/Tabs.svelte";
+  import { tooltip } from "./ui/tooltip";
+  import WaveThumb from "./ui/WaveThumb.svelte";
 
   /** Lo que guarda el modo Tocar (live.ts, snapshot). */
   type Session = {
@@ -27,23 +47,15 @@
     pedal: [number, number][];
   };
   type Item = { name: string; base: string; s: Session | null };
+  type C = { t: number; end: number; name: string; deg?: string; root: number; kind: string };
+  type Lane = { stem: string; label: string; notes: Note[]; muted?: boolean };
 
-  let { onback, onsong, onlearn }: { onback: () => void; onsong: (key: string) => void; onlearn: (pieceId: string) => void } = $props();
+  let { onsong, onlearn }: { onback?: () => void; onsong: (key: string) => void; onlearn: (pieceId: string) => void } = $props();
 
   const dir = `${paths.data}/sesiones`;
-  let items = $state<Item[]>([]);
-  let sel = $state<Item | null>(null);
-  const player = new Player();
-  let playing = $state(false);
-  let time = $state(0);
-  let duration = $state(0);
-  let loading = $state(false);
-  let analysis = $state("");
-  let analyzing = $state(false);
-  let error = $state("");
+  const songsPath = `${dir}/canciones.json`; // canciones separadas para escuchar aquí (claves de la biblioteca)
+  const latin = loadNotation().latin;
 
-  // ---- canciones separadas para tocar encima (claves de la biblioteca, en sesiones/canciones.json)
-  const songsPath = `${dir}/canciones.json`;
   let tab = $state<"sesiones" | "canciones">((() => {
     try {
       return localStorage.getItem("estudio.sesiones.tab") === "canciones" ? "canciones" : "sesiones";
@@ -56,14 +68,35 @@
       localStorage.setItem("estudio.sesiones.tab", tab);
     } catch {}
   });
+
+  let items = $state<Item[]>([]);
   let songs = $state<string[]>([]);
+  let sel = $state<Item | null>(null);
   let song = $state<string | null>(null);
-  let songPlayer = $state<SongPlayer>();
-  let songTime = $state(0);
-  let songChords = $state<{ t: number; end: number; name: string; deg?: string }[]>([]);
-  let songKey = $state("");
-  let songInfo = $state<Detail | null>(null);
-  let songFromNotes = $state(false);
+
+  // lo abierto (sesión o canción): un reproductor, sus carriles, acordes y tonalidad
+  let player = $state.raw(new Player());
+  let playing = $state(false);
+  let time = $state(0);
+  let duration = $state(0);
+  let loading = $state(false);
+  let error = $state("");
+  let lanes = $state.raw<Lane[]>([]);
+  let chords = $state.raw<C[]>([]);
+  let tonality = $state.raw<Key | null>(null);
+  let keyLabel = $state("");
+  let span = $state(12); // segundos que se ven en los carriles
+
+  // canción: ficha, mezcla (la de Analizar, solo se lee) y de dónde salen los acordes
+  let songInfo = $state.raw<Detail | null>(null);
+  let fromNotes = $state(false);
+  let volume = $state<Record<string, number>>({});
+  let muted = $state<Record<string, boolean>>({});
+  let solo = $state<Record<string, boolean>>({});
+
+  // análisis de Claude
+  let analysis = $state("");
+  let analyzing = $state(false);
   // instrumentos que se le pasan a Claude: al abrir una canción, todos los que tienen notas
   const noted = $derived(songInfo?.stemlab?.stems.filter((s) => s.roll) ?? []);
   let aiStems = $state<string[]>([]);
@@ -77,12 +110,14 @@
     const base = aiBase;
     if (!song) return;
     analysis = "";
-    error = "";
     if (base) readBytes(`${base}.analisis.md`).then((b) => base === aiBase && (analysis = new TextDecoder().decode(b)), () => {});
   });
+
+  // añadir canciones
   let adding = $state(false);
   let query = $state("");
   let picked = $state<string[]>([]);
+  let filter = $state("");
   const trackOf = (key: string) => store.tracks.find((t) => t.key === key);
   /** Las separadas que aún no están en la lista. */
   const available = $derived(
@@ -92,30 +127,6 @@
       .sort((a, b) => a.title.localeCompare(b.title)),
   );
 
-  function openSong(key: string) {
-    player.stop();
-    playing = false;
-    sel = null;
-    [songInfo, songChords, songKey] = [null, [], ""]; // que no se cuele la ficha de la anterior
-    song = key;
-  }
-
-  async function addSongs() {
-    songs = [...picked, ...songs];
-    await writeJson(songsPath, songs);
-    adding = false;
-    if (picked[0]) openSong(picked[0]);
-    picked = [];
-  }
-
-  async function removeSong() {
-    if (!song) return;
-    songs = songs.filter((k) => k !== song);
-    song = null;
-    await writeJson(songsPath, songs);
-  }
-
-  const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
   /** «2026-10-14_11-48-47» → «14 oct 2026 · 11:48». */
   const when = (name: string) => {
     const [d, h] = name.split("_");
@@ -123,6 +134,19 @@
     if (isNaN(+date)) return name;
     return `${date.toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" })} · ${date.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}`;
   };
+
+  // las sesiones guardan el nombre del acorde («Sol7», «Do/Mi»): se recupera la fundamental y el tipo para colorearlo
+  const PC: Record<string, number> = { Do: 0, Re: 2, Mi: 4, Fa: 5, Sol: 7, La: 9, Si: 11, C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  const KIND: Record<string, string> = { "m7(b5)": "m7b5", "m(maj7)": "mmaj7" };
+  const ACC: Record<string, number> = { b: -1, bb: -2, "#": 1, x: 2 };
+  function parseChord(name: string) {
+    const m = /^(Do|Re|Mi|Fa|Sol|La|Si|[A-G])(bb|b|#|x)?([^/]*)/.exec(name);
+    return m ? { root: (PC[m[1]] + (ACC[m[2]] ?? 0) + 12) % 12, kind: KIND[m[3]] ?? m[3] } : null;
+  }
+  const withRoots = (cs: Session["chords"]): C[] => cs.flatMap((c) => {
+    const p = parseChord(c.name);
+    return p ? [{ ...c, ...p }] : [];
+  });
 
   async function scan() {
     const files = await listDir(dir).catch(() => []);
@@ -132,23 +156,32 @@
     if (!sel && !song && tab === "sesiones" && items[0]) void open(items[0]);
   }
 
+  /** Un reproductor nuevo para lo que se abre (el anterior se cierra: WebKit se queda sin contextos si no). */
+  function reset() {
+    player.stop();
+    void player.ctx.close();
+    player = new Player();
+    [playing, time, duration, error, analysis] = [false, 0, 0, "", ""];
+    [lanes, chords, tonality, keyLabel, songInfo, fromNotes] = [[], [], null, "", null, false];
+  }
+
   async function open(it: Item) {
     if (!it.s) return;
-    player.stop();
-    player.buffers.clear();
-    player.duration = 0;
-    playing = false;
-    time = 0;
+    reset();
     song = null;
     sel = it;
-    analysis = "";
-    error = "";
     loading = true;
+    const s = it.s;
+    lanes = [{ stem: "piano", label: s.device || "Teclado", notes: s.notes }];
+    chords = withRoots(s.chords);
+    tonality = parseKey(s.key);
+    keyLabel = s.key ?? "";
+    duration = s.duration;
+    const p = player;
     try {
-      const buf = await synth(it.s.notes, it.s.duration);
-      if (sel !== it) return; // se eligió otra mientras se sintetizaba
+      const buf = await synth(s.notes, s.duration);
+      if (sel !== it || p !== player) return; // se eligió otra mientras se sintetizaba
       player.setBuffer("piano", buf);
-      duration = it.s.duration;
     } catch (e) {
       error = `No se pudo sintetizar: ${e}`;
     }
@@ -157,22 +190,85 @@
     if (sel === it && md) analysis = new TextDecoder().decode(md);
   }
 
+  async function openSong(key: string) {
+    reset();
+    sel = null;
+    song = key;
+    loading = true;
+    const p = player;
+    const stale = () => song !== key || p !== player;
+    try {
+      const d = await songDetail(key);
+      if (stale()) return;
+      if (!d.stemlab) throw new Error("Esta canción ya no tiene las pistas separadas");
+      const view = await readJson(viewPath(key), { volume: {}, muted: {}, solo: {} } as Record<string, Record<string, never>>);
+      for (const s of d.stemlab.stems) {
+        volume[s.name] = view.volume[s.name] ?? 1;
+        muted[s.name] = view.muted[s.name] ?? !s.present;
+        solo[s.name] = view.solo[s.name] ?? false;
+      }
+      const sdir = d.stemlab.dir;
+      const tracks = await Promise.all(d.stemlab.stems.filter((s) => s.roll).map(async (s) => ({ stem: s.name, notes: await readJson<Note[]>(`${sdir}/${s.roll}`, []) })));
+      if (stale()) return;
+      songInfo = d;
+      duration = d.duration;
+      lanes = d.stemlab.stems.filter((s) => s.present).map((s) => ({ stem: s.name, label: STEM_INFO[s.name]?.label ?? s.name, notes: tracks.find((t) => t.stem === s.name)?.notes ?? [] }));
+      await player.load(d.stemlab.stems.map((s) => ({ name: s.name, path: `${sdir}/${s.file}` })));
+      if (stale()) return;
+      duration = player.duration;
+      const cs = d.chordData?.chords;
+      // sin acordes del modelo (lv-chordia) se piden a la cola y, mientras, salen de las notas, como en Analizar
+      if (!cs?.length && d.audio && !jobOf(key, "chords")) void enqueue("chords", [key]);
+      // los del modelo, revisados con las notas de cada pista (el V7 que dio como v menor…)
+      const h = cs?.length ? fromModel(cs, tracks, d.beatData?.beats ?? [], d.duration) : tracks.length ? analyzeNotes(tracks, d.beatData?.beats ?? [], d.duration) : null;
+      fromNotes = !cs?.length && !!h;
+      if (h) {
+        chords = named(h.chords, h.key, loadNotation()).map((c) => ({ ...c, deg: degree(c, h.key) }));
+        keyLabel = keyName(h.key, latin);
+        tonality = h.key;
+      }
+    } catch (e) {
+      if (!stale()) error = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (!stale()) loading = false;
+    }
+  }
+
+  async function addSongs() {
+    songs = [...picked, ...songs];
+    await writeJson(songsPath, songs);
+    adding = false;
+    if (picked[0]) {
+      tab = "canciones";
+      void openSong(picked[0]);
+    }
+    picked = [];
+  }
+
+  async function removeSong() {
+    if (!song) return;
+    songs = songs.filter((k) => k !== song);
+    reset();
+    song = null;
+    await writeJson(songsPath, songs);
+  }
+
   function toggle() {
+    if (loading || error || !duration) return;
     if (player.playing) player.pause();
     else player.play();
     playing = player.playing;
   }
 
   function seek(t: number) {
-    player.seek(t);
-    time = t;
+    player.seek(Math.max(0, Math.min(t, duration)));
+    time = player.time();
   }
 
   /** Un tiempo del análisis: ir ahí y escucharlo. */
   function jump(t: number) {
-    if (song) return songPlayer?.seek(t, true);
-    seek(Math.min(t, duration));
-    if (!player.playing && !loading) toggle();
+    seek(t);
+    if (!player.playing) toggle();
   }
 
   async function analyze() {
@@ -198,7 +294,7 @@
     const tracks = await Promise.all(
       noted.filter((s) => aiStems.includes(s.name)).map(async (s) => ({ name: STEM_INFO[s.name]?.label ?? s.name, notes: await readJson<Note[]>(`${d.stemlab!.dir}/${s.roll}`, []) })),
     );
-    return songForAI({ title: d.title, artist: d.artist, duration: d.duration, key: songKey || null, bpm: d.bpm }, tracks, songChords, d.doc);
+    return songForAI({ title: d.title, artist: d.artist, duration: d.duration, key: keyLabel || null, bpm: d.bpm }, tracks, chords, d.doc);
   }
 
   /** La sesión como pieza, para practicarla en Aprender (o retocarla en el editor). */
@@ -213,8 +309,9 @@
     try {
       const got = await pickPieces();
       let base = "";
-      for (const [i, pc] of got.entries()) base = await pieceToSession(pc, true, new Date(Date.now() + i * 1000));
+      for (const [i, pc] of got.entries()) base = await pieceToSession(pc, latin, new Date(Date.now() + i * 1000));
       await scan();
+      tab = "sesiones";
       const it = items.find((x) => x.base === base);
       if (it) void open(it);
     } catch (e) {
@@ -225,41 +322,85 @@
   async function remove() {
     if (!sel || !confirm(`Borrar la sesión del ${when(sel.name)} (.mid, .json, .toon y su análisis). No se puede deshacer.`)) return;
     for (const ext of [".json", ".mid", ".toon", ".analisis.md"]) await removeFile(sel.base + ext).catch(() => {});
-    player.stop();
-    playing = false;
+    reset();
     sel = null;
     await scan();
   }
 
-  /** Markdown justo para leer el análisis: títulos, viñetas y párrafos, sin HTML. */
-  const blocks = $derived(
-    analysis
-      .split("\n")
-      .filter((l) => l.trim())
-      .map((l) => {
-        const text = l.replace(/\*\*|`/g, "");
-        if (/^#{1,4}\s/.test(text)) return { kind: "h", text: text.replace(/^#+\s*/, "") };
-        if (/^\s*[-*]\s/.test(text)) return { kind: "li", text: text.replace(/^\s*[-*]\s*/, "") };
-        return { kind: "p", text };
-      }),
-  );
+  // ---------------------------------------------------------------- análisis: secciones (tarjetas), viñetas, tiempos
 
-  // acordes que más suenan (de la sesión o de la canción)
-  const shownChords = $derived(song ? songChords : (sel?.s?.chords ?? []));
-  const top = $derived.by(() => {
-    const dur = new Map<string, number>();
-    for (const c of shownChords) dur.set(c.name, (dur.get(c.name) ?? 0) + c.end - c.t);
-    return [...dur].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const sections = $derived.by(() => {
+    const out: { title: string; blocks: { li: boolean; text: string }[] }[] = [{ title: "", blocks: [] }];
+    for (const l of analysis.split("\n")) {
+      const text = l.replace(/\*\*|`/g, "").trim();
+      if (!text || /^-{3,}$/.test(text)) continue;
+      if (/^#{1,4}\s/.test(text)) out.push({ title: text.replace(/^#+\s*/, ""), blocks: [] });
+      else out[out.length - 1].blocks.push({ li: /^[-*]\s/.test(text), text: text.replace(/^[-*]\s*/, "") });
+    }
+    return out.filter((s) => s.blocks.length);
   });
 
+  // ---------------------------------------------------------------- acordes: los que más suenan, el de ahora, pesos
+
+  const top = $derived.by(() => {
+    const dur = new Map<string, C & { d: number }>();
+    for (const c of chords) {
+      const e = dur.get(c.name) ?? { ...c, d: 0 };
+      e.d += c.end - c.t;
+      dur.set(c.name, e);
+    }
+    return [...dur.values()].sort((a, b) => b.d - a.d);
+  });
+  const total = $derived(top.reduce((a, c) => a + c.d, 0) || 1);
+  const maxD = $derived(top[0]?.d || 1);
+  const current = $derived(chords.find((c) => c.t <= time && time < c.end) ?? null);
+  const wheelChords = $derived(top.map((c) => ({ root: c.root, kind: c.kind, w: c.d / maxD })));
+
+  // ---------------------------------------------------------------- mezcla de la canción
+
+  const audible = (name: string) => (Object.values(solo).some(Boolean) ? solo[name] : !muted[name]);
+  const shownLanes = $derived(lanes.map((l) => ({ ...l, muted: song ? !audible(l.stem) : false })));
   $effect(() => player.setMaster(settings.masterVolume));
+  $effect(() => {
+    if (!song || !songInfo?.stemlab) return;
+    for (const s of songInfo.stemlab.stems) player.setGain(s.name, audible(s.name) ? (volume[s.name] ?? 1) : 0);
+  });
+
+  // ---------------------------------------------------------------- lista
+
+  const shownItems = $derived(items.filter((it) => !filter.trim() || `${when(it.name)} ${it.s?.key ?? ""} ${it.s?.device ?? ""}`.toLowerCase().includes(filter.trim().toLowerCase())));
+  const shownSongs = $derived(songs.filter((k) => !filter.trim() || `${trackOf(k)?.title ?? k} ${trackOf(k)?.artist ?? ""}`.toLowerCase().includes(filter.trim().toLowerCase())));
+
+  /** Mini piano roll de una sesión, dibujado una vez. */
+  function thumb(c: HTMLCanvasElement, s: Session) {
+    const [w, h] = [c.clientWidth, c.clientHeight];
+    const dpr = devicePixelRatio || 1;
+    [c.width, c.height] = [w * dpr, h * dpr];
+    const g = c.getContext("2d")!;
+    g.scale(dpr, dpr);
+    const ps = s.notes.map((n) => n[2]);
+    const lo = Math.min(...ps, 60) - 1, hi = Math.max(...ps, 72) + 1;
+    const dur = s.duration || 1;
+    g.fillStyle = cssVar("--stem-piano");
+    for (const [a, b, p, v] of s.notes) {
+      g.globalAlpha = 0.4 + v * 0.6;
+      g.fillRect((a / dur) * w, h - ((p - lo) / (hi - lo)) * h, Math.max(1, ((b - a) / dur) * w), Math.max(1.5, h / (hi - lo)));
+    }
+  }
+  /** Tira de acordes de una sesión, en el color de su función. */
+  const strip = (s: Session) => {
+    const k = parseKey(s.key);
+    if (!k || !s.duration) return [];
+    return withRoots(s.chords).map((c) => ({ left: (c.t / s.duration) * 100, width: ((c.end - c.t) / s.duration) * 100, color: chordFn(c, k).color }));
+  };
+
   onMount(() => {
     void scan();
     void loadPiano().catch(() => {}); // que la primera nota ya suene a piano
     let raf = 0;
     const tick = () => {
       time = player.time();
-      if (player.playing && time >= duration) {
+      if (player.playing && duration && time >= duration) {
         player.stop();
         playing = false;
       }
@@ -273,222 +414,367 @@
     };
   });
 
+  $effect(() => {
+    if (tab === "canciones") for (const k of songs) wantPeaks(k, !!trackOf(k)?.audio || !!trackOf(k)?.stems);
+  });
+
   function onkey(e: KeyboardEvent) {
-    if (!sel || adding || (e.target as HTMLElement).closest("input, textarea, select, button") || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.code === "Space" && sel && !loading) (e.preventDefault(), toggle());
-    else if (e.key === "ArrowLeft") seek(Math.max(0, time - 5));
-    else if (e.key === "ArrowRight") seek(Math.min(duration, time + 5));
+    if (!(sel || song) || adding || document.querySelector("dialog[open]")) return;
+    if ((e.target as HTMLElement).closest("input:not([type=range]), textarea, select, button, [role=slider]") || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.code === "Space") (e.preventDefault(), toggle());
+    else if (e.key === "ArrowLeft") seek(time - 5);
+    else if (e.key === "ArrowRight") seek(time + 5);
   }
+
+  const sessionMenu: MenuItem[] = [
+    { label: "Mostrar en la carpeta", icon: "folder", title: "El .mid se abre en cualquier programa", run: () => sel && revealItemInDir(`${sel.base}.mid`) },
+    "-",
+    { label: "Borrar sesión…", icon: "trash", danger: true, run: remove },
+  ];
+  const songMenu: MenuItem[] = [{ label: "Quitar de la lista", icon: "close", title: "La canción sigue en la biblioteca", run: removeSong }];
 </script>
 
 <svelte:window onkeydown={onkey} />
 
 {#snippet linked(text: string)}
-  {#each stamps(text) as p, i (i)}{#if p.t != null}<button class="ts" onclick={() => jump(p.t!)} title="Ir a {p.text}">{p.text}</button>{:else}{p.text}{/if}{/each}
+  {#each stamps(text) as p, i (i)}{#if p.t != null}<span class="ts"><Chip icon="play" onclick={() => jump(p.t!)} title="Ir a {p.text}">{p.text}</Chip></span>{:else}{p.text}{/if}{/each}
 {/snippet}
 
-{#snippet aiOut()}
-  {#if analyzing}<div class="bar indet"><i></i></div>{/if}
-  {#if error}<p class="error-text">{error}</p>{/if}
-  {#if blocks.length}
-    <article>
-      {#each blocks as b, i (i)}
-        {#if b.kind === "h"}<h3>{b.text}</h3>{:else}<p class:li={b.kind === "li"}>{@render linked(b.text)}</p>{/if}
-      {/each}
-    </article>
-  {/if}
-{/snippet}
-
-{#snippet controls()}
-  <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !sel} ontoggle={toggle} onseek={seek} />
+{#snippet stat(label: string, value: string)}
+  <div class="stat"><span>{label}</span><b class="num">{value}</b></div>
 {/snippet}
 
 <div class="sessions">
-  <aside>
-    <header class="side-head">
-      <button class="ghost sm" onclick={onback} title="Volver al menú">← Menú</button>
-      <div class="seg wide">
-        <button class:on={tab === "sesiones"} onclick={() => (tab = "sesiones")}>Sesiones</button>
-        <button class:on={tab === "canciones"} onclick={() => (tab = "canciones")}>Canciones</button>
-      </div>
+  <aside class="list">
+    <header class="list-head">
+      <Tabs
+        bind:value={tab}
+        label="Qué ver"
+        options={[
+          { value: "sesiones", label: "Sesiones", count: items.length },
+          { value: "canciones", label: "Canciones", count: songs.length },
+        ]}
+      />
+      {#if tab === "sesiones"}
+        <IconButton icon="upload" label="Importar MIDI o MusicXML" onclick={importSession} />
+      {:else}
+        <IconButton icon="plus" label="Añadir canciones separadas" onclick={() => (adding = true)} />
+      {/if}
     </header>
-    <div class="list">
-      {#if tab === "canciones"}
-        <button class="ghost add" onclick={() => (adding = true)}>＋ Añadir canción</button>
-        {#each songs as k (k)}
-          {@const t = trackOf(k)}
-          <button class="item" class:on={song === k} onclick={() => openSong(k)}>
-            <span>{t?.title ?? k}</span>
-            <small class="mono">{t ? `${t.artist} · ${t.present.length} pistas` : "ya no está en la biblioteca"}</small>
-          </button>
+    {#if (tab === "sesiones" ? items : songs).length > 4}
+      <div class="filter"><Search bind:value={filter} size="sm" placeholder={tab === "sesiones" ? "Fecha, tonalidad…" : "Canción o artista"} /></div>
+    {/if}
+
+    <div class="cards">
+      {#if tab === "sesiones"}
+        {#each shownItems as it (it.name)}
+          <article class="sc" class:on={sel?.name === it.name} class:broken={!it.s}>
+            <button type="button" class="hit" onclick={() => open(it)} disabled={!it.s} aria-label="Abrir la sesión del {when(it.name)}"></button>
+            {#if it.s}
+              <canvas class="thumb" use:thumb={it.s} aria-hidden="true"></canvas>
+              <div class="strip" aria-hidden="true">{#each strip(it.s) as c, i (i)}<i style:left="{c.left}%" style:width="{c.width}%" style:background={c.color}></i>{/each}</div>
+            {/if}
+            <div class="meta">
+              <span class="t">{when(it.name)}</span>
+              <span class="a num">{#if it.s}{fmtClock(it.s.duration)} · {it.s.notes.length} notas{it.s.key ? ` · ${it.s.key}` : ""}{:else}no se puede leer{/if}</span>
+            </div>
+          </article>
         {:else}
-          <p class="muted empty">Añade canciones con las pistas separadas para escucharlas por instrumentos aquí.</p>
+          <EmptyState icon="midi" title={items.length ? "Ninguna coincide" : "Aún no hay sesiones"}>
+            {items.length ? "" : "Se guardan solas al tocar en Tocar."}
+            {#snippet actions()}<Button icon="upload" onclick={importSession}>Importar MIDI</Button>{/snippet}
+          </EmptyState>
         {/each}
       {:else}
-      <button class="ghost add" onclick={importSession} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl) como sesión">＋ Importar MIDI o MusicXML</button>
-      {#each items as it (it.name)}
-        <button class="item" class:on={sel?.name === it.name} onclick={() => open(it)} disabled={!it.s}>
-          <span>{when(it.name)}</span>
-          <small class="mono">
-            {#if it.s}{fmt(it.s.duration)} · {it.s.notes.length} notas{it.s.key ? ` · ${it.s.key}` : ""}{:else}no se puede leer{/if}
-          </small>
-        </button>
-      {:else}
-        <p class="muted empty">Aún no hay sesiones: se guardan solas al tocar en «Tocar».</p>
-      {/each}
+        {#each shownSongs as k (k)}
+          {@const t = trackOf(k)}
+          <article class="sc" class:on={song === k}>
+            <button type="button" class="hit" onclick={() => openSong(k)} aria-label="Abrir {t?.title ?? k}"></button>
+            <div class="wave"><WaveThumb peaks={waves[k]} height={36} /></div>
+            <div class="meta">
+              <span class="t">{t?.title ?? k}</span>
+              <span class="a">{t ? t.artist : "ya no está en la biblioteca"}</span>
+              {#if t}<span class="dots">{#each t.present as s (s)}<i style:background={stemColor(s)} use:tooltip={STEM_INFO[s]?.label ?? s}></i>{/each}</span>{/if}
+            </div>
+          </article>
+        {:else}
+          <EmptyState icon="stems" title="Escucha por instrumentos">
+            Añade canciones con las pistas separadas.
+            {#snippet actions()}<Button variant="primary" icon="plus" onclick={() => (adding = true)}>Añadir canción</Button>{/snippet}
+          </EmptyState>
+        {/each}
       {/if}
     </div>
   </aside>
 
-  <main>
-    {#if song}
-      {#key song}<SongPlayer bind:this={songPlayer} key={song} bind:time={songTime} bind:chords={songChords} bind:keyLabel={songKey} bind:detail={songInfo} bind:fromNotes={songFromNotes} />{/key}
-    {:else if sel?.s}
-      {#key sel.base}
-        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} chords={sel.s.chords} keyLabel={sel.s.key ?? ""} tonality={parseKey(sel.s.key) ?? undefined}
-          tracks={[{ stem: "piano", name: sel.s.device || "Teclado", color: "#f29d38", path: `${sel.base}.json`, hidden: false }]} />
-      {/key}
-      <div class="bottom">{@render controls()}</div>
+  <main class="detail">
+    {#if !(sel?.s || song)}
+      <EmptyState icon="sessions" title="Tus sesiones, otra vez">
+        Elige una sesión o una canción para oírla, ver sus acordes y analizarla con Claude.
+      </EmptyState>
     {:else}
-      <div class="welcome"><h1>Tus sesiones,<br /><em>otra vez</em>.</h1></div>
+      {@const t = song ? trackOf(song) : null}
+      <header class="hero">
+        <div class="who">
+          <span class="kick">{song ? "Canción" : "Sesión"}</span>
+          <h1>{song ? (t?.title ?? song) : when(sel!.name)}</h1>
+          {#if song && t?.artist}<span class="sub">{t.artist}</span>{/if}
+        </div>
+        <div class="actions">
+          <Button variant="primary" icon="sparkle" onclick={analyze} disabled={analyzing || (!!song && !aiStems.length)}>
+            {analyzing ? "Claude escuchando…" : analysis ? "Analizar otra vez" : "Analizar con Claude"}
+          </Button>
+          {#if song}
+            <Button icon="library" onclick={() => song && onsong(song)} title="Letra, partitura, acordes…">Abrir canción</Button>
+            <Menu items={songMenu} align="end" label="Más">
+              {#snippet trigger({ toggle, open })}<IconButton icon="more" label="Más" active={open} onclick={toggle} />{/snippet}
+            </Menu>
+          {:else}
+            <Button icon="learn" onclick={toPiece} title="Pasarla a pieza para practicarla con niveles (o retocarla en el editor)">Practicar en Aprender</Button>
+            <Menu items={sessionMenu} align="end" label="Más">
+              {#snippet trigger({ toggle, open })}<IconButton icon="more" label="Más" active={open} onclick={toggle} />{/snippet}
+            </Menu>
+          {/if}
+        </div>
+      </header>
+
+      <div class="stats">
+        {#if song}
+          {@render stat("Tonalidad", keyLabel || "—")}
+          {@render stat("Tempo", t?.bpm ? `${Math.round(t.bpm)} bpm` : "—")}
+          {@render stat("Duración", duration ? fmtClock(duration) : "—")}
+          {@render stat("Pistas", String(lanes.length))}
+          {@render stat("Acordes", String(top.length))}
+        {:else if sel?.s}
+          {@render stat("Duración", fmtClock(sel.s.duration))}
+          {@render stat("Notas", String(sel.s.notes.length))}
+          {@render stat("Tonalidad", sel.s.key ?? "—")}
+          {@render stat("Pedal", `${sel.s.pedal.length} veces`)}
+          {@render stat("Teclado", sel.s.device)}
+        {/if}
+      </div>
+
+      {#if error}<p class="err" role="alert"><Icon name="alert" size={14} /> {error}</p>{/if}
+
+      <div class="transport">
+        {#if loading}
+          <span class="spin" use:tooltip={song ? "Cargando pistas…" : "Sintetizando el piano…"}><ProgressRing value={null} size={24} label="Cargando" /></span>
+        {:else}
+          <IconButton icon={playing ? "pause" : "play"} label={playing ? "Pausa" : "Reproducir"} kbd="Espacio" size="lg" active={playing} onclick={toggle} disabled={!duration} />
+        {/if}
+        <span class="clock num">{fmtClock(time)}<span> / {fmtClock(duration)}</span></span>
+        <div class="master"><MasterStrip {duration} {time} chords={duration ? chords : []} {tonality} onseek={seek} /></div>
+        <span class="vol" use:tooltip={"Volumen general"}><Icon name="volume" size={14} /><Slider bind:value={settings.masterVolume} min={0} max={1.5} label="Volumen general" /></span>
+      </div>
+
+      {#if loading && !lanes.length}
+        <div class="loading"><ProgressRing value={null} size={28} label="Cargando" /><span>Cargando pistas…</span></div>
+      {:else if lanes.length}
+        <SessionLanes lanes={shownLanes} {chords} {tonality} {time} {span} onseek={seek}>
+          {#snippet head(l)}
+            <div class="lane-name"><i style:background={stemColor(l.stem)}></i><span>{l.label}</span></div>
+            {#if song}
+              <div class="lane-ctl">
+                <Button size="sm" variant="ghost" active={!!muted[l.stem]} onclick={() => (muted[l.stem] = !muted[l.stem])} title="Silenciar">M</Button>
+                <Button size="sm" variant="ghost" active={!!solo[l.stem]} onclick={() => (solo[l.stem] = !solo[l.stem])} title="Solo">S</Button>
+                <Slider bind:value={volume[l.stem]} min={0} max={1.5} label="Volumen de {l.label}" color={stemColor(l.stem)} />
+              </div>
+              {#if !l.notes.length}<small class="dim">sin notas</small>{/if}
+            {:else}
+              <small class="dim num">{l.notes.length} notas</small>
+            {/if}
+          {/snippet}
+        </SessionLanes>
+        <div class="zoom" use:tooltip={"Segundos que se ven en los carriles"}>
+          <Icon name="search" size={13} /><Slider value={42 - span} min={6} max={38} step={1} label="Zoom de los carriles" oninput={(v) => (span = 42 - v)} />
+        </div>
+      {/if}
+
+      <div class="harmony">
+        <Card>
+          <h3>Acordes que más suenan</h3>
+          {#if top.length}
+            {#if fromNotes}<p class="note">De las notas transcritas: los del audio (lv-chordia) están en la cola y saldrán la próxima vez.</p>{/if}
+            <ol class="bars">
+              {#each top.slice(0, 8) as c (c.name)}
+                {@const f = tonality ? chordFn(c, tonality) : null}
+                <li>
+                  {#if tonality}<ChordChip chord={c} {tonality} name={c.name} size="sm" active={current?.name === c.name} onclick={() => seek(c.t)} />{:else}<Chip onclick={() => seek(c.t)}>{c.name}</Chip>{/if}
+                  <span class="track"><i style:width="{(c.d / maxD) * 100}%" style:background={f?.color ?? "var(--text-3)"}></i></span>
+                  <span class="num pct">{Math.round((c.d / total) * 100)}%</span>
+                  <span class="num dur">{fmtClock(c.d)}</span>
+                </li>
+              {/each}
+            </ol>
+          {:else}
+            <p class="note">{song ? "Sin acordes todavía: sus pistas no tienen notas y los del audio (lv-chordia) están en la cola." : "Sin acordes: hacen falta tres notas a la vez."}</p>
+          {/if}
+        </Card>
+        <Card>
+          <h3>Tonalidad</h3>
+          <div class="wheel"><FifthsWheel {tonality} chords={wheelChords} {current} size={190} {latin} /></div>
+        </Card>
+      </div>
+
+      {#if chords.length}
+        <Card>
+          <h3 use:tooltip={"Pulsa un acorde para ir a él"}>Progresión <small class="num">{chords.length}</small></h3>
+          <div class="prog">
+            {#each chords as c, i (i)}
+              {#if tonality}
+                <ChordChip chord={c} {tonality} name={c.name} size="sm" showDegree={false} active={c === current} onclick={() => seek(c.t)} />
+              {:else}
+                <Chip active={c === current} onclick={() => seek(c.t)}>{c.name}</Chip>
+              {/if}
+            {/each}
+          </div>
+        </Card>
+      {/if}
+
+      <section class="ai">
+        <header class="ai-head">
+          <h2><Icon name="sparkle" size={16} /> Análisis de Claude</h2>
+          {#if song}
+            <div class="ai-stems" aria-label="Instrumentos para Claude">
+              {#each noted as st (st.name)}
+                <Chip color={stemColor(st.name)} active={aiStems.includes(st.name)} count={st.notes} onclick={() => (aiStems = aiStems.includes(st.name) ? aiStems.filter((x) => x !== st.name) : [...aiStems, st.name])}>
+                  {STEM_INFO[st.name]?.label ?? st.name}
+                </Chip>
+              {:else}
+                <span class="note">Ninguna pista tiene notas todavía: sácalas en la canción.</span>
+              {/each}
+            </div>
+          {/if}
+        </header>
+        {#if analyzing}
+          <div class="loading"><ProgressRing value={null} size={22} label="Analizando" /><span>Claude está escuchando…</span></div>
+        {:else if sections.length}
+          <div class="ai-grid">
+            {#each sections as s, i (i)}
+              <Card>
+                {#if s.title}<h3>{s.title}</h3>{/if}
+                {#each s.blocks as b, j (j)}
+                  <p class:li={b.li}>{@render linked(b.text)}</p>
+                {/each}
+              </Card>
+            {/each}
+          </div>
+        {:else}
+          <p class="note">Aún sin analizar: Claude lee las notas, los acordes y {song ? "la letra" : "el pedal"}, y marca los momentos para ir a ellos.</p>
+        {/if}
+      </section>
     {/if}
   </main>
-
-  <section class="panel">
-    {#if song}
-      {@const t = trackOf(song)}
-      <span class="kicker">Canción</span>
-      <h2>{t?.title ?? song}</h2>
-      <dl class="mono">
-        <dt>Artista</dt><dd>{t?.artist ?? "—"}</dd>
-        <dt>Tonalidad</dt><dd>{songKey || "—"}</dd>
-        {#if t?.bpm}<dt>Tempo</dt><dd>{Math.round(t.bpm)} bpm</dd>{/if}
-      </dl>
-      {#if top.length}
-        {#if songFromNotes}<p class="muted note">De las notas transcritas: los del audio (lv-chordia) están en la cola y saldrán la próxima vez que la abras.</p>{/if}
-        <span class="kicker">Acordes que más suenan</span>
-        <div class="chips">{#each top as [name, d] (name)}<span class="chip">{name} <small>{fmt(d)}</small></span>{/each}</div>
-        <span class="kicker" title="Clic en un acorde para ir a él">Progresión</span>
-        <div class="prog">
-          {#each songChords as c, i (i)}
-            <button class:now={c.t <= songTime && songTime < c.end} onclick={() => songPlayer?.seek(c.t)} title="{fmt(c.t)}{c.deg ? ` · ${c.deg}` : ''}">{c.name}</button>
-          {/each}
-        </div>
-      {:else}
-        <p class="muted">Sin acordes todavía: sus pistas no tienen notas y los del audio (lv-chordia) están en la cola.</p>
-      {/if}
-      <span class="kicker">Instrumentos para Claude</span>
-      {#if noted.length}
-        <div class="chips">
-          {#each noted as st (st.name)}
-            <button class="chip" class:on={aiStems.includes(st.name)} onclick={() => (aiStems = aiStems.includes(st.name) ? aiStems.filter((x) => x !== st.name) : [...aiStems, st.name])}>
-              {STEM_INFO[st.name]?.label ?? st.name}{#if st.notes}<small> {st.notes} notas</small>{/if}
-            </button>
-          {/each}
-        </div>
-      {:else}
-        <p class="muted">Ninguna pista tiene notas todavía: sácalas en Analizar.</p>
-      {/if}
-      <div class="actions">
-        <button class="primary" onclick={analyze} disabled={analyzing || !aiStems.length}>{analyzing ? "Claude escuchando…" : analysis ? "Analizar otra vez" : "Analizar con Claude"}</button>
-        <button class="ghost" onclick={() => song && onsong(song)} title="Letra, partitura, acordes…">Abrir en Analizar</button>
-        <button class="ghost" onclick={removeSong} title="Solo la quita de esta lista; la canción sigue en la biblioteca">Quitar</button>
-      </div>
-      {@render aiOut()}
-    {:else if sel?.s}
-      <span class="kicker">Sesión</span>
-      <h2>{when(sel.name)}</h2>
-      <dl class="mono">
-        <dt>Duración</dt><dd>{fmt(sel.s.duration)}</dd>
-        <dt>Notas</dt><dd>{sel.s.notes.length}</dd>
-        <dt>Tonalidad</dt><dd>{sel.s.key ?? "—"}</dd>
-        <dt>Pedal</dt><dd>{sel.s.pedal.length} veces</dd>
-        <dt>Teclado</dt><dd>{sel.s.device}</dd>
-      </dl>
-      {#if top.length}
-        <span class="kicker">Acordes que más suenan</span>
-        <div class="chips">{#each top as [name, d] (name)}<span class="chip">{name} <small>{fmt(d)}</small></span>{/each}</div>
-        <span class="kicker" title="Clic en un acorde para ir a él">Progresión</span>
-        <div class="prog">
-          {#each sel.s.chords as c, i (i)}
-            <button class:now={c.t <= time && time < c.end} onclick={() => seek(c.t)} title="{fmt(c.t)}{c.deg ? ` · ${c.deg}` : ''}">{c.name}</button>
-          {/each}
-        </div>
-      {/if}
-      <div class="actions">
-        <button class="primary" onclick={analyze} disabled={analyzing}>{analyzing ? "Claude escuchando…" : analysis ? "Analizar otra vez" : "Analizar con Claude"}</button>
-        <button class="ghost" onclick={toPiece} title="Pasarla a pieza para practicarla con niveles (o retocarla en el editor)">Practicar en Aprender</button>
-        <button class="ghost" onclick={() => sel && revealItemInDir(`${sel.base}.mid`)} title="El .mid se abre en cualquier programa">Carpeta</button>
-        <button class="ghost" onclick={remove}>Borrar</button>
-      </div>
-      {@render aiOut()}
-    {/if}
-  </section>
 </div>
 
-{#if adding}
-  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (adding = false)}>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="Añadir canciones">
-      <h3>Añadir canciones</h3>
-      <p class="hint">Las que tienen las pistas separadas.</p>
-      <SearchInput placeholder="Buscar…" bind:value={query} autofocus onkeydown={(e) => e.key === "Escape" && (adding = false)} />
-      <div class="picklist">
-        {#each available as t (t.key)}
-          <label class="item" class:on={picked.includes(t.key)}>
-            <input type="checkbox" bind:group={picked} value={t.key} />
-            <span>{t.title}</span><small>{t.artist} · {t.present.length} pistas</small>
-          </label>
-        {:else}
-          <p class="muted">{query ? "Ninguna coincide." : "No quedan canciones separadas sin añadir (sepáralas en Analizar)."}</p>
-        {/each}
-      </div>
-      <div class="actions">
-        <button class="ghost" onclick={() => ((adding = false), (picked = []))}>Cancelar</button>
-        <button class="primary" disabled={!picked.length} onclick={addSongs}>Añadir{picked.length ? ` (${picked.length})` : ""}</button>
-      </div>
+<Dialog bind:open={adding} title="Añadir canciones">
+  <div class="adder">
+    <Search bind:value={query} placeholder="Buscar entre las separadas…" />
+    <div class="picklist">
+      {#each available as t (t.key)}
+        <label class:on={picked.includes(t.key)}>
+          <input type="checkbox" bind:group={picked} value={t.key} />
+          <span class="t">{t.title}</span>
+          <span class="dots">{#each t.present as s (s)}<i style:background={stemColor(s)}></i>{/each}</span>
+          <small>{t.artist}</small>
+        </label>
+      {:else}
+        <p class="note">{query ? "Ninguna coincide." : "No quedan canciones separadas sin añadir (sepáralas en la canción)."}</p>
+      {/each}
     </div>
   </div>
-{/if}
+  {#snippet footer()}
+    <Button variant="ghost" onclick={() => ((adding = false), (picked = []))}>Cancelar</Button>
+    <Button variant="primary" disabled={!picked.length} onclick={addSongs}>Añadir{picked.length ? ` (${picked.length})` : ""}</Button>
+  {/snippet}
+</Dialog>
 
 <style>
-  .sessions { height: 100%; display: grid; grid-template-columns: 280px 1fr 360px; }
-  aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-  .add { width: 100%; justify-content: flex-start; margin-bottom: 6px; border-style: dashed; }
-  .side-head .seg { flex: 1; }
+  .sessions { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100%; min-height: 0; }
 
-  .dialog { width: min(560px, calc(100vw - 32px)); gap: 10px; padding: 18px; }
-  .dialog h3 { font-size: 16px; }
-  .picklist { overflow-y: auto; min-height: 120px; max-height: 50vh; display: flex; flex-direction: column; gap: 2px; }
-  .picklist label { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: center; cursor: pointer; }
-  .picklist input { grid-row: span 2; }
-  .dialog .actions { justify-content: flex-end; }
-  .list { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
-  .empty { padding: 10px; font-size: 12px; }
+  .list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--rail); }
+  .list-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s4) var(--s3) var(--s2); }
+  .filter { display: flex; padding: 0 var(--s3) var(--s2); }
+  .cards { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) var(--s3) var(--s5); }
+  .sc {
+    position: relative; display: flex; flex-direction: column; flex-shrink: 0; border-radius: var(--r-lg); border: 1px solid var(--line);
+    background: var(--panel); overflow: hidden; transition: border-color var(--t-fast), background var(--t-fast);
+  }
+  .sc:hover { border-color: var(--line-hi); background: var(--panel-hi); }
+  .sc.on { border-color: var(--accent-line); background: var(--panel-hi); }
+  .sc.broken { opacity: 0.5; }
+  .hit { position: absolute; inset: 0; z-index: 1; width: 100%; padding: 0; border: 0; border-radius: inherit; background: none; }
+  .thumb { display: block; width: 100%; height: 44px; background: var(--bg); }
+  .strip { position: relative; height: 5px; background: var(--bg); }
+  .strip i { position: absolute; top: 0; bottom: 0; }
+  .wave { padding: var(--s2) var(--s3) 0; }
+  .meta { display: flex; flex-direction: column; padding: var(--s2) var(--s3); min-width: 0; }
+  .t { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a { color: var(--text-3); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dots { display: flex; gap: 3px; margin-top: var(--s1); position: relative; z-index: 2; }
+  .dots i { width: 8px; height: 8px; border-radius: 50%; }
 
-  main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px; }
-  .bottom { flex-shrink: 0; }
-  .welcome { margin: auto; }
-  .welcome h1 { font-size: 28px; }
-  .welcome em { font-style: normal; color: var(--accent); }
+  .detail { min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s4); padding: var(--s5) var(--s6) 96px; }
+  .detail > :global(*) { flex-shrink: 0; }
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; }
+  .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .kick { color: var(--text-3); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em; }
+  .who h1 { font-size: var(--fs-2xl); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { color: var(--text-2); }
+  .actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: var(--s2); }
+  .stat { display: flex; flex-direction: column; gap: 2px; padding: var(--s2) var(--s3); border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--line); min-width: 0; }
+  .stat span { color: var(--text-3); font-size: var(--fs-xs); }
+  .stat b { font-size: var(--fs-lg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .err { display: flex; align-items: center; gap: var(--s2); color: var(--bad); font-size: var(--fs-sm); }
 
-  .panel { border-left: 1px solid var(--line); background: var(--sidebar); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 0 6px; font-size: 12px; }
-  dt { color: var(--text-3); }
-  dd { margin: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .note { margin: 0; font-size: 12px; }
-  .prog { display: flex; flex-wrap: wrap; gap: 4px; max-height: 160px; overflow-y: auto; }
-  .prog button { padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line); background: none; color: var(--text-2); font-size: 11.5px; }
-  .prog button:hover { color: var(--text); border-color: var(--line-hi); }
-  .prog button.now { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
-  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .panel .error-text { font-size: 12.5px; margin: 0; }
-  .panel > p.muted { margin: 0; font-size: 12px; }
-  article { border-top: 1px solid var(--line); padding-top: 6px; font-size: 12.5px; color: var(--text-2); }
-  article h3 { margin: 12px 0 4px; }
-  article p { margin: 0 0 6px; }
-  article .li { padding-left: 14px; position: relative; }
-  article .li::before { content: "·"; position: absolute; left: 3px; color: var(--accent); }
-  .ts { padding: 0 3px; border: 0; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 0.9em; }
-  .ts:hover { background: var(--accent); color: var(--on-accent); }
+  .transport { display: flex; align-items: center; gap: var(--s3); }
+  .clock { font-size: var(--fs-sm); white-space: nowrap; }
+  .clock span { color: var(--text-3); }
+  .master { flex: 1; min-width: 0; overflow: hidden; }
+  .spin { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; }
+  .vol { display: flex; align-items: center; gap: var(--s2); width: 110px; color: var(--text-3); flex-shrink: 0; }
+  .loading { display: flex; align-items: center; gap: var(--s3); color: var(--text-3); font-size: var(--fs-sm); padding: var(--s3) 0; }
+  .lane-name { display: flex; align-items: center; gap: var(--s2); min-width: 0; font-weight: 600; }
+  .lane-name i { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .lane-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lane-ctl { display: flex; align-items: center; gap: 2px; }
+  .dim { color: var(--text-3); font-size: var(--fs-xs); }
+  .zoom { display: flex; align-items: center; gap: var(--s2); align-self: flex-end; width: 160px; margin-top: calc(-1 * var(--s2)); color: var(--text-3); }
+
+  .harmony { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s4); }
+  h3 { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
+  h3 small { color: var(--text-3); font-weight: 400; }
+  .note { color: var(--text-3); font-size: var(--fs-sm); }
+  .bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+  .bars li { display: grid; grid-template-columns: 96px minmax(0, 1fr) 4ch 5ch; align-items: center; gap: var(--s3); }
+  .track { height: 10px; border-radius: var(--r-full); background: var(--panel-hi); overflow: hidden; }
+  .track i { display: block; height: 100%; border-radius: inherit; transition: width var(--t-slow) var(--ease); }
+  .pct { color: var(--text); font-size: var(--fs-sm); text-align: right; }
+  .dur { color: var(--text-3); font-size: var(--fs-xs); text-align: right; }
+  .wheel { display: grid; place-items: center; padding: 0 var(--s3); }
+  .prog { display: flex; flex-wrap: wrap; gap: 4px; max-height: 168px; overflow-y: auto; }
+
+  .ai { display: flex; flex-direction: column; gap: var(--s3); }
+  .ai-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+  .ai-head h2 { display: flex; align-items: center; gap: var(--s2); }
+  .ai-stems { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ai-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--s3); align-items: start; }
+  .ai-grid p { color: var(--text-2); font-size: var(--fs-md); line-height: 1.75; margin-bottom: var(--s2); }
+  .ai-grid p.li { position: relative; padding-left: var(--s4); }
+  .ai-grid p.li::before { content: ""; position: absolute; left: 4px; top: 0.7em; width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
+  .ts { display: inline-flex; vertical-align: middle; margin: -2px 0; }
+
+  .adder { display: flex; flex-direction: column; gap: var(--s3); }
+  .picklist { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; min-height: 120px; overflow-y: auto; }
+  .picklist label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 var(--s3); align-items: center; padding: var(--s2); border-radius: var(--r-md); cursor: pointer; }
+  .picklist label:hover { background: var(--panel-hi); }
+  .picklist label.on { background: var(--accent-soft); }
+  .picklist input { grid-row: span 2; margin: 0; }
+  .picklist .dots { margin: 0; }
+  .picklist small { grid-column: 2 / 4; color: var(--text-3); font-size: var(--fs-xs); }
+
+  @media (max-width: 1100px) {
+    .harmony { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>

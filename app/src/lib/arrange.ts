@@ -125,18 +125,35 @@ function monophonic(src: { b: number; e: number; p: number; v: number }[], lowes
   return out;
 }
 
-/** Sube o baja toda la línea por octavas para centrarla, y lo que se salga del rango, a su octava más cercana dentro. */
-function fold(notes: ANote[], lo: number, hi: number) {
+/** Sube o baja toda la línea por octavas para centrarla; lo que se salga del rango se mueve por frases (separadas por
+ * silencios de un pulso o más) a una misma octava, así la melodía no cambia de forma; si una frase no cabe, por
+ * compases; y si ni el compás cabe, nota a nota. De las octavas que caben, la más cercana a la del trozo anterior. */
+function fold(notes: ANote[], lo: number, hi: number, meter: number, start: number) {
   if (!notes.length) return notes;
   const sorted = notes.map((n) => n.p).sort((a, b) => a - b);
   const mid = sorted[sorted.length >> 1];
   const shift = Math.round(((lo + hi) / 2 - mid) / 12) * 12;
-  return notes.map((n) => {
-    let p = n.p + shift;
-    while (p < lo) p += 12;
-    while (p > hi) p -= 12;
-    return { ...n, p };
-  });
+  const out = notes.map((n) => ({ ...n, p: n.p + shift }));
+  let prev = 0; // octavas que se movió el trozo anterior
+  const place = (g: ANote[]) => {
+    const kLo = Math.ceil((lo - Math.min(...g.map((n) => n.p))) / 12), kHi = Math.floor((hi - Math.max(...g.map((n) => n.p))) / 12);
+    if (kLo > kHi) return false;
+    prev = Math.min(kHi, Math.max(kLo, prev));
+    for (const n of g) n.p += prev * 12;
+    return true;
+  };
+  const split = (g: ANote[], same: (a: ANote, b: ANote) => boolean) =>
+    g.reduce<ANote[][]>((gs, n) => (gs.length && same(gs[gs.length - 1][gs[gs.length - 1].length - 1], n) ? gs[gs.length - 1].push(n) : gs.push([n]), gs), []);
+  const bar = (n: ANote) => Math.floor((n.b - start) / meter + 1e-6);
+  for (const phrase of split(out, (a, b) => b.b - (a.b + a.d) < 1 - 1e-6))
+    if (!place(phrase))
+      for (const g of split(phrase, (a, b) => bar(a) === bar(b)))
+        if (!place(g))
+          for (const n of g) {
+            while (n.p < lo) n.p += 12;
+            while (n.p > hi) n.p -= 12;
+          }
+  return out;
 }
 
 // ---------------------------------------------------------------- acompañamiento
@@ -201,7 +218,9 @@ function accompaniment(segs: Seg[], level: Level, hand: Hand): ANote[] {
       continue;
     }
     if (level === 1) out.push({ b, d, p: root, v });
-    else if (level === 2) out.push({ b, d, p: root, v }, { b, d, p: root + 7, v });
+    // el bajo y la quinta del acorde por encima (con el bajo en la quinta, la fundamental): «bajo + 7» solo vale sin
+    // inversión; en Do/Mi daba Si, en Sol/Si Fa#, notas fuera del acorde
+    else if (level === 2) out.push({ b, d, p: root, v }, { b, d, p: inRange(pcOf(c, root % 12 === pcOf(c, 2) ? 0 : 2), root + 1), v });
     else if (level === 3) for (const p of (prev = voicing(c, 45, prev))) out.push({ b, d, p, v }); // La2…Mi4
     else {
       // bajo en el primer pulso del tramo y el acorde en los demás (el «bajo + acorde» del pop; en 3/4, un vals)
@@ -258,28 +277,83 @@ function arpeggios(segs: Seg[], level: Level, hand: Hand): ANote[] {
   return out;
 }
 
-/** Estilo pop: el acompañamiento con el ritmo 3+3+2 (golpes en el 1, el «y» del 2 y el 4; en otros compases, cada
- * pulso) y el bajo en octavas. Izquierda: la fundamental (1), en octava (2-4), octavas partidas en corcheas (6) o en
- * semicorcheas con la quinta (7). Derecha sin melodía: acordes en esos golpes (1-3), en corcheas seguidas (4 y más). */
-function pop(segs: Seg[], level: Level, hand: Hand, meter: number, start: number): ANote[] {
+/** Estilo pop, medido en las versiones de Pianella Piano (7 canciones transcritas con basic-pitch): la izquierda casi
+ * nunca arpegia arriba y abajo; llena las corcheas con raíz y quinta en las estrofas, octavas en corcheas en los
+ * estribillos y en semicorcheas en el clímax, la raíz grave en Do2…Si2 y apenas terceras; cuando cambia el acorde,
+ * a menudo su raíz se adelanta al «y» del 4. Cada golpe: semicorchea del compás (0-15 en 4/4; lo que no cabe en el
+ * compás, fuera) y sus notas: R raíz, O su octava, 5 quinta, T décima, C el acorde cerrado (Do3…Si3). */
+const S8 = [0, 2, 4, 6, 8, 10, 12, 14];
+const POP: Record<string, [number, string][]> = {
+  nota: [[0, "R"]],
+  mitades: [[0, "R"], [8, "5"]],
+  octavas2: [[0, "RO"], [8, "RO"]],
+  negras: [[0, "R"], [4, "5"], [8, "R"], [12, "5"]],
+  octavas4: [[0, "RO"], [4, "RO"], [8, "RO"], [12, "RO"]],
+  sincopa: [[0, "RO"], [6, "5"], [12, "RO"]], // 3+3+2
+  sincopaC: [[0, "RO"], [6, "C"], [12, "RO"]],
+  sincopaCC: [[0, "RO"], [6, "C"], [10, "C"], [12, "RO"]],
+  vaiven: S8.map((s, i) => [s, i % 2 ? "5" : "R"]), // raíz-quinta en corcheas: la estrofa típica
+  sube: S8.map((s, i) => [s, "R5O"[i % 3]]), // R 5 8 | R 5 8 | R 5: sube y vuelve a empezar, nunca baja
+  sube10: S8.map((s, i) => [s, "R5T"[i % 3]]),
+  octavas8: S8.map((s, i) => [s, i % 2 ? "O" : "RO"]), // octava en el pulso, la de arriba en el «y»
+  octavas8F: S8.map((s) => [s, "RO"]),
+  octavas16: Array.from({ length: 16 }, (_, s) => [s, s % 2 ? "O" : "R"]),
+};
+/** El patrón de cada nivel según la energía de la frase: tranquila, media, fuerte, clímax. */
+const POP_LH: Partial<Record<Level, string[]>> = {
+  2: ["nota", "mitades", "octavas2", "octavas2"],
+  3: ["negras", "sincopa", "octavas4", "octavas4"],
+  4: ["vaiven", "sincopaC", "octavas8", "octavas8"],
+  6: ["sube", "sincopaC", "octavas8", "octavas8F"],
+  7: ["sube10", "sincopaCC", "octavas8F", "octavas16"],
+};
+/** Final de frase sin cambio de acorde (nivel 4 y más): el último pulso sube hacia el 1 siguiente. */
+const FILL: Record<string, [number, string][]> = { 4: [[12, "5"], [14, "O"]], 6: [[12, "R"], [13, "5"], [14, "O"], [15, "T"]] };
+
+/** Energía de cada compás por frases de 4: 0 tranquila, 1 media, 2 fuerte, 3 clímax (las fuertes del último 40 %).
+ * Sale de la línea de la melodía: cuánto suena y lo aguda que va (los estribillos van más llenos y más arriba); las
+ * frases se reparten en tercios entre la más floja y la más fuerte. Sin línea, o con una sola frase, todo media. */
+function popEnergy(notes: Note[] | null | undefined, beats: number[], meter: number, start: number): number[] {
+  const ph: { d: number; pd: number }[] = [];
+  for (const [s, e, p] of notes ?? []) {
+    const b = toBeat(beats, s), d = toBeat(beats, e) - b, i = Math.floor((b - start) / meter / 4);
+    if (i < 0 || d <= 0) continue;
+    const x = (ph[i] ??= { d: 0, pd: 0 });
+    [x.d, x.pd] = [x.d + d, x.pd + p * d];
+  }
+  const n = ph.length;
+  if (n < 2) return [];
+  const all = Array.from({ length: n }, (_, i) => ph[i] ?? { d: 0, pd: 0 });
+  const mean = all.reduce((s, x) => s + x.pd, 0) / all.reduce((s, x) => s + x.d, 0);
+  const score = all.map((x) => (x.d ? x.d / (4 * meter) + (x.pd / x.d - mean) / 12 : -Infinity));
+  const live = score.filter((s) => s > -Infinity), lo = Math.min(...live), hi = Math.max(...live);
+  return score.flatMap((s, i) => {
+    const e = s === -Infinity ? 0 : hi - lo < 1e-9 ? 1 : Math.min(2, Math.floor((3 * (s - lo)) / (hi - lo)));
+    return Array(4).fill(e === 2 && i >= 0.6 * n ? 3 : e);
+  });
+}
+
+/** Estilo pop. Izquierda: la fundamental (1), y desde el 2 los patrones de POP_LH según la energía de cada frase, con la
+ * raíz del acorde siguiente adelantada una corchea (3 y más) y una subida al final de frase (4 y más). Derecha sin
+ * melodía: acordes en el ritmo 3+3+2 (golpes en el 1, el «y» del 2 y el 4; en otros compases, cada pulso) (1-3), en
+ * corcheas seguidas (4 y más). */
+function pop(segs: Seg[], level: Level, hand: Hand, meter: number, start: number, energy: number[] = []): ANote[] {
   const out: ANote[] = [];
   const PATTERN = meter === 4 ? [0, 1.5, 3] : Array.from({ length: meter }, (_, i) => i);
+  const pats = POP_LH[level] ?? POP_LH[4]!;
   let prev: number[] | null = null;
-  for (const { b, e, c } of segs) {
-    const bar = start + Math.floor((b - start) / meter + 1e-6) * meter;
-    const hits = [b, ...PATTERN.map((x) => bar + x).filter((x) => x > b + 1e-6 && x < e - 1e-6)];
+  const tones = (code: string, c: Chord) => {
     const root = inRange(c.bass ?? c.root, 36); // Do2…Si2
+    return [...code].flatMap((t) =>
+      t === "R" ? [root] : t === "O" ? [root + 12] : t === "5" ? [inRange(pcOf(c, 2), root + 1)]
+        : t === "T" ? [inRange(pcOf(c, 1), root + 13)] : (prev = voicing(c, 48, prev)).filter((p) => p < 60)); // por debajo del Do central: arriba va la derecha
+  };
+  const bassPc = (c: Chord) => (c.bass ?? c.root) % 12;
+  segs.forEach(({ b, e, c }, si) => {
+    const k = Math.floor((b - start) / meter + 1e-6), bar = start + k * meter;
+    const hits = [b, ...PATTERN.map((x) => bar + x).filter((x) => x > b + 1e-6 && x < e - 1e-6)];
     const len = (i: number) => (hits[i + 1] ?? e) - hits[i];
-    if (hand === "lh") {
-      if (level === 1) out.push({ b, d: e - b, p: root + 12 <= 52 ? root + 12 : root, v: 0.65 });
-      else if (level <= 4 || level === 5) hits.forEach((x, i) => out.push({ b: x, d: len(i) * 0.95, p: root, v: 0.7 }, { b: x, d: len(i) * 0.95, p: root + 12, v: 0.6 }));
-      else {
-        const step = level === 7 ? 0.25 : 0.5, fifth = inRange(pcOf(c, 2), root + 1);
-        const path = level === 7 ? [root, root + 12, fifth, root + 12] : [root, root + 12];
-        let i = 0;
-        for (let x = b; x < e - 1e-6; x += step) out.push({ b: x, d: Math.min(step, e - x) * 0.9, p: path[i++ % path.length], v: i % 2 ? 0.7 : 0.6 });
-      }
-    } else {
+    if (hand === "rh") {
       const vo: number[] = (prev = voicing(c, 60, prev));
       const top = level >= 6 ? [vo[0] + 12] : [];
       if (level <= 3) hits.forEach((x, i) => vo.forEach((p) => out.push({ b: x, d: len(i) * 0.9, p, v: 0.55 })));
@@ -287,8 +361,34 @@ function pop(segs: Seg[], level: Level, hand: Hand, meter: number, start: number
         const accent = hits.some((h) => Math.abs(h - x) < 1e-6);
         for (const p of [...vo, ...(accent ? top : [])]) out.push({ b: x, d: Math.min(0.5, e - x) * 0.85, p, v: accent ? 0.62 : 0.45 });
       }
+      return;
     }
-  }
+    if (level === 1) {
+      const root = inRange(c.bass ?? c.root, 36);
+      out.push({ b, d: e - b, p: root + 12 <= 52 ? root + 12 : root, v: 0.65 });
+      return;
+    }
+    const en = energy[k] ?? 1;
+    const at = (pat: [number, string][]) => pat.map(([s, t]) => [bar + s / 4, t] as [number, string]);
+    let g = at(POP[pats[en]]).filter(([x]) => x > b - 1e-6 && x < e - 1e-6 && x < bar + meter - 1e-6);
+    if (!g.length || g[0][0] > b + 1e-6) g.unshift([b, en >= 2 ? "RO" : "R"]);
+    const next = segs[si + 1];
+    const change = next && Math.abs(next.b - e) < 1e-6 && bassPc(next.c) !== bassPc(c);
+    let ant: [number, string] | null = null;
+    if (level >= 3 && change && e - b >= 1) {
+      // la raíz del acorde siguiente, adelantada al último «y» (se vuelve a tocar en su 1)
+      g = g.filter(([x]) => x < e - 0.5 - 1e-6);
+      ant = [e - 0.5, en >= 2 ? "RO" : "R"];
+    } else if (level >= 4 && meter === 4 && k % 4 === 3 && Math.abs(e - bar - meter) < 1e-6 && e - b >= 2) {
+      g = [...g.filter(([x]) => x < bar + 3 - 1e-6), ...at(FILL[level >= 6 ? 6 : 4])];
+    }
+    const v = 0.6 + 0.04 * en;
+    const all: [number, string, Chord][] = [...g.map(([x, t]) => [x, t, c] as [number, string, Chord]), ...(ant ? [[...ant, next.c] as [number, string, Chord]] : [])];
+    all.forEach(([x, code, cc], i) => {
+      const d = ((all[i + 1]?.[0] ?? e) - x) * 0.95;
+      for (const p of tones(code, cc)) out.push({ b: x, d, p, v: p < 48 ? v + 0.05 : v - 0.1 });
+    });
+  });
   return out;
 }
 
@@ -316,15 +416,15 @@ export function arrange(o: {
   let rh: ANote[];
   let lh: ANote[];
   if (o.melody) {
-    rh = fold(melodyLine(o.melody, beats, GRID[level]), level === 7 ? 64 : 60, level <= 2 ? 79 : level >= 6 ? 88 : 84);
+    rh = fold(melodyLine(o.melody, beats, GRID[level]), level === 7 ? 64 : 60, level <= 2 ? 79 : level >= 6 ? 88 : 84, meter, start);
     if (level === 4 || level >= 6) rh = harmonize(rh, segs, meter, start, level);
     lh = level === 5 ? transcribedLeft(o.piano ?? [], o.bass ?? [], segs, beats)
-      : o.style === "pop" ? pop(segs, level, "lh", meter, start)
+      : o.style === "pop" ? pop(segs, level, "lh", meter, start, popEnergy(o.melody, beats, meter, start))
       : level >= 6 ? arpeggios(segs, level, "lh") : accompaniment(segs, level, "lh");
   } else {
     // solo acompañamiento: la derecha, los acordes; la izquierda, el bajo, cada vez más cerca del de la canción
     if (o.style === "pop" && level !== 5) {
-      [rh, lh] = [pop(segs, level, "rh", meter, start), pop(segs, level, "lh", meter, start)];
+      [rh, lh] = [pop(segs, level, "rh", meter, start), pop(segs, level, "lh", meter, start, popEnergy(o.piano ?? o.bass, beats, meter, start))];
       const t = o.transpose ?? 0;
       const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));
       return { rh: shift(rh), lh: shift(lh), key: { tonic: (o.key.tonic + t + 12) % 12, minor: o.key.minor }, transpose: t, meter, start };

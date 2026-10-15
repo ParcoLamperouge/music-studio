@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isUrl, loadAfter, thenOf } from "./AddDialog.svelte";
+  import { deck, deckToggle } from "./deck.svelte";
   import { fmtBytes, importSources, type Track } from "./engine";
   import { fold } from "./shell/nav";
   import SongCard from "./SongCard.svelte";
@@ -13,10 +14,11 @@
   import Search from "./ui/Search.svelte";
 
   // La biblioteca: rejilla de canciones con su onda de portada, filtros, búsqueda, orden y acciones en bloque.
-  let { picked = $bindable(), current, onopen, onadd, onbulk, onqueue }: {
+  let { picked = $bindable(), current, onopen, onplay, onadd, onbulk, onqueue }: {
     picked: string[];
     current: string | null; // la cargada en el reproductor
     onopen: (key: string) => void;
+    onplay: (key: string) => void; // ▶ de una tarjeta: cargarla y que suene
     onadd: () => void;
     onbulk: (action: string, keys: string[]) => void;
     onqueue: () => void;
@@ -68,6 +70,8 @@
     const needle = fold(q.trim());
     return store.tracks.filter((t) => test(t) && (!needle || fold(`${t.artist} ${t.title}`).includes(needle))).sort(BY[sort] ?? BY.recent);
   });
+  // anterior / siguiente del mini-reproductor siguen lo que se ve
+  $effect(() => void (deck.order = shown.map((t) => t.key)));
   const total = $derived(store.tracks.reduce((n, t) => n + t.bytes, 0));
 
   function click(e: MouseEvent, t: Track, i: number) {
@@ -182,6 +186,8 @@
             picked={picked.includes(t.key)}
             picking={picked.length > 0}
             current={t.key === current}
+            playing={t.key === current && deck.playing}
+            onplay={() => (t.key === current && deck.duration > 0 ? deckToggle() : onplay(t.key))}
             onclick={(e) => click(e, t, i)}
             ontoggle={(e) => (e.shiftKey ? click(e, t, i) : ((anchor = i), toggle(t)))}
           />

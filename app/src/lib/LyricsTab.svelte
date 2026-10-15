@@ -2,7 +2,19 @@
   import Editor from "./Editor.svelte";
   import { enqueue, lyricsPath, playerSeek, run, SOURCE_LABEL, spotifyClock, writeJson, type Detail, type Lyrics } from "./engine";
   import { jobOf, jobText, store } from "./store.svelte";
+  import Button from "./ui/Button.svelte";
+  import Chip from "./ui/Chip.svelte";
+  import EmptyState from "./ui/EmptyState.svelte";
+  import Field from "./ui/Field.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import IconButton from "./ui/IconButton.svelte";
+  import Menu, { type MenuItem } from "./ui/Menu.svelte";
+  import Popover from "./ui/Popover.svelte";
+  import ProgressRing from "./ui/ProgressRing.svelte";
+  import Textarea from "./ui/Textarea.svelte";
+  import Toggle from "./ui/Toggle.svelte";
 
+  // Letra a lo grande, palabra a palabra; las herramientas (sincronizar, desfase, ficha) en una barra discreta arriba.
   let { detail, time, playing, editing = $bindable(), onseek, ontoggle, onrenamed }: {
     detail: Detail;
     time: number; // tiempo del audio
@@ -103,47 +115,108 @@
     if (!doc) return "";
     if (doc.instrumental) return "Instrumental";
     const words = doc.lines.some((l) => l.words?.length);
-    if (doc.synced_by === "ia") return doc.ai_mode === "lineas" ? "IA rápida: palabra a palabra sobre los tiempos de internet" : "IA: Whisper large-v3 + alineado forzado";
+    if (doc.synced_by === "ia") return doc.ai_mode === "lineas" ? "IA rápida" : "IA palabra a palabra";
     if (words) return "Palabra a palabra";
-    return doc.lines.some((l) => l.t != null) ? (doc.edited ? "A mano, por líneas" : "Por líneas (venía así)") : "Sin tiempos";
+    return doc.lines.some((l) => l.t != null) ? (doc.edited ? "A mano, por líneas" : "Por líneas") : "Sin tiempos";
   });
   const doubts = $derived(doc ? doc.lines.filter((l) => l.words?.some((w) => w.p != null && w.p < 0.5)).length : 0);
   const canFast = $derived(!!doc?.lines.some((l) => l.t != null && l.text));
+  const syncItems = $derived<MenuItem[]>([
+    { label: "Dentro de cada línea", icon: "lyrics", disabled: !!active || !canFast, title: "Respeta el inicio de cada línea y coloca las palabras con el audio. Instantáneo.", run: () => act("sync", ["lineas"]) },
+    { label: "Desde el audio", icon: "sparkle", disabled: !!active, title: "Whisper escucha y alinea tu texto: para una sincronización liada.", run: () => act("sync", ["ia"]) },
+    ...(doc && !doc.audio_checked && timed.length
+      ? [{ label: "Comprobar la versión del audio", icon: "audio" as const, disabled: !!active, title: "Si el audio es otra versión (videoclip con intro…), lo pone a la par", run: () => act("sync", ["lineas"]) }]
+      : []),
+    "-",
+    { label: "Buscar otra vez", icon: "search", disabled: !!active, run: () => confirm("Buscar la letra otra vez en internet. La actual va al historial.") && act("letra", ["force"]) },
+    { label: `Volver a la anterior${detail.history > 1 ? ` (${detail.history})` : ""}`, icon: "undo", disabled: !!active || !detail.history, run: restore },
+  ]);
+  function toggled(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const field = input.closest<HTMLElement>("[data-field]")?.dataset.field;
+    if (field === "hidden" || field === "instrumental") patch({ [field]: input.checked });
+  }
+  const fmtOff =(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(2)} s`;
 </script>
 
 {#if stemOnly}
-  <div class="empty">
-    <h2>¿Qué canción es?</h2>
-    <p>Esta viene de StemLab sin artista ni título. Con ellos, Letras busca la letra y la sincroniza con la voz que ya está separada.</p>
-    <form class="assign" onsubmit={assign}>
-      <input bind:value={artist} placeholder="Artista" />
-      <input bind:value={title} placeholder="Canción" />
-      <button class="primary" disabled={!artist.trim() || !title.trim()}>Buscar letra</button>
-    </form>
-    {#if error}<p class="error-text">{error}</p>{/if}
-  </div>
+  <EmptyState icon="lyrics" title="¿Qué canción es?">
+    Con artista y título se busca la letra y se sincroniza con la voz ya separada.
+    {#snippet actions()}
+      <form class="assign" onsubmit={assign}>
+        <Field label="Artista" bind:value={artist} />
+        <Field label="Canción" bind:value={title} />
+        <Button variant="primary" type="submit" icon="search" disabled={!artist.trim() || !title.trim()}>Buscar letra</Button>
+      </form>
+      {#if error}<p class="err">{error}</p>{/if}
+    {/snippet}
+  </EmptyState>
 {:else if !doc || !lines.some((l) => l.text)}
-  <div class="empty">
-    <h2>{doc?.instrumental ? "Instrumental" : "Sin letra todavía"}</h2>
-    <p>
-      Busca en LRCLIB, NetEase, QQ, Kugou y Genius. Si no aparece, Whisper la transcribe. Siempre acaba palabra a palabra, con
-      {detail.vocals === "stemlab" || detail.stems === "complete" ? " la voz que ya separó StemLab (sin volver a separar)." : " la voz aislada (si luego separas en StemLab, se usa la suya)."}
-    </p>
-    {#if active}
-      <div class="jobline"><span class="spinner"></span>{jobText(active)}</div>
-    {:else}
-      <button class="primary" onclick={() => act("letra", doc ? ["force"] : [])}>{job?.status === "error" ? "Reintentar" : "Buscar y sincronizar"}</button>
-      {#if job?.status === "error"}<p class="error-text">{job.error}</p>{/if}
-    {/if}
-  </div>
+  <EmptyState icon="lyrics" title={doc?.instrumental ? "Instrumental" : "Sin letra"}>
+    Se busca en internet (o la transcribe Whisper) y se sincroniza palabra a palabra.
+    {#snippet actions()}
+      {#if active}
+        <span class="job"><ProgressRing value={active.pct != null ? active.pct / 100 : null} size={16} />{jobText(active)}</span>
+      {:else}
+        <Button variant="primary" icon={job?.status === "error" ? "retry" : "search"} onclick={() => act("letra", doc ? ["force"] : [])}>{job?.status === "error" ? "Reintentar" : "Buscar y sincronizar"}</Button>
+        {#if job?.status === "error"}<p class="err">{job.error}</p>{/if}
+      {/if}
+    {/snippet}
+  </EmptyState>
 {:else}
-  <div class="wrap">
-    <div class="karaoke" bind:this={scroller} onwheel={() => (userScroll = Date.now())} class:dim={!playing && !followSpotify && time === 0}>
+  <div class="lyrics">
+    <div class="tools">
+      <Chip icon={doc.synced_by === "ia" ? "sparkle" : "lyrics"} title="{SOURCE_LABEL[doc.source] ?? doc.source}{doc.times_from ? ` · tiempos de ${SOURCE_LABEL[doc.times_from] ?? doc.times_from}` : ''}">{syncLabel}</Chip>
+      {#if doubts && !doc.edited}<Chip icon="alert" title="Líneas con palabras dudosas: revísalas en el editor" onclick={() => (editing = true)} count={doubts}>Dudas</Chip>{/if}
+      {#if followSpotify}<Chip icon="broadcast" title="La letra sigue a Spotify">Spotify</Chip>{/if}
+      {#if active}<span class="job"><ProgressRing value={active.pct != null && active.status === "running" ? active.pct / 100 : null} size={16} />{jobText(active)}</span>{/if}
+      {#if job?.status === "error"}<span class="err" title={job.error}><Icon name="alert" size={14} /> Falló</span>{/if}
+      {#if error}<span class="err" title={error}><Icon name="alert" size={14} /> {error}</span>{/if}
+      <span class="spacer"></span>
+      <Menu items={syncItems} align="end" label="Sincronizar">
+        {#snippet trigger({ toggle, open })}<Button size="sm" variant="ghost" icon="sparkle" active={open} onclick={toggle}>Sincronizar</Button>{/snippet}
+      </Menu>
+      <Popover align="end" width={260} label="Desfase">
+        {#snippet trigger({ toggle, open })}<IconButton icon="wait" label="Desfase" size="sm" active={open || !!off || !!doc.word_offset} onclick={toggle} />{/snippet}
+        <div class="pane">
+          {#each [["offset", "Todo", 0.1], ["word_offset", "Palabras", 0.05]] as const as [field, label, step] (field)}
+            <div class="nudge">
+              <span>{label}</span>
+              <IconButton icon="minus" label="−{step} s" size="sm" onclick={() => nudge(field, -step)} />
+              <b class="num">{fmtOff(doc[field] ?? 0)}</b>
+              <IconButton icon="plus" label="+{step} s" size="sm" onclick={() => nudge(field, step)} />
+            </div>
+          {/each}
+          <small>También en la partitura y los edits.</small>
+        </div>
+      </Popover>
+      <Popover align="end" width={280} label="Ficha de la letra">
+        {#snippet trigger({ toggle, open })}<IconButton icon="info" label="Ficha" size="sm" active={open} onclick={toggle} />{/snippet}
+        <div class="pane">
+          <dl>
+            <dt>Texto</dt><dd>{SOURCE_LABEL[doc.source] ?? doc.source}{doc.edited ? " · corregida" : ""}</dd>
+            {#if doc.times_from}<dt>Tiempos</dt><dd>{SOURCE_LABEL[doc.times_from] ?? doc.times_from}</dd>{/if}
+            <dt>Voz</dt><dd>{detail.vocals === "stemlab" ? "StemLab" : detail.vocals === "letras" ? "Letras (rápida)" : "—"}</dd>
+            <dt>Líneas</dt><dd class="num">{lines.filter((l) => l.text).length}</dd>
+            <dt>Audio</dt><dd>{doc.audio_checked ? `misma versión${doc.audio_shift ? ` (${doc.audio_shift > 0 ? "−" : "+"}${Math.abs(doc.audio_shift).toFixed(1)} s)` : ""}` : "sin comprobar"}</dd>
+          </dl>
+          <!-- el cambio de cada interruptor sube hasta aquí -->
+          <div class="toggles" role="group" onchange={toggled}>
+            <span data-field="hidden"><Toggle checked={!!doc.hidden} title="No sale en el escritorio">Oculta en el escritorio</Toggle></span>
+            <span data-field="instrumental"><Toggle checked={!!doc.instrumental}>Instrumental</Toggle></span>
+          </div>
+          <Textarea label="Nota" rows={2} value={doc.note ?? ""} onchange={(e) => patch({ note: e.currentTarget.value.trim() || undefined })} />
+        </div>
+      </Popover>
+      <Button size="sm" variant="secondary" icon="edit" kbd="E" onclick={() => (editing = true)}>Editar</Button>
+    </div>
+
+    <div class="karaoke" bind:this={scroller} onwheel={() => (userScroll = Date.now())} class:idle={!playing && !followSpotify && time === 0}>
       <div class="pad"></div>
       {#each lines as l (l.i)}
         {#if l.text}
           {@const state = l.i === current ? "now" : current >= 0 && l.i < current ? "past" : "next"}
-          <button class="line {state}" data-i={l.i} disabled={l.t == null} onclick={() => seekTo(l.t! + off)} ondblclick={ontoggle}>
+          <button type="button" class="line {state}" data-i={l.i} disabled={l.t == null} onclick={() => seekTo(l.t! + off)} ondblclick={ontoggle}>
             {#if l.words?.length && state === "now"}
               {#each l.words as w, j (j)}
                 <span class="w" style:--p={sung(w, l.words[j + 1])} class:doubt={w.p != null && w.p < 0.5}>{w.w}</span>{" "}
@@ -158,70 +231,6 @@
       {/each}
       <div class="pad"></div>
     </div>
-
-    <aside class="info">
-      <div class="card">
-        <span class="kicker">Letra{#if followSpotify} · <span class="spot">siguiendo Spotify</span>{/if}</span>
-        <p class="big">{syncLabel}</p>
-        <dl>
-          <dt>Texto</dt><dd>{SOURCE_LABEL[doc.source] ?? doc.source}{doc.edited ? " · corregida" : ""}</dd>
-          {#if doc.times_from}<dt>Tiempos</dt><dd>{SOURCE_LABEL[doc.times_from] ?? doc.times_from}</dd>{/if}
-          <dt>Voz</dt><dd>{detail.vocals === "stemlab" ? "StemLab (calidad completa)" : detail.vocals === "letras" ? "Letras (rápida)" : "—"}</dd>
-          <dt>Líneas</dt><dd class="mono">{lines.filter((l) => l.text).length}</dd>
-          <dt>Audio</dt>
-          <dd>
-            {#if doc.audio_checked}
-              misma versión{doc.audio_shift ? ` (ajustado ${doc.audio_shift > 0 ? "−" : "+"}${Math.abs(doc.audio_shift).toFixed(1)} s)` : ""}
-            {:else if timed.length}
-              <button class="link" disabled={!!active} onclick={() => act("sync", ["lineas"])} title="Whisper comprueba que el audio es la versión de los tiempos de la letra y, si no (videoclip con intro…), lo pone a la par">sin comprobar · comprobar</button>
-            {:else}—{/if}
-          </dd>
-        </dl>
-        {#if doubts && !doc.edited}<p class="hint warn">{doubts} líneas con palabras dudosas: revísalas en el editor.</p>{/if}
-      </div>
-
-      {#if active}
-        <div class="card busy">
-          <span class="kicker">Trabajando</span>
-          <p>{jobText(active)}</p>
-          <div class="bar" class:indet={active.pct == null}><i style:width="{active.pct ?? 0}%"></i></div>
-        </div>
-      {:else if job?.status === "error"}
-        <div class="card"><p class="error-text">{job.error}</p></div>
-      {/if}
-
-      <div class="actions">
-        <button class="primary sm" onclick={() => (editing = true)}>Editar <kbd>E</kbd></button>
-        <button class="ghost sm" disabled={!!active || !canFast} onclick={() => act("sync", ["lineas"])} title="No toca el inicio de ninguna línea: el audio coloca cada palabra entre el inicio de su línea y el de la siguiente. Instantáneo.">Dentro de cada línea</button>
-        <button class="ghost sm" disabled={!!active} onclick={() => act("sync", ["ia"])} title="No usa los tiempos por línea: Whisper escucha el audio y alinea tu texto letra a letra. Para arreglar una sincronización liada.">Desde el audio</button>
-        <button class="ghost sm" disabled={!!active} onclick={() => confirm("Buscar la letra otra vez en internet. La actual va al historial.") && act("letra", ["force"])}>Buscar otra vez</button>
-        <button class="ghost sm" disabled={!!active || !detail.history} onclick={restore} title="Deshace la última sincronización o búsqueda">Volver a la anterior{detail.history > 1 ? ` (${detail.history})` : ""}</button>
-      </div>
-
-      <div class="card offsets">
-        <span class="kicker">Desfase</span>
-        <div class="nudge">
-          <span>Todo</span>
-          <button class="ghost sm" onclick={() => nudge("offset", -0.1)}>−0.1</button>
-          <b class="mono">{off > 0 ? "+" : ""}{off.toFixed(2)} s</b>
-          <button class="ghost sm" onclick={() => nudge("offset", 0.1)}>+0.1</button>
-        </div>
-        <div class="nudge">
-          <span>Palabras</span>
-          <button class="ghost sm" onclick={() => nudge("word_offset", -0.05)}>−0.05</button>
-          <b class="mono">{(doc.word_offset ?? 0) > 0 ? "+" : ""}{(doc.word_offset ?? 0).toFixed(2)} s</b>
-          <button class="ghost sm" onclick={() => nudge("word_offset", 0.05)}>+0.05</button>
-        </div>
-        <small class="hint">Se aplica igual en la partitura y en los edits.</small>
-      </div>
-      <div class="card desk">
-        <span class="kicker">Escritorio y biblioteca</span>
-        <label><input type="checkbox" checked={!!doc.hidden} onchange={(e) => patch({ hidden: e.currentTarget.checked })} /> Oculta en el escritorio</label>
-        <label><input type="checkbox" checked={!!doc.instrumental} onchange={(e) => patch({ instrumental: e.currentTarget.checked })} /> Instrumental</label>
-        <textarea rows="2" placeholder="Nota" value={doc.note ?? ""} onchange={(e) => patch({ note: e.currentTarget.value.trim() || undefined })}></textarea>
-      </div>
-      {#if error}<p class="error-text">{error}</p>{/if}
-    </aside>
   </div>
 
   {#if editing}
@@ -244,50 +253,41 @@
 {/if}
 
 <style>
-  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
+  .lyrics { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .tools { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; flex-shrink: 0; }
+  .spacer { flex: 1; }
+  .job { display: inline-flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-sm); min-width: 0; }
+  .err { display: inline-flex; align-items: center; gap: 4px; color: var(--bad); font-size: var(--fs-sm); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .assign { display: flex; gap: var(--s2); align-items: flex-end; }
+
+  .pane { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s2); }
+  .pane small { color: var(--text-3); font-size: var(--fs-xs); }
+  .nudge { display: grid; grid-template-columns: 1fr auto 76px auto; align-items: center; gap: var(--s1); font-size: var(--fs-sm); color: var(--text-2); }
+  .nudge b { text-align: center; font-weight: 600; color: var(--text); }
+  .toggles { display: flex; flex-direction: column; gap: var(--s2); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--s3); margin: 0; font-size: var(--fs-sm); }
+  dt { color: var(--text-3); }
+  dd { margin: 0; color: var(--text-2); }
+
   .karaoke {
-    min-height: 0; overflow-y: auto; padding: 0 10px; scroll-behavior: smooth;
-    mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+    flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--s4); scroll-behavior: smooth;
+    mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent);
   }
-  .pad { height: 40%; }
+  .pad { height: 42%; }
   .line {
-    display: block; width: 100%; text-align: left; border: 0; background: none; padding: 5px 4px; margin: 0;
-    font-size: 20px; line-height: 1.3; letter-spacing: -0.02em; color: var(--text-3);
-    transition: color 0.3s, transform 0.4s var(--ease), opacity 0.3s; transform-origin: left center;
+    display: block; width: 100%; max-width: 980px; margin: 0 auto; text-align: center; border: 0; background: none; padding: 6px var(--s2);
+    font-size: 22px; font-weight: 500; line-height: 1.3; letter-spacing: -0.02em; color: var(--text-3);
+    transition: color var(--t-slow), transform var(--t-slow) var(--ease), opacity var(--t-slow);
   }
   .line:disabled { cursor: default; }
   .line:hover:not(:disabled) { color: var(--text-2); }
-  .line.past { opacity: 0.45; }
-  .line.now { color: var(--text); transform: scale(1.08); padding: 12px 4px; font-weight: 600; }
-  .dim .line.next { color: var(--text-2); }
+  .line.past { opacity: 0.4; }
+  .line.now { color: var(--text); font-size: 34px; font-weight: 700; padding: var(--s3) var(--s2); }
+  .idle .line.next { color: var(--text-2); }
   .w {
     background: linear-gradient(90deg, var(--accent) calc(var(--p) * 100%), var(--text) calc(var(--p) * 100%));
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .w.doubt { text-decoration: underline wavy color-mix(in srgb, var(--warn) 70%, transparent) 1px; text-underline-offset: 6px; }
-  .gap { height: 22px; }
-
-  .info { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; }
-  .card.busy { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-  .card.busy p { margin: 4px 0 8px; font-size: 12.5px; }
-  .card > .error-text { margin: 0; }
-  .big { margin: 4px 0 10px; font-size: 14px; font-weight: 600; line-height: 1.3; }
-  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12px; }
-  dt { color: var(--text-3); }
-  dd { margin: 0; color: var(--text-2); }
-  .warn { margin-top: 10px; color: var(--warn); }
-  .actions { display: flex; flex-wrap: wrap; gap: 6px; }
-  .offsets { display: flex; flex-direction: column; gap: 8px; }
-  .nudge { display: grid; grid-template-columns: 64px auto 1fr auto; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
-  .nudge b { text-align: center; font-weight: 500; color: var(--text); }
-  .spot { color: #1ed760; }
-  .desk { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
-  .desk label { display: flex; gap: 8px; align-items: center; color: var(--text-2); }
-  .desk textarea { resize: vertical; font-size: 12px; }
-
-  .empty { margin: auto; text-align: center; max-width: 560px; padding: 40px 0; }
-  .empty h2 { margin-bottom: 8px; }
-  .empty p { color: var(--text-3); font-size: 12.5px; margin: 0 0 16px; }
-  .jobline { display: inline-flex; gap: 10px; align-items: center; color: var(--text-2); }
-  .assign { display: flex; gap: 8px; justify-content: center; }
+  .w.doubt { text-decoration: underline wavy color-mix(in oklab, var(--warn) 70%, transparent) 1px; text-underline-offset: 8px; }
+  .gap { height: 28px; }
 </style>

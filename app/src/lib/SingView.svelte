@@ -3,11 +3,21 @@
    * en vivo: micro → AnalyserNode → pitchy (McLeod) en cada fotograma; la puntuación en sing.ts. */
   import { PitchDetector } from "pitchy";
   import { onDestroy } from "svelte";
-  import { readJson, songDetail } from "./engine";
+  import { fmtClock, readJson, songDetail } from "./engine";
   import { noteName, type Note } from "./harmony";
   import { Player } from "./player";
   import { hz2midi, median, offsetAt, phrases, phraseScores, score, scoreFrame, shiftLabel, transposition, type Phrase, type Scored } from "./sing";
-  import Transport from "./Transport.svelte";
+  import Button from "./ui/Button.svelte";
+  import Card from "./ui/Card.svelte";
+  import Chip from "./ui/Chip.svelte";
+  import EmptyState from "./ui/EmptyState.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import IconButton from "./ui/IconButton.svelte";
+  import { cssVar } from "./ui/music";
+  import ProgressRing from "./ui/ProgressRing.svelte";
+  import Slider from "./ui/Slider.svelte";
+  import Toggle from "./ui/Toggle.svelte";
+  import { tooltip } from "./ui/tooltip";
 
   let { key, onback }: { key: string; onback: () => void } = $props();
 
@@ -16,6 +26,7 @@
   const PAST = 2.5, FUTURE = 5.5; // segundos visibles a cada lado de «ahora»
 
   let title = $state("");
+  let artist = $state("");
   let loading = $state(true);
   let error = $state("");
   let micError = $state("");
@@ -30,9 +41,12 @@
   let guide = $state(false); // la voz original, bajita
   let latency = $state(0); // ms extra: lo que tarda el micro en este equipo
   let shift = $state<number | null>(null);
-  let now = $state<{ midi: number; err: number; graded: boolean } | null>(null);
+  let now = $state<{ midi: number; err: number; graded: boolean; at: number | null } | null>(null); // at: altura en el carril
   let total = $state<number | null>(null);
   let results = $state<(number | null)[] | null>(null);
+  let summary = $state(false); // el resumen de la toma, encima del carril
+  let phraseNow = $state<number | null>(null); // puntuación de la frase que se canta
+  let stats = $state({ ok: 0, partial: 0, bad: 0, bias: 0 }); // reparto y desviación media (cents) de la toma
 
   let frames: Scored[] = [];
   let offs: number[] = [];
@@ -51,6 +65,7 @@
     try {
       const d = await songDetail(key);
       title = d.title || key;
+      artist = d.artist;
       if (!d.stemlab) throw new Error("Esta canción no tiene las pistas separadas: sepárala en Pistas.");
       const dir = d.stemlab.dir;
       const voc = d.stemlab.stems.find((s) => s.name === "vocals");
@@ -93,12 +108,14 @@
   }
 
   async function toggle() {
+    if (loading || error) return;
     if (player.playing) {
       player.pause();
       finish();
     } else {
       await startMic();
       results = null;
+      summary = false;
       player.play();
     }
     playing = player.playing;
@@ -111,7 +128,8 @@
   }
 
   function again() {
-    [frames, offs, shift, total, results] = [[], [], null, null, null];
+    [frames, offs, shift, total, results, phraseNow] = [[], [], null, null, null, null];
+    summary = false;
     seek(0);
   }
 
@@ -119,6 +137,15 @@
     if (!frames.length) return;
     total = score(frames);
     results = phraseScores(ph, frames);
+    const g = frames.filter((f) => f.grade);
+    const n = g.length || 1;
+    stats = {
+      ok: g.filter((f) => f.grade === "ok").length / n,
+      partial: g.filter((f) => f.grade === "partial").length / n,
+      bad: g.filter((f) => f.grade === "bad").length / n,
+      bias: g.reduce((a, f) => a + f.err, 0) / n,
+    };
+    summary = total != null;
   }
 
   function listen() {
@@ -144,7 +171,7 @@
       // lo que entra ahora se cantó oyendo la canción hace un rato: salida + media ventana + lo que se ajuste a mano
       const t = time - (player.ctx.outputLatency || player.ctx.baseLatency || 0) - N / 2 / player.ctx.sampleRate - latency / 1000;
       const f = scoreFrame(ref, { t, midi }, free ? (shift ?? 0) : 0);
-      now = f.grade ? { midi, err: f.err, graded: true } : { midi, err: (midi - Math.round(midi)) * 100, graded: false };
+      now = f.grade ? { midi, err: f.err, graded: true, at: f.ref! + (free ? (shift ?? 0) : 0) + f.err / 100 } : { midi, err: (midi - Math.round(midi)) * 100, graded: false, at: null };
       if (player.playing) {
         frames.push(f);
         const o = offsetAt(ref, f);
@@ -153,61 +180,108 @@
           if (offs.length > OFFS) offs.shift();
           shift = transposition(offs);
         }
-        if (frames.length % 30 === 0) total = score(frames);
+        if (frames.length % 30 === 0) {
+          total = score(frames);
+          const p = ph[lineAt];
+          if (p) {
+            const mine: Scored[] = [];
+            for (let i = frames.length - 1; i >= 0 && frames[i].t >= p.t - 0.15; i--) if (frames[i].t <= p.end + 0.15) mine.push(frames[i]);
+            phraseNow = score(mine);
+          }
+        }
       }
     }
     draw();
   }
 
-  // ---------------------------------------------------------------- dibujo
+  // ---------------------------------------------------------------- carril
 
+  let col: Record<string, string> | null = null;
   function draw() {
     const c = canvas;
     if (!c) return;
     const dpr = devicePixelRatio || 1;
     const [w, h] = [c.clientWidth, c.clientHeight];
+    if (!w || !h) return;
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) [c.width, c.height] = [Math.round(w * dpr), Math.round(h * dpr)];
+    col ??= Object.fromEntries(["--line", "--text-3", "--stem-vocals", "--ontime", "--early", "--late", "--pitch", "--text"].map((v) => [v, cssVar(v)]));
     const g = c.getContext("2d")!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
-    const css = getComputedStyle(c);
-    const col = (v: string) => css.getPropertyValue(v).trim();
     const t0 = time - PAST, span = PAST + FUTURE;
     const x = (t: number) => ((t - t0) / span) * w;
     const row = h / (hi - lo + 1);
     const y = (m: number) => h - (m - lo + 0.5) * row;
+    const bh = Math.max(6, Math.min(22, row * 0.8));
 
-    g.fillStyle = col("--line");
-    for (let m = lo; m <= hi; m++) if (m % 12 === 0) g.fillRect(0, y(m), w, 1); // los Do
+    g.fillStyle = col["--line"];
+    g.font = "500 10px 'JetBrains Mono Variable', monospace";
+    for (let m = lo; m <= hi; m++)
+      if (m % 12 === 0) {
+        g.fillRect(0, y(m), w, 1);
+        g.fillText(`Do${m / 12 - 1}`, 6, y(m) - 4);
+      }
+    g.fillStyle = col["--line"];
 
+    // la voz original: barras del color de la voz; la que toca ahora, más viva
     const sh = free ? (shift ?? 0) : 0;
     for (const n of ref) {
       if (n[1] < t0 || n[0] > t0 + span) continue;
       const on = n[0] <= time && n[1] >= time;
-      g.fillStyle = on ? col("--accent") : col("--text-3");
-      g.globalAlpha = on ? 0.9 : 0.45;
+      g.globalAlpha = on ? 0.95 : n[1] < time ? 0.3 : 0.6;
+      g.fillStyle = col["--stem-vocals"];
       g.beginPath();
-      g.roundRect(x(n[0]), y(n[2] + sh) - row * 0.4, Math.max(2, x(n[1]) - x(n[0])), row * 0.8, row * 0.3);
+      g.roundRect(x(n[0]), y(n[2] + sh) - bh / 2, Math.max(3, x(n[1]) - x(n[0])), bh, bh / 2);
       g.fill();
     }
     g.globalAlpha = 1;
 
-    // lo cantado: junto a la barra con la que se comparó (sin octava); sin referencia, en la octava del medio
+    // aciertos: la barra se rellena (verde si está en el centro; cyan / naranja si cerca, por abajo / por arriba)
+    for (let i = frames.length - 1; i >= 0; i--) {
+      const f = frames[i];
+      if (f.t < t0) break;
+      if (f.t > time || f.ref == null || f.grade === "bad") continue;
+      g.fillStyle = f.grade === "ok" ? col["--ontime"] : f.err < 0 ? col["--early"] : col["--late"];
+      g.fillRect(x(f.t) - 1.5, y(f.ref + sh) - bh / 2 + 2, 3.5, bh - 4);
+    }
+
+    // lo cantado: una línea blanca (junto a la nota con la que se comparó; sin referencia, en la octava del medio)
     const mid = (lo + hi) / 2;
-    const color = { ok: col("--ok"), partial: col("--warn"), bad: col("--bad") };
+    const at = (f: { midi: number; ref: number | null; err: number }) => (f.ref != null ? f.ref + sh + f.err / 100 : f.midi - 12 * Math.round((f.midi - mid) / 12));
+    g.strokeStyle = col["--pitch"];
+    g.lineWidth = 2.5;
+    g.lineJoin = g.lineCap = "round";
+    g.shadowColor = col["--pitch"];
+    g.shadowBlur = 6;
+    g.beginPath();
+    let prev: Scored | null = null;
     for (let i = frames.length - 1; i >= 0; i--) {
       const f = frames[i];
       if (f.t < t0) break;
       if (f.t > time) continue;
-      const m = f.ref != null ? f.ref + sh + f.err / 100 : f.midi - 12 * Math.round((f.midi - mid) / 12);
-      g.fillStyle = f.grade ? color[f.grade] : col("--text-2");
-      g.fillRect(x(f.t) - 1.5, y(m) - 1.5, 3, 3);
+      const jump = prev && (prev.t - f.t > 0.12 || Math.abs(at(prev) - at(f)) > 3);
+      if (!prev || jump) g.moveTo(x(f.t), y(at(f)));
+      else g.lineTo(x(f.t), y(at(f)));
+      prev = f;
     }
+    g.stroke();
+    g.shadowBlur = 0;
 
-    g.fillStyle = col("--text");
-    g.globalAlpha = 0.5;
+    // ahora
+    g.fillStyle = col["--text"];
+    g.globalAlpha = 0.35;
     g.fillRect(x(time), 0, 1, h);
     g.globalAlpha = 1;
+    if (now) {
+      const m = now.at ?? now.midi - 12 * Math.round((now.midi - mid) / 12);
+      g.fillStyle = col["--pitch"];
+      g.shadowColor = col["--pitch"];
+      g.shadowBlur = 14;
+      g.beginPath();
+      g.arc(x(time), y(Math.max(lo, Math.min(hi, m))), 6, 0, Math.PI * 2);
+      g.fill();
+      g.shadowBlur = 0;
+    }
   }
 
   // ---------------------------------------------------------------- vista
@@ -216,7 +290,20 @@
   const lineAt = $derived(ph.findIndex((p) => time >= p.t - 0.6 && time <= p.end + 0.3));
   const line = $derived(lineAt >= 0 ? ph[lineAt] : ph.find((p) => p.t > time));
   const nextLine = $derived(line ? ph[ph.indexOf(line) + 1] : undefined);
-  const grade = $derived(now?.graded ? (Math.abs(now.err) <= 50 ? "ok" : Math.abs(now.err) <= 100 ? "partial" : "bad") : "");
+  /** Desafinación: en el centro (±50 ¢), baja (cyan) o alta (naranja). Siempre con su flecha, no solo color. */
+  const dev = $derived(
+    !now ? null : Math.abs(now.err) <= 50 ? { c: "var(--ontime)", mark: "•", text: "afinado" } : now.err < 0 ? { c: "var(--early)", mark: "↓", text: "bajo" } : { c: "var(--late)", mark: "↑", text: "alto" },
+  );
+  const scoreColor = (s: number | null) => (s == null ? "var(--text-3)" : s >= 75 ? "var(--ok)" : s >= 40 ? "var(--warn)" : "var(--bad)");
+  const pct = (t: number) => `${(Math.max(0, Math.min(t, duration)) / (duration || 1)) * 100}%`;
+  const scored = $derived(results ? ph.map((p, i) => ({ p, s: results![i] })).filter((x) => x.s != null) : []);
+
+  function onkey(e: KeyboardEvent) {
+    if ((e.target as HTMLElement).closest("input, textarea, select, button") || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.code === "Space") (e.preventDefault(), void toggle());
+    else if (e.key === "ArrowLeft") seek(Math.max(0, time - 5));
+    else if (e.key === "ArrowRight") seek(Math.min(duration, time + 5));
+  }
 
   onDestroy(() => {
     cancelAnimationFrame(raf);
@@ -226,89 +313,184 @@
   });
 </script>
 
-<section class="card sing">
-  <header>
-    <button class="ghost sm" onclick={onback} title="Volver a la canción">← Volver</button>
-    <span class="kicker">Cantar</span>
-    <strong class="title">{title}</strong>
-    <span class="grow"></span>
-    <button class="chip" class:on={free} onclick={() => (free = !free)} title="Puntúa la melodía aunque la cantes en otro tono">Transposición libre</button>
-    <button class="chip" class:on={guide} onclick={() => (guide = !guide)} title="La voz original, bajita, para guiarte">Voz original</button>
-    <label class="lat" title="Si lo que cantas sale siempre tarde, súbelo">
-      Latencia <input type="number" min="0" max="500" step="10" bind:value={latency} /> ms
-    </label>
+<svelte:window onkeydown={onkey} />
+
+<section class="sing">
+  <header class="top">
+    <IconButton icon="back" label="Volver a la canción" onclick={onback} side="bottom" />
+    <Icon name="mic" size={16} />
+    <div class="title">
+      <strong>{title}</strong>
+      {#if artist}<span>{artist}</span>{/if}
+    </div>
+    <span class="sp"></span>
+    <span use:tooltip={"Puntúa la melodía aunque la cantes en otro tono"}><Toggle bind:checked={free}>Transposición libre</Toggle></span>
+    <span use:tooltip={"La voz original, bajita, para guiarte"}><Toggle bind:checked={guide}>Voz original</Toggle></span>
+    <span class="lat" use:tooltip={"Latencia del micro: si lo que cantas sale siempre tarde, súbela"}>
+      <Icon name="sessions" size={14} />
+      <Slider bind:value={latency} min={0} max={500} step={10} label="Latencia del micro (ms)" />
+      <span class="num">{latency} ms</span>
+    </span>
   </header>
 
   {#if loading}
-    <div class="center"><span class="spinner"></span></div>
+    <div class="center"><ProgressRing value={null} size={36} label="Cargando" /></div>
   {:else if error}
-    <div class="center"><p class="error-text">{error}</p></div>
+    <EmptyState icon="alert" title="No se puede cantar esta">
+      {error}
+      {#snippet actions()}<Button onclick={onback} icon="back">Volver a la canción</Button>{/snippet}
+    </EmptyState>
   {:else}
     <div class="readout">
-      <div class="note {grade}">{now ? name(now.midi) : "—"}</div>
-      <div class="needle" title="Desafinación en cents (±50 es acierto)">
-        <span class="zone"></span>
-        {#if now}<span class="tick {grade}" style="left: {50 + Math.max(-100, Math.min(100, now.err)) / 2}%"></span>{/if}
+      <div class="pitch" style:--c={dev?.c ?? "var(--text-3)"}>
+        <span class="note">{now ? name(now.midi) : "—"}</span>
+        <span class="dev">{dev ? `${dev.mark} ${dev.text}` : micError ? "sin micro" : "canta"}</span>
       </div>
-      <span class="mono cents">{now ? `${now.err > 0 ? "+" : ""}${Math.round(now.err)} ¢` : ""}</span>
-      <span class="grow"></span>
-      <span class="chip" title="Tu tono respecto al original (sin contar octavas)">{shiftLabel(shift)}</span>
-      {#if total != null}<span class="score mono">{total}</span>{/if}
+      <div class="gauge" use:tooltip={"Desafinación en cents: ±50 es acierto"}>
+        <div class="track"><span class="zone"></span>{#if now}<span class="needle" style:left="{50 + Math.max(-100, Math.min(100, now.err)) / 2}%"></span>{/if}</div>
+        <div class="scale num"><span>−100 ¢</span><b>{now ? `${now.err > 0 ? "+" : ""}${Math.round(now.err)} ¢` : "0 ¢"}</b><span>+100 ¢</span></div>
+      </div>
+      <span use:tooltip={"Tu tono respecto al original (sin contar octavas)"}><Chip icon="audio" active={shift != null && shift !== 0}>{shiftLabel(shift)}</Chip></span>
+      <span class="sp"></span>
+      <div class="ring" use:tooltip={"Esta frase"}>
+        <ProgressRing value={(phraseNow ?? 0) / 100} size={56} stroke={5} color={scoreColor(phraseNow)} label="Frase"><b class="num">{phraseNow ?? "—"}</b></ProgressRing>
+        <small>frase</small>
+      </div>
+      <div class="ring" use:tooltip={"Toda la toma"}>
+        <ProgressRing value={(total ?? 0) / 100} size={56} stroke={5} color={scoreColor(total)} label="Toma"><b class="num">{total ?? "—"}</b></ProgressRing>
+        <small>toma</small>
+      </div>
     </div>
-    <canvas bind:this={canvas}></canvas>
-    <div class="lyric">
-      <p class:dim={lineAt < 0}>{line?.text ?? ""}</p>
-      <p class="next">{nextLine?.text ?? ""}</p>
-    </div>
-    {#if results}
-      <div class="results">
-        <span class="kicker">Toma: {total ?? "—"} / 100</span>
-        <div class="phrases">
-          {#each ph as p, i}
-            {#if results[i] != null}
-              <button class="ph" class:ok={results[i]! >= 75} class:bad={results[i]! < 40} onclick={() => seek(Math.max(0, p.t - 1))} title={p.text || `${Math.round(p.t)} s`}>
-                <span class="mono">{results[i]}</span>{p.text ? ` ${p.text.slice(0, 24)}` : ""}
-              </button>
+
+    <div class="lane">
+      <canvas bind:this={canvas}></canvas>
+      <div class="lyric">
+        <p class:dim={lineAt < 0}>{line?.text ?? ""}</p>
+        <p class="next">{nextLine?.text ?? ""}</p>
+      </div>
+
+      {#if summary && total != null}
+        <div class="summary">
+          <Card>
+            <div class="sum">
+              <ProgressRing value={total / 100} size={132} stroke={10} color={scoreColor(total)} label="Puntuación de la toma">
+                <span class="big num">{total}</span>
+              </ProgressRing>
+              <div class="sum-body">
+                <h2>{total >= 85 ? "¡Clavada!" : total >= 65 ? "Muy bien" : total >= 40 ? "Vas bien" : "Otra vuelta"}</h2>
+                <div class="split" aria-label="Reparto de aciertos">
+                  <i style:width="{stats.ok * 100}%" style:background="var(--ontime)"></i>
+                  <i style:width="{stats.partial * 100}%" style:background="var(--warn)"></i>
+                  <i style:width="{stats.bad * 100}%" style:background="var(--miss)"></i>
+                </div>
+                <div class="legend num">
+                  <span><i style:background="var(--ontime)"></i>• {Math.round(stats.ok * 100)}% afinado</span>
+                  <span><i style:background="var(--warn)"></i>~ {Math.round(stats.partial * 100)}% cerca</span>
+                  <span><i style:background="var(--miss)"></i>× {Math.round(stats.bad * 100)}% fuera</span>
+                </div>
+                <p class="bias" style:color={Math.abs(stats.bias) < 10 ? "var(--ontime)" : stats.bias < 0 ? "var(--early)" : "var(--late)"}>
+                  {Math.abs(stats.bias) < 10 ? "• Centrado" : stats.bias < 0 ? `↓ Tiendes a cantar bajo (${Math.round(stats.bias)} ¢)` : `↑ Tiendes a cantar alto (+${Math.round(stats.bias)} ¢)`}
+                  <span>· {shiftLabel(shift)}</span>
+                </p>
+              </div>
+            </div>
+            {#if scored.length}
+              <div class="bars" aria-label="Puntuación por frase">
+                {#each scored as { p, s } (p.t)}
+                  <button type="button" class="pbar" style:--h="{Math.max(6, s!)}%" style:--c={scoreColor(s)} onclick={() => ((summary = false), seek(Math.max(0, p.t - 1)))} use:tooltip={`${s} · ${p.text || fmtClock(p.t)}`} aria-label="Frase {fmtClock(p.t)}: {s}"></button>
+                {/each}
+              </div>
             {/if}
-          {/each}
+            <div class="sum-actions">
+              <Button variant="ghost" onclick={() => (summary = false)}>Seguir</Button>
+              <Button variant="primary" icon="retry" onclick={again}>Otra toma</Button>
+            </div>
+          </Card>
         </div>
-        <button class="ghost sm" onclick={again}>Otra toma</button>
-      </div>
-    {/if}
-    <p class="hint">{micError || "Con auriculares: si el micro oye la canción, se lía."}</p>
-    <Transport {playing} {time} {duration} bind:volume ontoggle={toggle} onseek={seek} />
+      {/if}
+    </div>
+
+    <div class="phrases" aria-label="Frases">
+      {#each ph as p, i (p.t)}
+        {@const s = results?.[i] ?? (i === lineAt ? phraseNow : null)}
+        <button type="button" class="ph" class:now={i === lineAt} style:left={pct(p.t)} style:width={pct(p.end - p.t)} style:--c={scoreColor(s ?? null)} class:has={s != null} onclick={() => seek(Math.max(0, p.t - 1))} use:tooltip={`${s ?? "—"} · ${p.text || fmtClock(p.t)}`} aria-label="Ir a la frase {fmtClock(p.t)}"></button>
+      {/each}
+      <span class="head" style:left={pct(time)}></span>
+    </div>
+
+    <footer class="transport">
+      <Button variant="primary" icon={playing ? "pause" : "play"} onclick={toggle} kbd="Espacio">{playing ? "Pausa" : "Cantar"}</Button>
+      <span class="clock num">{fmtClock(time)} <span>/ {fmtClock(duration)}</span></span>
+      <div class="scrub"><Slider value={time} min={0} max={duration || 1} step={0.1} label="Posición" oninput={seek} /></div>
+      <span class="vol"><Icon name="volume" size={14} /><Slider bind:value={volume} min={0} max={1.5} label="Volumen" /></span>
+      <span class="tip" class:err={!!micError}>{micError || "Con auriculares: si el micro oye la canción, se lía."}</span>
+    </footer>
   {/if}
 </section>
 
 <style>
-  .sing { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 0 0 12px; overflow: hidden; }
-  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
-  .grow { flex: 1; }
-  .chip.on { background: var(--accent-soft); color: var(--accent); }
-  .lat { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; }
-  .lat input { width: 64px; }
+  .sing { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; }
+  .top { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); flex-wrap: wrap; color: var(--text-2); }
+  .title { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+  .title strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .title span { color: var(--text-3); font-size: var(--fs-sm); white-space: nowrap; }
+  .sp { flex: 1; }
+  .lat { display: flex; align-items: center; gap: var(--s2); width: 210px; color: var(--text-3); font-size: var(--fs-sm); }
+  .lat .num { width: 6ch; text-align: right; }
   .center { flex: 1; display: grid; place-items: center; }
-  .readout { display: flex; align-items: center; gap: 16px; padding: 0 14px; }
-  .note { font-size: 40px; font-weight: 700; min-width: 3.5ch; color: var(--text-2); }
-  .ok { color: var(--ok); }
-  .partial { color: var(--warn); }
-  .bad { color: var(--bad); }
-  .needle { position: relative; width: 200px; height: 14px; border-radius: 7px; background: var(--panel-hi); }
-  .zone { position: absolute; left: 37.5%; width: 25%; top: 0; bottom: 0; background: color-mix(in srgb, var(--ok) 25%, transparent); border-radius: 7px; }
-  .tick { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1px; background: currentColor; border-radius: 2px; }
-  .tick:not(.ok, .partial, .bad) { color: var(--text-2); }
-  .cents { width: 6ch; color: var(--text-3); font-size: 12px; }
-  .score { font-size: 28px; color: var(--accent); }
-  canvas { flex: 1; min-height: 0; width: 100%; display: block; }
-  .lyric { text-align: center; padding: 0 14px; }
-  .lyric p { margin: 0; font-size: 22px; min-height: 1.3em; }
+
+  .readout { display: flex; align-items: center; gap: var(--s5); padding: var(--s3) var(--s5); flex-wrap: wrap; }
+  .pitch { display: flex; flex-direction: column; min-width: 4.2ch; }
+  .note { font-size: 56px; font-weight: 800; line-height: 1; letter-spacing: -0.04em; color: var(--c); transition: color var(--t-fast); }
+  .dev { font-size: var(--fs-sm); color: var(--c); }
+  .gauge { display: flex; flex-direction: column; gap: var(--s1); width: 300px; }
+  .track {
+    position: relative; height: 12px; border-radius: var(--r-full);
+    background: linear-gradient(to right, var(--early), color-mix(in oklab, var(--early) 30%, var(--panel-hi)) 35%, var(--panel-hi) 50%, color-mix(in oklab, var(--late) 30%, var(--panel-hi)) 65%, var(--late));
+  }
+  .zone { position: absolute; left: 37.5%; width: 25%; top: -3px; bottom: -3px; border-radius: var(--r-full); border: 1.5px solid var(--ontime); }
+  .needle { position: absolute; top: -6px; bottom: -6px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--pitch); box-shadow: 0 0 8px var(--pitch); transition: left 60ms linear; }
+  .scale { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--text-3); }
+  .scale b { color: var(--text); font-weight: 600; }
+  .ring { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .ring b { font-size: var(--fs-lg); }
+  .ring small { color: var(--text-3); font-size: var(--fs-xs); }
+
+  .lane { position: relative; flex: 1; min-height: 0; margin: 0 var(--s4); border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .lyric { position: absolute; left: 0; right: 0; bottom: var(--s4); text-align: center; padding: 0 var(--s5); pointer-events: none; }
+  .lyric p { font-size: 26px; font-weight: 600; min-height: 1.3em; text-shadow: 0 2px 12px var(--bg); }
   .lyric .dim { color: var(--text-3); }
-  .lyric .next { font-size: 14px; color: var(--text-3); }
-  .results { display: flex; align-items: center; gap: 10px; padding: 0 14px; flex-wrap: wrap; }
-  .phrases { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; max-height: 64px; overflow: auto; }
-  .ph { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); background: var(--panel-hi); color: var(--text-2); border: 0; }
-  .ph.ok span { color: var(--ok); }
-  .ph.bad span { color: var(--bad); }
-  .hint { margin: 0; padding: 0 14px; }
+  .lyric .next { font-size: var(--fs-lg); font-weight: 400; color: var(--text-3); }
+
+  .summary { position: absolute; inset: 0; display: grid; place-items: center; background: var(--scrim); animation: fade var(--t); padding: var(--s4); }
+  .summary > :global(*) { width: min(620px, 100%); animation: rise var(--t-slow) var(--ease); }
+  .sum { display: flex; gap: var(--s5); align-items: center; padding: var(--s3) 0; }
+  .big { font-size: 40px; font-weight: 800; }
+  .sum-body { display: flex; flex-direction: column; gap: var(--s2); flex: 1; min-width: 0; }
+  .sum-body h2 { font-size: var(--fs-xl); }
+  .split { display: flex; height: 10px; border-radius: var(--r-full); overflow: hidden; background: var(--panel-hi); }
+  .legend { display: flex; gap: var(--s3); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-2); }
+  .legend span { display: flex; align-items: center; gap: var(--s1); }
+  .legend i { width: 8px; height: 8px; border-radius: 2px; }
+  .bias { font-size: var(--fs-sm); }
+  .bias span { color: var(--text-3); }
+  .bars { display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 72px; margin: var(--s3) 0; padding-top: var(--s2); border-top: 1px solid var(--line); }
+  .pbar { flex: 1; min-width: 3px; max-width: 28px; height: var(--h); padding: 0; border: 0; border-radius: 2px 2px 0 0; background: var(--c); opacity: 0.85; cursor: pointer; }
+  .pbar:hover { opacity: 1; }
+  .sum-actions { display: flex; justify-content: flex-end; gap: var(--s2); }
+
+  .phrases { position: relative; height: 14px; margin: var(--s3) var(--s4) 0; border-radius: var(--r-sm); background: var(--panel); flex-shrink: 0; }
+  .ph { position: absolute; top: 2px; bottom: 2px; min-width: 2px; padding: 0; border: 0; border-radius: 2px; background: var(--line-hi); cursor: pointer; }
+  .ph.has { background: var(--c); }
+  .ph.now { outline: 1.5px solid var(--text); }
+  .head { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text); pointer-events: none; }
+
+  .transport { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); flex-wrap: wrap; }
+  .clock { font-size: var(--fs-sm); white-space: nowrap; }
+  .clock span { color: var(--text-3); }
+  .scrub { flex: 1; min-width: 120px; }
+  .vol { display: flex; align-items: center; gap: var(--s2); width: 120px; color: var(--text-3); }
+  .tip { color: var(--text-3); font-size: var(--fs-xs); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tip.err { color: var(--bad); }
 </style>

@@ -10,12 +10,14 @@
   import WaveThumb from "./ui/WaveThumb.svelte";
 
   // Una canción de la biblioteca: su forma de onda de portada, título, artista y qué tiene hecho (iconos, no texto).
-  let { track, picked, picking, current, onclick, ontoggle }: {
+  let { track, picked, picking, current, playing, onclick, onplay, ontoggle }: {
     track: Track;
     picked: boolean;
     picking: boolean; // hay selección: pulsar marca en vez de abrir
     current: boolean; // la cargada en el reproductor
+    playing: boolean; // y sonando
     onclick: (e: MouseEvent) => void;
+    onplay: () => void; // ▶ / ⏸ sin abrirla
     ontoggle: (e: MouseEvent) => void;
   } = $props();
 
@@ -34,16 +36,21 @@
   });
 </script>
 
-<article class="song" class:picked class:current bind:this={el}>
+<article class="song" class:picked class:current class:playing bind:this={el}>
   <button type="button" class="hit" aria-label={picking ? `Seleccionar ${track.title}` : `Abrir ${track.title}`} {onclick}></button>
   <div class="art">
-    <WaveThumb peaks={waves[track.key]} height={56} />
+    <WaveThumb peaks={waves[track.key]} height={56} color={current ? "var(--text)" : undefined} />
+    {#if track.audio || track.stems}
+      <button type="button" class="play" aria-label={playing ? `Pausar ${track.title}` : `Reproducir ${track.title}`} onclick={onplay}>
+        <Icon name={playing ? "pause" : "play"} size={16} />
+      </button>
+    {/if}
     {#if job}
       <span class="ring" title={job.waiting || job.label}>
         <ProgressRing value={job.status === "running" && job.pct != null ? job.pct / 100 : job.status === "running" ? null : 0} size={22} label={job.label} />
       </span>
-    {:else if current}
-      <span class="now" title="En el reproductor"><Icon name="volume" size={14} label="En el reproductor" /></span>
+    {:else if playing}
+      <span class="now" title="Sonando"><Icon name="volume" size={14} label="Sonando" /></span>
     {/if}
   </div>
   <input type="checkbox" class="pick" checked={picked} onclick={ontoggle} aria-label="Seleccionar {track.title}" />
@@ -74,6 +81,15 @@
   .art { position: relative; padding: var(--s4) var(--s3) var(--s2); border-bottom: 1px solid var(--line); }
   .ring { position: absolute; top: 6px; right: 6px; display: grid; padding: 3px; border-radius: 50%; background: var(--panel); }
   .now { position: absolute; top: 8px; right: 8px; color: var(--text); }
+  .play {
+    position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 2; display: grid; place-items: center; width: 40px; height: 40px;
+    padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); box-shadow: 0 4px 16px #0008;
+    opacity: 0; transition: opacity var(--t-fast), transform var(--t-fast);
+  }
+  .song:hover .play, .play:focus-visible, .current .play { opacity: 1; }
+  .current:not(:hover) .play { opacity: 0.85; }
+  .play:hover { transform: scale(1.08); }
+  .song.playing { border-color: var(--text-3); }
   .pick { position: absolute; top: 8px; left: 8px; z-index: 2; width: 16px; height: 16px; margin: 0; opacity: 0; transition: opacity var(--t-fast); }
   .song:hover .pick, .song.picked .pick, .pick:focus-visible { opacity: 1; }
   :global(.picking) .pick { opacity: 1; }

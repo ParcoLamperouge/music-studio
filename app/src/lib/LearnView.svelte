@@ -4,26 +4,41 @@
   import { ARRANGED, arrange, easyTranspose, fromBeat, levelLabel, judge, LEVELS, median, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
   import { accuracy, hardZones, tally, wrongAt, type Bars, type Zone } from "./zones";
   import { loadNotation } from "./ChordsTab.svelte";
-  import { enqueue, paths, readJson, songDetail, STEM_INFO, writeBytes, writeJson, type Detail, type Song } from "./engine";
+  import { enqueue, fmtClock, paths, readJson, songDetail, STEM_INFO, writeBytes, writeJson, type Detail, type Song } from "./engine";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
-  import InputBar from "./InputBar.svelte";
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { Player, voice } from "./player";
   import { loadPiano } from "./piano";
   import { keyOf, LESSONS, stars, type Practice as CoursePractice } from "./course";
-  import { EX_LEVELS, EXERCISES, exercisePiece, type Exercise, type Hands } from "./exercises";
-  import { OBRA_LEVELS, OBRAS, type Obra } from "./obras";
+  import { EXERCISES, exercisePiece, type Exercise, type Hands } from "./exercises";
+  import { OBRAS, type Obra } from "./obras";
   import { record } from "./progress.svelte";
   import { songPiece, SONGS } from "./songs";
   import PieceEditor from "./PieceEditor.svelte";
   import { fromMidi, newPiece, pieceArrangement, pieceBeats, pieceDuration, pieceSeconds, type Piece } from "./piece";
   import { deletePiece, importPieces, loadPieces, pieces, savePiece } from "./pieces.svelte";
   import Roll from "./Roll.svelte";
-  import SearchInput from "./ui/Search.svelte";
   import Score from "./Score.svelte";
   import { saveSettings, settings } from "./settings.svelte";
   import { jobOf, jobText, store } from "./store.svelte";
-  import Transport from "./Transport.svelte";
+  import MidiStatus from "./learn/MidiStatus.svelte";
+  import Picker from "./learn/Picker.svelte";
+  import Results from "./learn/Results.svelte";
+  import Timing from "./learn/Timing.svelte";
+  import ZoneBar, { accColor } from "./learn/ZoneBar.svelte";
+  import Button from "./ui/Button.svelte";
+  import Chip from "./ui/Chip.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import IconButton from "./ui/IconButton.svelte";
+  import MasterStrip from "./ui/MasterStrip.svelte";
+  import PlayButton from "./ui/PlayButton.svelte";
+  import { cssVar, stemColor } from "./ui/music";
+  import Popover from "./ui/Popover.svelte";
+  import ProgressRing from "./ui/ProgressRing.svelte";
+  import Slider from "./ui/Slider.svelte";
+  import Stepper from "./ui/Stepper.svelte";
+  import Tabs from "./ui/Tabs.svelte";
+  import Toggle from "./ui/Toggle.svelte";
 
   /** Modo Aprender: una canción separada como arreglo para piano (arrange.ts), del nivel 1 al 5, para tocarla encima de
    * sus pistas (sin la parte que tocas), con guía sintetizada, modo espera, bucle y piano roll o partitura. O una pieza
@@ -31,8 +46,8 @@
   let { onback, onsessions, oncourse }: { onback: () => void; onsessions: () => void; oncourse: (lesson: string, step: number) => void } = $props();
   const backToLesson = () => lessonPractice && oncourse(lessonPractice.lesson, lessonPractice.step);
 
-  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands; more: boolean; list: boolean; style: "clasico" | "pop" };
-  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh", more: false, list: true, style: "clasico" };
+  type Opts = { melody: string; level: Level; transpose: "orig" | "easy" | number; hands: "both" | "rh" | "lh"; wait: boolean; view: "roll" | "score"; guide: number; song: number; hearMine: boolean; pieceRight: boolean; tab: "canciones" | "piezas" | "ejercicios" | "obras"; speed: number; exKey: number; exMinor: boolean; exHands: Hands; style: "clasico" | "pop"; watch: boolean };
+  const DEFAULTS: Opts = { melody: "vocals", level: 1, transpose: "orig", hands: "both", wait: true, view: "roll", guide: 0.6, song: 0.8, hearMine: false, pieceRight: true, tab: "canciones", speed: 1, exKey: 0, exMinor: false, exHands: "rh", style: "clasico", watch: false };
   const saved = (() => {
     try {
       return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("estudio.aprender") ?? "{}") } as Opts;
@@ -51,14 +66,9 @@
 
   // ---------------------------------------------------------------- canción
 
-  let query = $state("");
   let key = $state<string | null>(null);
-  const songs = $derived(
-    store.tracks
-      .filter((t) => t.stems && t.notes.length)
-      .filter((t) => `${t.title} ${t.artist}`.toLowerCase().includes(query.trim().toLowerCase()))
-      .sort((a, b) => a.title.localeCompare(b.title)),
-  );
+  /** Eligiendo qué tocar (las tarjetas) en vez de tocando; lo abierto sigue cargado. */
+  let picking = $state(true);
 
   const player = new Player();
   let detail = $state<Detail | null>(null);
@@ -81,7 +91,6 @@
   let editing = $state.raw<Piece | null>(null);
   const loaded = $derived(!!detail || !!piece);
   const title = $derived(detail?.title ?? piece?.title ?? "");
-  const piecesShown = $derived(pieces.list.filter((p) => p.title.toLowerCase().includes(query.trim().toLowerCase())));
 
   function reset() {
     player.stop();
@@ -94,6 +103,8 @@
   /** Una pieza: sus manos como «piano» (derecha) y «bajo» (izquierda), para sacar acordes y tonalidad de sus notas. */
   function openPiece(pc: Piece) {
     key = null;
+    picking = false;
+    results = false;
     reset();
     exercise = null;
     obra = null;
@@ -118,9 +129,13 @@
   $effect(() => {
     void [o.exKey, o.exMinor, o.exHands];
     const ex = untrack(() => exercise);
-    if (ex) untrack(() => openExercise(ex));
+    if (ex)
+      untrack(() => {
+        const was = picking; // cambiando la tonalidad en las tarjetas: se queda en las tarjetas
+        openExercise(ex);
+        picking = was;
+      });
   });
-  const exShown = $derived(EXERCISES.filter((e) => `${e.title} ${e.concept}`.toLowerCase().includes(query.trim().toLowerCase())));
 
   // ---------------------------------------------------------------- obras (Mutopia, en public/obras)
 
@@ -136,7 +151,6 @@
       error = `No se pudo abrir la obra: ${e}`;
     }
   }
-  const obrasShown = $derived(OBRAS.filter((x) => `${x.title} ${x.composer}`.toLowerCase().includes(query.trim().toLowerCase())));
 
   // ---------------------------------------------------------------- practicar desde el curso
 
@@ -192,6 +206,8 @@
 
   async function open(k: string) {
     key = k;
+    picking = false;
+    results = false;
     piece = null;
     loading = true;
     error = "";
@@ -307,7 +323,8 @@
     }
   }
   const myHands = $derived(exercise ? "both" : o.hands);
-  const plays = (hand: "rh" | "lh") => myHands === "both" || myHands === hand;
+  // en Espectador no tocas nada: suena todo (la guía también lo tuyo) y no se juzga (Practice sin notas)
+  const plays = (hand: "rh" | "lh") => !o.watch && (myHands === "both" || myHands === hand);
   // acordes con el mismo transporte que el arreglo, para el piano roll
   const chords = $derived.by(() => {
     if (!harmony || !arr) return [];
@@ -334,7 +351,7 @@
 
   // sin espera, nada se queda esperando: si estaba parado en una nota, sigue
   $effect(() => {
-    if (o.wait || untrack(() => waiting) == null) return;
+    if ((o.wait && !o.watch) || untrack(() => waiting) == null) return;
     untrack(() => {
       waiting = null;
       player.play();
@@ -352,7 +369,7 @@
     for (const h of ["rh", "lh"] as const) player.setGain(`guia-${h}`, plays(h) ? (o.hearMine ? o.guide * 0.6 : 0) : o.guide);
   }
   $effect(() => {
-    JSON.stringify([o.song, o.guide, o.hearMine, myHands, melody, semis, o.speed, audioSpeed]);
+    JSON.stringify([o.song, o.guide, o.hearMine, o.watch, myHands, melody, semis, o.speed, audioSpeed]);
     untrack(applyGains);
   });
   $effect(() => player.setMaster(settings.masterVolume));
@@ -372,7 +389,8 @@
   const pressed = new Map<number, string>(); // tecla → color (verde acierto, rojo fallo)
   // tiempo de las últimas notas (ms, − adelantado / + atrasado) para la tira de al lado de la puntuación
   let recent = $state<number[]>([]);
-  const TIMING_COLOR = { ontime: "#9bd37f", near: "#9bd37f", early: "#6aa9ff", late: "#ff5a5a" };
+  // color de la tecla al tocarla (hex: el teclado del roll lo matiza): a tiempo, adelantada, atrasada, fallada, fuerza
+  const FEEDBACK = { ontime: cssVar("--ontime"), near: cssVar("--ontime"), early: cssVar("--early"), late: cssVar("--late"), miss: cssVar("--miss"), force: cssVar("--warn"), watch: cssVar("--text-3") };
   // calibración: 16 toques sobre un clic cada 0,6 s; la mediana del desfase es la latencia
   let calib = $state<{ clicks: number[]; taps: number[] } | null>(null);
   function calibrate() {
@@ -415,6 +433,13 @@
     const kind = st & 0xf0;
     if (kind === 0x90 && v > 0) {
       if (calib) return calibTap();
+      if (o.watch) {
+        // mirando: suena y se ilumina, sin juzgar; arriba se ofrece pasar a practicar
+        watchPlayed = true;
+        pressed.set(p, FEEDBACK.watch);
+        if (!input.connected) voices.set(p, voice(player.ctx, p, v / 127));
+        return;
+      }
       // parado y se empieza a tocar: arranca solo. Si lo siguiente que toca está cerca, desde ahí, como en espera (sigue
       // al completar esa nota o acorde, y cuenta); si queda lejos (una intro), desde donde estaba
       if (!player.playing && waiting == null && loaded && !loading) {
@@ -436,7 +461,7 @@
       const forceOff = hit?.vel != null && hit.v != null && Math.abs(hit.vel - hit.v) > VEL_TOL;
       const tm = hit?.err != null ? judge(hit.err) : null;
       if (tm && !(waiting != null && Math.abs(hit!.err!) > practice.tol)) recent = [...recent.slice(-15), Math.round(1000 * hit!.err!)];
-      pressed.set(p, !hit ? "#ff7a6b" : tm && tm !== "ontime" && tm !== "near" ? TIMING_COLOR[tm] : forceOff ? "#f6c84a" : "#9bd37f");
+      pressed.set(p, !hit ? FEEDBACK.miss : tm && tm !== "ontime" && tm !== "near" ? FEEDBACK[tm] : forceOff ? FEEDBACK.force : FEEDBACK.ontime);
       if (!input.connected) voices.set(p, voice(player.ctx, p, v / 127)); // sin piano, que suene aquí
       // en espera: con todo el grupo tocado, sigue
       if (waiting != null && practice.blocking(waiting) == null && !practice.released(waiting, held)) {
@@ -526,13 +551,14 @@
         }
         // modo espera: se para en la primera nota sin tocar que ya debería sonar
         // y solo sigue mientras se mantiene pulsado lo que suena: si se suelta antes, se para ahí hasta volver a pulsar
-        const block = o.wait ? practice.blocking(time) : null;
+        const waitOn = o.wait && !o.watch;
+        const block = waitOn ? practice.blocking(time) : null;
         if (block != null) {
           player.pause();
           player.seek(block);
           waiting = block;
           playing = false;
-        } else if (o.wait && practice.released(time, held)) {
+        } else if (waitOn && practice.released(time, held)) {
           player.pause();
           waiting = player.time();
           playing = false;
@@ -544,6 +570,7 @@
             lessonResult = stats.hits / (stats.due + stats.wrong);
             void record(lessonPractice.lesson, lessonPractice.step, lessonResult);
           }
+          if (practice.stats(time).due > 0) showResults();
         }
       }
     };
@@ -619,7 +646,6 @@
     return hardZones(bars(), 0.8, 4, 3);
   });
   const nowBar = $derived(barAt(time));
-  const barColor = (a: number | null) => (a == null ? "var(--line)" : a >= 0.9 ? "#9bd37f" : a >= 0.75 ? "#e8c45a" : a >= 0.5 ? "#f29d38" : "#ff7a6b");
 
   // reiniciar lo apuntado de esta pieza en lo que se ve (nivel, melodía y manos); el resto se queda. Dos clics
   const hasZoneData = $derived.by(() => (void zonesRev, barMap.some((a) => a != null)));
@@ -673,387 +699,297 @@
 
   const keyText = $derived(harmony ? keyName(harmony.key, notation.latin) + (semis && arr ? ` → ${keyName(arr.key, notation.latin)}` : "") : "");
   const fmtSemis = (n: number) => (n > 0 ? `+${n}` : String(n));
+
+  // ---------------------------------------------------------------- resultados
+
+  let results = $state(false);
+  let resultStats = $state<ReturnType<Practice["stats"]>>({ due: 0, hits: 0, wrong: 0, ms: 0, force: null, offForce: 0, sd: 0 });
+  let resultErrs = $state<number[]>([]);
+  /** Lo de esta pasada, congelado para verlo con calma (al acabar, o con el botón). */
+  function showResults() {
+    if (player.playing) toggle();
+    resultStats = practice.stats(time);
+    resultErrs = practice.targets.filter((x) => x.hit && x.err != null).map((x) => Math.round(1000 * x.err!));
+    results = true;
+  }
+  function again() {
+    results = false;
+    seek(loop && loopA != null ? loopA : 0);
+    start(from());
+  }
+
+  const acc = $derived(stats.due + stats.wrong ? stats.hits / (stats.due + stats.wrong) : null);
+  const levelOpts = [...ARRANGED.map((n) => ({ value: String(n), label: levelLabel(n), title: LEVELS[n - 1][1] })), { value: "5", label: "Orig.", title: LEVELS[4][1] }];
+  const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1];
+  const pickerCurrent = $derived(exercise?.id ?? (obra ? `obra-${obra.id}` : null) ?? piece?.id ?? key);
+  let watchPlayed = $state(false);
+  function toggleWatch() {
+    o.watch = !o.watch;
+    watchPlayed = false;
+    recent = [];
+    if (!o.watch) practice.reset(time);
+  }
+  function toggleWait() {
+    o.wait = !o.wait;
+    practice.reset(time);
+    recent = [];
+  }
 </script>
 
-<svelte:window onpointerdown={(e) => o.more && !(e.target instanceof Element && e.target.closest(".more-wrap")) && (o.more = false)} onkeydown={(e) => !editing && !(e.target instanceof Element && e.target.closest("input")) && pcKey(e)} onkeyup={(e) => !editing && pcKey(e)} onblur={() => !editing && pcRelease()} />
+<svelte:window onkeydown={(e) => !editing && !picking && !(e.target instanceof Element && e.target.closest("input")) && pcKey(e)} onkeyup={(e) => !editing && pcKey(e)} onblur={() => !editing && pcRelease()} />
 
-{#snippet controls()}
-  <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !loaded} ontoggle={toggle} onseek={seek}>
-    <button class="ghost sm" class:on={loopA != null} onclick={() => setLoop("a")} title="Inicio del bucle aquí">A</button>
-    <button class="ghost sm" class:on={loopB != null} onclick={() => setLoop("b")} title="Final del bucle aquí">B</button>
-    <button class="ghost sm" class:on={loop} disabled={loopA == null || loopB == null} onclick={() => (loop = !loop)} title="Repetir de A a B">Bucle</button>
-  </Transport>
-{/snippet}
-
-{#snippet opts()}
-  <div class="toolbar opts">
-    {#if !exercise}
-      <div class="grp" title="Dificultad: {LEVELS[o.level - 1][1]}">
-        <span class="lbl">Nivel</span>
-        <div class="seg">{#each ARRANGED as n (n)}<button class:on={o.level === n} onclick={() => (o.level = n)} title={LEVELS[n - 1][1]}>{levelLabel(n)}</button>{/each}</div>
-        <button class="ghost sm" class:on={o.level === 5} onclick={() => (o.level = 5)} title={LEVELS[4][1]}>Original</button>
-      </div>
-      {#if o.level !== 5}
-        <div class="grp" title="Cómo acompaña el arreglo: arpegios y bajo-acorde clásicos, o el ritmo y las octavas del pop">
-          <span class="lbl">Estilo</span>
-          <div class="seg">
-            <button class:on={o.style !== "pop"} onclick={() => (o.style = "clasico")}>Clásico</button>
-            <button class:on={o.style === "pop"} onclick={() => (o.style = "pop")}>Pop</button>
-          </div>
-        </div>
-      {/if}
-      <div class="grp" title="Qué manos tocas: la otra la toca la guía">
-        <span class="lbl">Manos</span>
-        <div class="seg">
-          <button class:on={o.hands === "both"} onclick={() => (o.hands = "both")}>Ambas</button>
-          <button class:on={o.hands === "rh"} onclick={() => (o.hands = "rh")}>Der.</button>
-          <button class:on={o.hands === "lh"} onclick={() => (o.hands = "lh")}>Izq.</button>
-        </div>
-      </div>
-    {/if}
-    <div class="grp">
-      <label title="La canción se para hasta que tocas la nota que toca, y solo sigue mientras la mantienes"><input type="checkbox" bind:checked={o.wait} onchange={() => (practice.reset(time), (recent = []))} /> Espera</label>
-      <label title="Más lento para aprender: todo a ese tempo (de una canción, a tempo reducido suena solo la guía)">
-        <span class="lbl">Tempo</span>
-        <select value={String(o.speed)} onchange={(e) => (o.speed = +e.currentTarget.value)}>
-          {#each [1, 0.9, 0.8, 0.7, 0.6, 0.5] as v (v)}<option value={String(v)}>{Math.round(v * 100)} %</option>{/each}
-        </select>
-      </label>
+{#snippet transport()}
+  <div class="transport">
+    <PlayButton {playing} onclick={toggle} disabled={loading || !loaded} />
+    <IconButton icon="chevron-left" label="−5 s" size="sm" onclick={() => seek(Math.max(0, time - 5))} disabled={!loaded} />
+    <IconButton icon="chevron-right" label="+5 s" size="sm" onclick={() => seek(Math.min(duration, time + 5))} disabled={!loaded} />
+    <span class="clock num">{fmtClock(time)}<small> / {fmtClock(duration)}</small></span>
+    <div class="strips">
+      {#if nBars > 1}<ZoneBar bars={barMap} {barTime} {duration} {time} {loopA} {loopB} {loop} onseek={seek} />{/if}
+      {#if arr}<MasterStrip {duration} {time} {chords} tonality={arr.key} onseek={seek} />{/if}
     </div>
-    <div class="grp">
-      <div class="seg">
-        <button class:on={o.view === "roll"} onclick={() => (o.view = "roll")}>Roll</button>
-        <button class:on={o.view === "score"} onclick={() => (o.view = "score")}>Partitura</button>
-      </div>
+    <div class="ab">
+      <Button size="sm" variant="ghost" active={loopA != null} onclick={() => setLoop("a")} title="Inicio del bucle aquí">A</Button>
+      <Button size="sm" variant="ghost" active={loopB != null} onclick={() => setLoop("b")} title="Final del bucle aquí">B</Button>
+      <IconButton icon="loop" label="Repetir de A a B" size="sm" active={loop} disabled={loopA == null || loopB == null} onclick={() => (loop = !loop)} />
     </div>
-    <div class="grp more-wrap">
-      <button class="ghost sm" class:on={o.more} onclick={() => (o.more = !o.more)} title="Teclado, melodía, tonalidad, volúmenes…">Ajustes {o.more ? "▴" : "▾"}</button>
-      {#if o.more}
-        <div class="pop more-pop">
-          <div class="row opts"><InputBar /></div>
-          <div class="row opts">
-            <label>
-              Latencia (ms)
-              <input type="number" min="0" max="300" step="5" bind:value={settings.latencyMs} onchange={saveSettings} style="width: 70px" />
-            </label>
-            {#if calib}
-              <span class="muted">Toca una tecla con cada clic: {calib.taps.length}/16</span>
-              <button class="ghost sm" onclick={() => (calib = null)}>Cancelar</button>
-            {:else}
-              <button class="ghost sm" onclick={calibrate} title="Suenan clics: toca una tecla a la vez que cada uno, 16 veces. La mediana del desfase es la latencia del teclado y del sonido.">Calibrar</button>
-            {/if}
-          </div>
-          <div class="row opts">
-            {#if piece && !exercise}
-              <label>
-                Derecha
-                <select value={o.pieceRight ? "si" : "no"} onchange={(e) => (o.pieceRight = e.currentTarget.value === "si")}>
-                  <option value="si">la mano derecha de la pieza</option>
-                  <option value="no">acordes (solo acompañamiento)</option>
-                </select>
-              </label>
-              <button class="ghost sm" onclick={() => piece && ((editing = piece), reset())}>✎ Editar</button>
-            {:else if !piece}
-              <label>
-                Melodía
-                <select value={o.melody} onchange={(e) => pickMelody(e.currentTarget.value)}>
-                  {#each melodyStems as st (st.name)}
-                    <option value={st.name}>{STEM_INFO[st.name]?.label ?? st.name}{st.ready ? "" : " (sacar sus notas)"}</option>
-                  {/each}
-                  <option value="none">Ninguna: solo acompañamiento</option>
-                </select>
-              </label>
-            {/if}
-            {#if !exercise}
-              <label title={keyText}>
-                Tonalidad
-                <select value={String(o.transpose)} onchange={(e) => (o.transpose = /^-?\d+$/.test(e.currentTarget.value) ? +e.currentTarget.value : (e.currentTarget.value as "orig" | "easy"))}>
-                  <option value="orig">Original ({harmony ? keyName(harmony.key, notation.latin) : ""})</option>
-                  <option value="easy">Fácil ({harmony ? fmtSemis(easyTranspose(harmony.key)) : ""})</option>
-                  {#each [-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6] as n (n)}<option value={String(n)}>{fmtSemis(n)} semitonos</option>{/each}
-                </select>
-              </label>
-            {/if}
-            {#if !piece}
-              <label title={semis ? "Con transporte solo suena la batería: lo demás iría en otra tonalidad" : "Las pistas de la canción, sin la que tocas"}>
-                Canción <input type="range" min="0" max="1.2" step="0.05" bind:value={o.song} />
-              </label>
-            {/if}
-            <label title="El arreglo sintetizado: lo que no tocas">Guía <input type="range" min="0" max="1" step="0.05" bind:value={o.guide} /></label>
-            <label title="La guía también toca tu parte, más baja"><input type="checkbox" bind:checked={o.hearMine} /> Oír mi parte</label>
-            {#if detail && !detail.chordData}<small class="muted">Acordes de las notas transcritas (los del audio están en la cola).</small>{/if}
-          </div>
-          {#if exercise}<p class="hint about">{exercise.about}</p>{/if}
-        </div>
-      {/if}
-    </div>
+    <Popover side="top" align="end" width={220} label="Volumen">
+      {#snippet trigger({ toggle })}<IconButton icon="volume" label="Volumen general" onclick={toggle} />{/snippet}
+      <div class="pop-row"><Icon name="volume" /><Slider bind:value={settings.masterVolume} min={0} max={1.5} label="Volumen general" /></div>
+    </Popover>
   </div>
 {/snippet}
 
-<div class="learn" class:nolist={!o.list}>
-  <aside>
-    <header class="side-head">
+{#snippet bar()}
+  <div class="ctl">
+    {#if !exercise}
+      <Tabs size="sm" label="Nivel" options={levelOpts} bind:value={() => String(o.level), (v) => (o.level = +v as Level)} />
+      <Tabs size="sm" label="Manos" bind:value={o.hands} options={[{ value: "lh", label: "Izq.", title: "Tocas la izquierda; la guía, la derecha" }, { value: "both", label: "Ambas" }, { value: "rh", label: "Der.", title: "Tocas la derecha; la guía, la izquierda" }]} />
+    {/if}
+    <IconButton icon="eye" size="sm" label={o.watch ? "Espectador: ver y escuchar, sin contar nada. Pulsa para practicar" : "Espectador: ver y escuchar, sin contar nada"} active={o.watch} onclick={toggleWatch} />
+    <Button size="sm" variant="ghost" icon="wait" active={o.wait && !o.watch} disabled={o.watch} onclick={toggleWait} title="Espera: se para hasta que tocas la nota, y solo sigue mientras la mantienes">Espera</Button>
+    <Popover width={260} label="Tempo">
+      {#snippet trigger({ toggle })}
+        <Button size="sm" variant="ghost" icon="metronome" active={o.speed < 1} onclick={toggle} title="Tempo: más lento para aprender">{Math.round(o.speed * 100)} %</Button>
+      {/snippet}
+      <div class="opts-pop">
+        <span class="lbl">Tempo</span>
+        <Tabs size="sm" label="Tempo" options={SPEEDS.map((v) => ({ value: String(v), label: `${Math.round(v * 100)}` }))} bind:value={() => String(o.speed), (v) => (o.speed = +v)} />
+        {#if detail}<small class="faint">Más lento, las pistas se estiran (la primera vez, unos segundos).</small>{/if}
+      </div>
+    </Popover>
+    <Tabs size="sm" label="Vista" bind:value={o.view} options={[{ value: "roll", icon: "roll", title: "Piano roll" }, { value: "score", icon: "score", title: "Partitura" }]} />
+    <Popover width={360} label="Más opciones">
+      {#snippet trigger({ toggle, open })}<IconButton icon="sliders" label="Teclado, melodía, tonalidad, volúmenes" size="sm" active={open} onclick={toggle} />{/snippet}
+      <div class="opts-pop">
+        <span class="lbl">Teclado</span>
+        <MidiStatus />
+        <div class="pop-row">
+          <span class="faint">Latencia</span>
+          <span class="fill"></span>
+          {#if calib}
+            <ProgressRing value={calib.taps.length / 16} size={24}><span class="num tiny">{calib.taps.length}</span></ProgressRing>
+            <Button size="sm" variant="ghost" onclick={() => (calib = null)}>Cancelar</Button>
+          {:else}
+            <Stepper bind:value={settings.latencyMs} min={0} max={300} step={5} label="Latencia" format={(v) => `${v} ms`} onchange={saveSettings} />
+            <Button size="sm" variant="ghost" icon="target" onclick={calibrate} title="Suenan clics: toca una tecla con cada uno, 16 veces">Calibrar</Button>
+          {/if}
+        </div>
+        {#if calib}<small class="faint">Toca una tecla a la vez que cada clic.</small>{/if}
+
+        {#if piece && !exercise}
+          <span class="lbl">Mano derecha</span>
+          <div class="pop-row">
+            <Tabs size="sm" label="Mano derecha" bind:value={() => (o.pieceRight ? "si" : "no"), (v) => (o.pieceRight = v === "si")} options={[{ value: "si", label: "La de la pieza" }, { value: "no", label: "Acordes" }]} />
+            <span class="fill"></span>
+            <Button size="sm" variant="ghost" icon="edit" onclick={() => piece && ((editing = piece), reset())}>Editar</Button>
+          </div>
+        {:else if !piece}
+          <span class="lbl">Melodía</span>
+          <div class="chips">
+            {#each melodyStems as st (st.name)}
+              <Chip color={stemColor(st.name)} active={o.melody === st.name} onclick={() => pickMelody(st.name)} title={st.ready ? "" : "Sin notas: se sacan al elegirla"}>
+                {STEM_INFO[st.name]?.label ?? st.name}{st.ready ? "" : " …"}
+              </Chip>
+            {/each}
+            <Chip active={o.melody === "none"} onclick={() => pickMelody("none")}>Solo acordes</Chip>
+          </div>
+        {/if}
+
+        {#if !exercise}
+          <span class="lbl">Tonalidad <small class="faint">{keyText}</small></span>
+          <div class="pop-row">
+            <Tabs size="sm" label="Tonalidad" bind:value={() => (typeof o.transpose === "number" ? "n" : o.transpose), (v) => (o.transpose = v === "n" ? 0 : (v as "orig" | "easy"))}
+              options={[{ value: "orig", label: "Original" }, { value: "easy", label: `Fácil ${harmony ? fmtSemis(easyTranspose(harmony.key)) : ""}` }, { value: "n", label: "Otra" }]} />
+            {#if typeof o.transpose === "number"}
+              <Stepper bind:value={() => o.transpose as number, (v) => (o.transpose = v)} min={-6} max={6} label="Semitonos" format={fmtSemis} />
+            {/if}
+          </div>
+          {#if o.level !== 5}
+            <span class="lbl">Estilo del arreglo</span>
+            <Tabs size="sm" label="Estilo" bind:value={o.style} options={[{ value: "clasico", label: "Clásico", title: "Arpegios y bajo-acorde" }, { value: "pop", label: "Pop", title: "El ritmo y las octavas del pop" }]} />
+          {/if}
+        {/if}
+
+        <span class="lbl">Volumen</span>
+        {#if !piece}<label class="vol"><span>Canción</span><Slider bind:value={o.song} min={0} max={1.2} step={0.05} label="Canción" /></label>{/if}
+        <label class="vol"><span>Guía</span><Slider bind:value={o.guide} min={0} max={1} step={0.05} label="Guía: lo que no tocas" /></label>
+        <Toggle bind:checked={o.hearMine} title="La guía también toca tu parte, más baja">Oír mi parte</Toggle>
+        {#if exercise}<p class="about">{exercise.about}</p>{/if}
+        {#if detail && !detail.chordData}<small class="faint">Acordes de las notas transcritas (los del audio, en la cola).</small>{/if}
+      </div>
+    </Popover>
+  </div>
+{/snippet}
+
+<div class="learn">
+  {#if error}<p class="err"><Icon name="alert" size={14} /> {error} <IconButton icon="close" size="sm" label="Cerrar" onclick={() => (error = "")} /></p>{/if}
+
+  {#if editing}
+    <PieceEditor piece={editing} {onsessions} onclose={() => ((editing = null), void loadPieces(), (picking = true))}
+      onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
+  {:else if picking || (!loaded && !loading)}
+    <Picker
+      bind:tab={o.tab}
+      bind:exKey={o.exKey}
+      bind:exMinor={o.exMinor}
+      bind:exHands={o.exHands}
+      latin={notation.latin}
+      current={pickerCurrent}
+      resume={loaded ? { title, go: () => (picking = false) } : null}
+      onsong={open}
+      onpiece={openPiece}
+      onedit={(pc) => (reset(), (editing = pc))}
+      ondelete={removePiece}
+      onnew={() => newOrImport("new")}
+      onimport={() => newOrImport("import")}
+      onexercise={openExercise}
+      onobra={openObra}
+      onlibrary={onback}
+    />
+  {:else}
+    <header class="top">
+      <IconButton icon="grid" label="Elegir otra" onclick={() => ((picking = true), playing && toggle())} />
+      <div class="title">
+        <strong title={title}>{title}</strong>
+        {#if keyText}<small class="num">{keyText}</small>{/if}
+      </div>
       {#if lessonPractice}
-        <button class="primary sm" onclick={backToLesson} title="Volver a la lección, al paso donde estabas">← Lección</button>
-      {:else}
-        <button class="ghost sm" onclick={onback} title="Volver al menú">← Menú</button>
+        <Button size="sm" icon="course" onclick={backToLesson} title="Volver a la lección, al paso donde estabas">
+          {lessonPractice.title} <span class="faint">· {Math.round(lessonPractice.goal * 100)} %</span>
+        </Button>
       {/if}
-      <strong>Aprender</strong>
+      {#if stretching}<Chip><ProgressRing value={null} size={12} /> Pistas al {Math.round(o.speed * 100)} %</Chip>
+      {:else if semis && !piece}<Chip title="Transportada: de la canción solo suena la batería">{fmtSemis(semis)} · solo batería</Chip>{/if}
+      {#if detail && !loading && o.melody !== "none" && melody === "none"}
+        <Chip onclick={notesJob ? undefined : () => pickMelody(o.melody)} title={notesJob ? jobText(notesJob) : "Sacar sus notas"}>
+          {#if notesJob}<ProgressRing value={null} size={12} />{:else}<Icon name="notes" size={13} />{/if}
+          {STEM_INFO[o.melody]?.label ?? o.melody}: acordes mientras
+        </Chip>
+      {/if}
+      <span class="fill"></span>
+      {#if o.watch}
+        <Chip icon="eye" title="Suena todo y no se juzga nada">Espectador</Chip>
+        {#if watchPlayed}<Button size="sm" variant="primary" icon="play" onclick={toggleWatch}>Practicar</Button>{/if}
+      {:else if loaded}
+        <div class="live" title="Notas acertadas de las que tocaban · de más · tiempo de las últimas (sesgo ± dispersión)">
+          {#if stats.wrong}<span class="miss num">× {stats.wrong}</span>{/if}
+          {#if recent.length}<Timing errs={recent} />{/if}
+          <ProgressRing value={acc} size={30} stroke={3} color={acc == null ? "var(--line-hi)" : accColor(acc)} label="Acierto">
+            <span class="num tiny">{acc == null ? "–" : Math.round(acc * 100)}</span>
+          </ProgressRing>
+          {#if stats.force != null}<span class="force num" class:off={Math.abs(stats.force) > 20} title="Fuerza media respecto a la que pide (de 127)">{stats.force > 0 ? "+" : ""}{stats.force}</span>{/if}
+        </div>
+        <IconButton icon="target" label="Resultados" onclick={showResults} disabled={!stats.due} />
+      {/if}
+      <MidiStatus />
     </header>
-    <div class="seg wide">
-      <button class:on={o.tab === "canciones"} onclick={() => (o.tab = "canciones")}>Canciones</button>
-      <button class:on={o.tab === "piezas"} onclick={() => (o.tab = "piezas")}>Mis piezas</button>
-      <button class:on={o.tab === "ejercicios"} onclick={() => (o.tab = "ejercicios")}>Ejercicios</button>
-      <button class:on={o.tab === "obras"} onclick={() => (o.tab = "obras")}>Obras</button>
-    </div>
-    <div class="find"><SearchInput placeholder="Buscar…" bind:value={query} /></div>
-    <div class="list">
-      {#if o.tab === "obras"}
-        {#each OBRA_LEVELS as [lv, label] (lv)}
-          {@const list = obrasShown.filter((x) => x.level === lv)}
-          {#if list.length}
-            <span class="kicker lvl">{lv} · {label}</span>
-            {#each list as x (x.id)}
-              <button class="item" class:on={obra?.id === x.id} onclick={() => openObra(x)}>
-                <span>{x.title}</span>
-                <small>{x.composer}</small>
-              </button>
-            {/each}
-          {/if}
-        {/each}
-        <p class="muted empty">Del <a href="https://www.mutopiaproject.org" target="_blank" rel="noreferrer">Mutopia Project</a>: dominio público o Creative Commons (créditos en public/obras/CREDITOS.md).</p>
-      {:else if o.tab === "ejercicios"}
-        <div class="exopts">
-          <select value={o.exKey} onchange={(e) => (o.exKey = +e.currentTarget.value)} title="Tonalidad de los ejercicios">
-            {#each Array.from({ length: 12 }, (_, i) => i) as t (t)}<option value={t}>{keyName({ tonic: t, minor: o.exMinor }, notation.latin).split(" ")[0]}</option>{/each}
-          </select>
-          <div class="seg">
-            <button class:on={!o.exMinor} onclick={() => (o.exMinor = false)}>mayor</button>
-            <button class:on={o.exMinor} onclick={() => (o.exMinor = true)}>menor</button>
-          </div>
-          <div class="seg" title="Con qué mano (los de dos manos, siempre juntas)">
-            <button class:on={o.exHands === "rh"} onclick={() => (o.exHands = "rh")}>Der.</button>
-            <button class:on={o.exHands === "lh"} onclick={() => (o.exHands = "lh")}>Izq.</button>
-            <button class:on={o.exHands === "both"} onclick={() => (o.exHands = "both")}>Juntas</button>
-          </div>
-        </div>
-        {#each EX_LEVELS as [lv, label] (lv)}
-          {@const list = exShown.filter((e) => e.level === lv)}
-          {#if list.length}
-            <span class="kicker lvl">{lv} · {label}</span>
-            {#each list as ex (ex.id)}
-              <button class="item" class:on={exercise?.id === ex.id} onclick={() => openExercise(ex)}>
-                <span>{ex.title}</span>
-                <small>{ex.concept}{ex.oneHand ? "" : " · dos manos"}</small>
-              </button>
-            {/each}
-          {/if}
-        {/each}
-      {:else if o.tab === "piezas"}
-        <div class="add">
-          <button class="ghost sm" onclick={() => newOrImport("new")} title="Escribirla en el editor (con el piano o el ratón)">＋ Nueva</button>
-          <button class="ghost sm" onclick={() => newOrImport("import")} title="MIDI (.mid) o MusicXML (.musicxml, .xml, .mxl)">Importar…</button>
-        </div>
-        {#each piecesShown as pc (pc.id)}
-          <div class="item piece" class:on={piece?.id === pc.id}>
-            <button class="open" onclick={() => openPiece(pc)}>
-              <span>{pc.title}</span>
-              <small>{pc.notes.length} notas · {pc.bpm} bpm</small>
-            </button>
-            <button class="icon-btn sm" onclick={() => (reset(), (editing = pc))} title="Editar" aria-label="Editar">✎</button>
-            <button class="icon-btn sm" onclick={() => removePiece(pc)} title="Borrar" aria-label="Borrar">✕</button>
-          </div>
-        {:else}
-          <p class="muted empty">Escribe una con «＋ Nueva» (tocando en el piano o con el ratón) o importa un MIDI o MusicXML.</p>
-        {/each}
-      {:else}
-        {#each songs as t (t.key)}
-          <button class="item" class:on={key === t.key} onclick={() => open(t.key)}>
-            <span>{t.title}</span>
-            <small>{t.artist}</small>
-          </button>
-        {:else}
-          <p class="muted empty">Hacen falta canciones con las pistas separadas y sus notas (en Analizar).</p>
-        {/each}
-      {/if}
-    </div>
-  </aside>
 
-  <main>
-    {#if lessonPractice && !editing}
-      <div class="lesson-bar" class:passed={lessonResult != null && lessonResult >= lessonPractice.goal}>
-        <span>📘 <strong>{lessonPractice.lessonTitle}</strong> · {lessonPractice.title} · objetivo {Math.round(lessonPractice.goal * 100)} %</span>
-        {#if lessonResult != null}
-          <span class="res"><span class="stars">{"★".repeat(stars(lessonResult))}{"☆".repeat(3 - stars(lessonResult))}</span> {Math.round(lessonResult * 100)} %
-            {lessonResult >= lessonPractice.goal ? "· ¡Objetivo cumplido!" : "· casi: otra vuelta"}</span>
-          <button class="ghost sm" onclick={() => (seek(0), toggle())}>Otra vez</button>
-        {/if}
-        <span class="grow"></span>
-        <button class="primary sm" onclick={backToLesson}>← Volver a la lección</button>
-      </div>
-    {/if}
-    {#if editing}
-      <PieceEditor piece={editing} {onsessions} onclose={() => ((editing = null), void loadPieces())}
-        onpractice={(pc) => ((editing = null), void loadPieces(), openPiece(pc))} />
-    {:else}
-    <div class="row titlebar">
-      <button class="ghost sm" onclick={() => (o.list = !o.list)} title={o.list ? "Ocultar la lista (más sitio)" : "Mostrar la lista"}>{o.list ? "⇤" : "☰"}</button>
-      {#if loaded}<strong class="ptitle" title={title}>{title}</strong>{#if keyText}<small class="muted mono">{keyText}</small>{/if}{/if}
-      <span class="grow"></span>
-      {#if loaded}
-        <span class="mono score" title="Notas acertadas de las que ya tocaban · notas equivocadas · sesgo medio, adelanto (−) o retraso (+): se arregla calibrando · dispersión (±): lo que mejora al practicar">
-          {stats.hits}/{stats.due} · {stats.wrong} fallos{stats.hits ? ` · ${stats.ms > 0 ? "+" : ""}${stats.ms} ms · ±${stats.sd}` : ""}{#if stats.force != null}<span
-              class="force" class:off={Math.abs(stats.force) > 20}
-              title="Fuerza: de media, cuánto más fuerte (+) o flojo (−) que lo que pide (de 127); en amarillo, las notas que se pasan">
-              · fuerza {stats.force > 0 ? "+" : ""}{stats.force}{stats.offForce ? ` (${stats.offForce} muy ${stats.force > 0 ? "fuertes" : "flojas"})` : ""}</span>{/if}
-        </span>
-      {/if}
-      {#if loaded && recent.length}
-        <svg class="strip" viewBox="-150 -8 300 16" preserveAspectRatio="none" aria-label="Tiempo de las últimas notas">
-          <line x1="0" x2="0" y1="-8" y2="8" class="mid" />
-          {#each recent as ms, i (i)}
-            {@const k = judge(ms / 1000)}
-            <line x1={Math.max(-148, Math.min(148, ms))} x2={Math.max(-148, Math.min(148, ms))} y1="-6" y2="6" class="tick {k}" opacity={0.3 + 0.7 * ((i + 1) / recent.length)} />
-          {/each}
-        </svg>
-      {/if}
-      <span class="dot" class:on={!!input.connected} title={input.connected ? `Teclado: ${input.connected}` : "Sin teclado MIDI: se toca con el del ordenador (en Ajustes)"}></span>
-    </div>
-    {#if !loaded}<div class="row opts"><InputBar /></div>{/if}
-    {#if loaded && (stretching || (semis && !piece) || (o.melody !== "none" && melody === "none" && !piece))}
-      <div class="row opts">
-        {#if stretching}<small class="note-warn"><span class="spinner inline"></span> Preparando las pistas al {Math.round(o.speed * 100)} % (solo la primera vez); mientras, suena la guía.</small>
-        {:else if semis && !piece}<small class="muted">Transportada {fmtSemis(semis)}: de la canción solo suena la batería.</small>{/if}
-        {#if o.melody !== "none" && melody === "none" && !piece}
-          <small class="note-warn">
-            {STEM_INFO[o.melody]?.label ?? o.melody} sin notas todavía:
-            {#if notesJob}sacándolas ({jobText(notesJob)}); la derecha lleva acordes mientras{:else}la derecha lleva acordes{/if}
-          </small>
-          {#if !notesJob}<button class="ghost sm" onclick={() => pickMelody(o.melody)}>Sacar sus notas</button>{/if}
-        {/if}
-      </div>
-    {/if}
-
-    {#if error}<p class="error-text">{error}</p>{/if}
-    {#if loading}
-      <div class="msg"><span class="spinner"></span></div>
-    {:else if loaded && arr}
-      {#if o.view === "roll"}
-        <Roll {player} {controls} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} fx tools={opts} {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
+    <div class="stage">
+      {#if loading || !arr}
+        <div class="wait"><ProgressRing value={null} size={28} /></div>
+      {:else if o.view === "roll"}
+        <Roll {player} controls={transport} bind:windowSec={settings.rollSpeed} ontoggle={() => {}} fx tools={bar} {chords} keyLabel={keyText} tonality={arr.key} title="Arreglo"
           lit={() => pressed}
           tracks={[
             { stem: "rh", name: melody === "none" ? "Derecha: acordes" : "Derecha: melodía", color: "#f29d38", path: "rh", hidden: false, notes: rhSec },
             { stem: "lh", name: "Izquierda", color: "#74c6f0", path: "lh", hidden: false, notes: lhSec },
           ]} />
-      {:else if scorePath}
-        <div class="row">{@render opts()}</div>
-        {#key scorePath}
-          <Score song={scoreSong} stems={[]} path={scorePath} {player} {controls} bind:follow={settings.scoreFollow} title="{title} · {o.level === 5 ? 'original' : `nivel ${levelLabel(o.level)}`}"
-            beatAt={(t) => toBeat(slowBeats, t) - arr.start} pdfName={scoreName} />
-        {/key}
+      {:else}
+        <div class="score-bar">{@render bar()}</div>
+        {#if scorePath}
+          {#key scorePath}
+            <Score song={scoreSong} stems={[]} path={scorePath} {player} controls={transport} bind:follow={settings.scoreFollow} title="{title} · {o.level === 5 ? 'original' : `nivel ${levelLabel(o.level)}`}"
+              beatAt={(t) => toBeat(slowBeats, t) - arr!.start} pdfName={scoreName} />
+          {/key}
+        {/if}
       {/if}
-      <div class="bottom">
-        {#if nBars > 1}
-          <div class="zonemap" title="Cómo sale cada compás (verde bien, rojo mal; gris sin practicar). Clic: ir ahí">
-            {#each barMap as a, i (i)}<button style:background={barColor(a)} class:now={i === nowBar} class:loop={activeZone && i >= activeZone.from && i <= activeZone.to}
-                onclick={() => seek(barTime(i))} aria-label="Compás {i + 1}"></button>{/each}
-          </div>
-        {/if}
-        {#if zones.length || activeZone || hasZoneData}
-          <div class="row zones">
-            {#if activeZone}
-              <span>Practicando c. {activeZone.from + 1}{activeZone.to > activeZone.from ? `–${activeZone.to + 1}` : ""} al {Math.round(o.speed * 100)} %</span>
-              {#if suggestUp}<button class="primary sm" onclick={() => ((o.speed = Math.min(1, Math.round((o.speed + 0.1) * 10) / 10)), (suggestUp = false))}>Te sale: subir a {Math.round(Math.min(1, o.speed + 0.1) * 100)} %</button>{/if}
-              <button class="ghost sm" onclick={() => ((activeZone = null), (loop = false), (suggestUp = false))}>Dejar el pasaje</button>
-            {:else}
-              <span class="muted">Zonas difíciles:</span>
-              {#each zones as z (z.from)}
-                <button class="ghost sm" onclick={() => practiceZone(z)} title="{z.tries} notas tocadas ahí">
-                  c. {z.from + 1}{z.to > z.from ? `–${z.to + 1}` : ""} · {Math.round(z.acc * 100)} % · Practicar
-                </button>
-              {:else}
-                <span class="muted">ninguna por ahora</span>
-              {/each}
-              <span class="grow"></span>
-              <button class="ghost sm" class:danger={confirmReset} onclick={resetZones}
-                title="Borra lo apuntado de esta pieza en este nivel, melodía y manos (lo demás se queda)">
-                {confirmReset ? "¿Seguro? Clic otra vez" : "Reiniciar zonas"}
-              </button>
-            {/if}
-          </div>
-        {/if}
-        {@render controls()}
-      </div>
-    {:else if !error}
-      <div class="welcome"><h1>Elige una canción<br />y <em>tócala</em>.</h1>
-        <p class="hint">Melodía y acompañamiento para piano, del nivel 1 al 5. Con el teclado MIDI o el del ordenador.</p></div>
-    {/if}
-    {/if}
-  </main>
+
+      {#if activeZone}
+        <div class="zone-pill">
+          <Icon name="loop" size={14} />
+          <span>c. {activeZone.from + 1}{activeZone.to > activeZone.from ? `–${activeZone.to + 1}` : ""} al {Math.round(o.speed * 100)} %</span>
+          {#if suggestUp}<Button size="sm" variant="primary" onclick={() => ((o.speed = Math.min(1, Math.round((o.speed + 0.1) * 10) / 10)), (suggestUp = false))}>Te sale: {Math.round(Math.min(1, o.speed + 0.1) * 100)} %</Button>{/if}
+          <IconButton icon="close" size="sm" label="Dejar el pasaje" onclick={() => ((activeZone = null), (loop = false), (suggestUp = false))} />
+        </div>
+      {/if}
+
+      {#if results}
+        <Results
+          stats={resultStats}
+          errs={resultErrs}
+          bars={barMap}
+          {barTime}
+          {duration}
+          {zones}
+          lesson={lessonPractice ? { goal: lessonPractice.goal, result: lessonResult, stars: stars(lessonResult ?? (resultStats.due ? resultStats.hits / (resultStats.due + resultStats.wrong) : 0)), onback: backToLesson } : null}
+          onzone={(z) => ((results = false), practiceZone(z))}
+          onretry={again}
+          onclose={() => (results = false)}
+          onreset={() => ((confirmReset = true), resetZones())}
+        />
+      {/if}
+    </div>
+    {@render transport()}
+  {/if}
 </div>
 
 <style>
-  .learn { height: 100%; display: grid; grid-template-columns: 280px 1fr; }
-  .learn.nolist { grid-template-columns: 0 1fr; }
-  .learn.nolist > aside { visibility: hidden; overflow: hidden; }
-  .titlebar { gap: 12px; }
-  .titlebar small { font-size: 11.5px; }
-  .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-  .grp { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-left: 1px solid var(--line); }
-  .grp:first-child { border-left: 0; padding-left: 0; }
-  .lbl { font-size: 11px; color: var(--text-3); }
-  .more-wrap { position: relative; }
-  .more-pop { position: absolute; left: 0; top: calc(100% + 8px); z-index: 70; width: min(560px, 80vw); }
-  .titlebar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
-  .titlebar .dot.on { background: var(--ok); }
-  aside { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; gap: 8px; padding-bottom: 8px; }
-  aside > .seg { margin: 0 10px; }
-  .find { padding: 0 10px; }
-  .list { overflow-y: auto; padding: 0 8px; display: flex; flex-direction: column; gap: 2px; }
-  .empty { padding: 10px; font-size: 12px; }
-  .lesson-bar {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-radius: var(--radius); flex-shrink: 0; font-size: 12.5px;
-    background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  }
-  .lesson-bar.passed { border-color: var(--ok); }
-  .lesson-bar .stars { color: var(--accent); letter-spacing: 2px; }
-  .add { display: flex; gap: 6px; padding: 2px 4px 8px; }
-  .add button { flex: 1; }
-  .piece { flex-direction: row; align-items: center; padding: 0 4px 0 0; }
-  .piece .open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 10px; border: 0; background: none; color: var(--text); text-align: left; min-width: 0; }
-  .piece .open small { color: var(--text-3); font-size: 11px; }
-  .ptitle { font-size: 14px; font-weight: 600; color: var(--text); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .exopts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 8px; align-items: center; }
-  .exopts select { font-size: 12px; padding: 3px 6px; }
-  .lvl { padding: 10px 8px 4px; }
-  .about { max-width: 900px; line-height: 1.5; flex-shrink: 0; }
+  .learn { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+  .err { display: flex; align-items: center; gap: var(--s2); margin: var(--s2) var(--s4) 0; color: var(--bad); font-size: var(--fs-sm); }
+  .fill { flex: 1; }
+  .faint { color: var(--text-3); }
+  .tiny { font-size: 10px; }
 
-  main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 24px 16px; }
-  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
-  .opts { font-size: 12px; color: var(--text-2); }
-  .opts label { display: flex; align-items: center; gap: 6px; }
-  .opts select { font-size: 12px; padding: 3px 8px; }
-  .opts input[type="range"] { width: 90px; }
-  .score { font-size: 12px; color: var(--text-2); }
-  .strip { width: 110px; height: 14px; flex-shrink: 0; }
-  .strip .mid { stroke: var(--text-3); stroke-width: 1; vector-effect: non-scaling-stroke; }
-  .strip .tick { stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-  .tick.ontime, .tick.near { stroke: var(--ok); }
-  .tick.early { stroke: var(--early); }
-  .tick.late { stroke: var(--late); }
-
-  .note-warn { color: var(--accent); display: inline-flex; align-items: center; gap: 6px; }
-  .inline { width: 12px; height: 12px; }
+  .top { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4); min-width: 0; flex-wrap: wrap; }
+  .title { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; flex: 0 1 auto; }
+  .title strong { font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title small { color: var(--text-3); white-space: nowrap; }
+  .live { display: flex; align-items: center; gap: var(--s2); }
+  .miss { color: var(--miss); font-size: var(--fs-sm); }
+  .force { font-size: var(--fs-sm); color: var(--text-2); }
   .force.off { color: var(--warn); }
-  .zonemap { display: flex; gap: 1px; height: 8px; margin-bottom: 6px; }
-  .zonemap button { flex: 1; min-width: 2px; padding: 0; border: 0; border-radius: 2px; opacity: 0.75; cursor: pointer; }
-  .zonemap button:hover, .zonemap button.now { opacity: 1; outline: 1px solid var(--text); }
-  .zonemap button.loop { opacity: 1; box-shadow: 0 -3px 0 var(--accent); }
-  .zones { margin-bottom: 6px; font-size: 12px; }
-  .zones .danger { border-color: var(--bad); }
-  .bottom { flex-shrink: 0; }
-  .msg { margin: auto; }
-  .welcome { margin: auto; text-align: center; }
-  .welcome h1 { font-size: 28px; margin: 0 0 12px; }
-  .welcome em { font-style: normal; color: var(--accent); }
+
+  .stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 var(--s4); }
+  .wait { flex: 1; display: grid; place-items: center; }
+  .score-bar { padding: var(--s1) 0 var(--s2); }
+  .ctl { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+  .zone-pill {
+    position: absolute; left: 50%; top: 56px; translate: -50% 0; z-index: 5; display: flex; align-items: center; gap: var(--s2);
+    padding: var(--s1) var(--s1) var(--s1) var(--s3); border-radius: var(--r-full); background: var(--panel-hi); box-shadow: var(--shadow);
+    font-size: var(--fs-sm); animation: rise var(--t) var(--ease);
+  }
+
+  .transport { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s4) var(--s3); min-width: 0; }
+  .clock { font-size: var(--fs-sm); white-space: nowrap; }
+  .clock small { color: var(--text-3); font-size: var(--fs-sm); }
+  .strips { flex: 1; min-width: 80px; display: flex; flex-direction: column; gap: 2px; }
+  .ab { display: flex; align-items: center; gap: 2px; }
+
+  .opts-pop { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2); }
+  .pop-row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; min-width: 0; }
+  .lbl { font-size: var(--fs-xs); color: var(--text-3); margin-top: var(--s1); }
+  .chips { display: flex; flex-wrap: wrap; gap: var(--s1); }
+  .vol { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: var(--s2); font-size: var(--fs-sm); color: var(--text-2); }
+  .about { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; }
 </style>

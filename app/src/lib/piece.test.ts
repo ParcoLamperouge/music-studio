@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { toMusicXML } from "./arrange.ts";
+import { arrange, toMusicXML, type ANote } from "./arrange.ts";
+import { analyze, tonesOf } from "./harmony.ts";
+import { readFileSync } from "node:fs";
 import { toMidi } from "./live.ts";
-import { beatToSec, fromMidi, fromMusicXML, fromSession, secToBeat, playOrder, type Bar, importPiece, newPiece, parseXml, pieceArrangement, pieceEvents, unzipMxl, type Piece } from "./piece.ts";
+import { beatToSec, fromMidi, fromMusicXML, fromSession, pieceBeats, pieceDuration, pieceSeconds, secToBeat, playOrder, type Bar, importPiece, newPiece, parseXml, pieceArrangement, pieceEvents, unzipMxl, type Piece } from "./piece.ts";
 
 const pc: Piece = { ...newPiece("Prueba"), bpm: 100, notes: [
   { b: 0, d: 1, p: 72, v: 0.8, hand: "rh" }, { b: 1, d: 0.5, p: 74, v: 0.8, hand: "rh" }, { b: 1.5, d: 0.5, p: 74, v: 0.8, hand: "rh" },
@@ -104,3 +106,33 @@ const tm: Piece = { ...newPiece("t"), bpm: 60, tempos: [[0, 60], [2, 120]] };
 assert.deepEqual([beatToSec(tm, 1), beatToSec(tm, 2), beatToSec(tm, 4)], [1, 2, 3]);
 assert.deepEqual([secToBeat(tm, 1), secToBeat(tm, 2), secToBeat(tm, 3)], [1, 2, 4]);
 console.log("piezas ok");
+
+// obra de verdad (Kuhlau, Sonatina op. 20 n.º 1), por el camino de Aprender: los arreglos se parecen al original. La
+// melodía es la voz de arriba de la derecha; el bajo Alberti (Do-Sol-Mi-Sol) es Do, no Sol (la quinta suena el doble)
+{
+  const pc = fromMidi(new Uint8Array(readFileSync(new URL("../../public/obras/m232.mid", import.meta.url))));
+  const ns = [{ stem: "piano", notes: pieceSeconds(pc, "rh") }, { stem: "bass", notes: pieceSeconds(pc, "lh") }];
+  const bs = pieceBeats(pc);
+  const h = analyze(ns, bs, pieceDuration(pc));
+  assert.equal(h.chords[0].bass, 0, "Do con bajo Alberti: Do, no Do/Sol");
+  const top = (xs: ANote[], x: number) => Math.max(-1, ...xs.filter((n) => n.b <= x + 1e-6 && x < n.b + n.d - 1e-6).map((n) => n.p));
+  const rh = pc.notes.filter((n) => n.hand === "rh"), end = Math.max(...rh.map((n) => n.b + n.d));
+  for (const [level, min] of [[1, 0.65], [2, 0.9], [3, 0.9], [4, 0.9]] as const) {
+    const a = arrange({ melody: ns[0].notes, piano: ns[0].notes, bass: ns[1].notes, chords: h.chords, beats: bs, downbeats: [0], meter: pc.meter, key: h.key, level, style: "clasico" });
+    let n = 0, ok = 0;
+    for (let x = 0; x < end; x += 0.5) {
+      const o = top(rh, x), r = top(a.rh, x);
+      if (o >= 0) (n++, (ok += +(r >= 0 && (r - o) % 12 === 0)));
+    }
+    assert.ok(ok / n >= min, `nivel ${level}: la melodía es la del original (${ok}/${n})`);
+    // los tres primeros compases son Do: la izquierda, solo notas de Do (el 1, el bajo Do; el 2 nada de Sol+Re)
+    const lh = a.lh.filter((x) => x.b < 12);
+    if (level <= 2) assert.ok(lh.length && lh.every((x) => [0, 4, 7].includes(x.p % 12)) && lh[0].p % 12 === 0, `nivel ${level}: ${lh.map((x) => x.p)}`);
+    // y en toda la obra, el bajo y su quinta son notas del acorde (con inversión, «bajo + 7» no lo es: Sol/Si daba Fa#)
+    if (level === 2) for (const x of a.lh) {
+      const t = beatToSec(pc, x.b), c = h.chords.find((c) => c.t <= t + 1e-6 && t < c.end)!;
+      assert.ok(tonesOf(c.kind).some((i) => (c.root + i) % 12 === x.p % 12), `nivel 2: ${x.p} en el acorde de ${x.b}`);
+    }
+  }
+}
+console.log("obra ok");

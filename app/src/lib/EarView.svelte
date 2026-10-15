@@ -4,10 +4,20 @@
   import { accuracy, KINDS, levelOf, maxLevel, pickItem, pickKind, pool, songQuestions, synthQuestion, type Clip, type Kind, type Question, type SongData, type Sound } from "./ear";
   import { decodeCached } from "./clip";
   import { fmtClock, readJson, songDetail } from "./engine";
-  import { chordName, degree, fromModel, keyName, noteName, type Note } from "./harmony";
+  import { chordName, degree, fromModel, keyName, noteName, type Key, type Note } from "./harmony";
   import { synth, voice } from "./player";
   import { ear, loadEar, recordEar } from "./progress.svelte";
   import { store } from "./store.svelte";
+  import { ROLL_DEFAULT } from "./rollfx";
+  import { settings } from "./settings.svelte";
+  import Answer from "./ui/Answer.svelte";
+  import Button from "./ui/Button.svelte";
+  import ChordChip from "./ui/ChordChip.svelte";
+  import Chip from "./ui/Chip.svelte";
+  import EmptyState from "./ui/EmptyState.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import ProgressRing from "./ui/ProgressRing.svelte";
+  import Tabs from "./ui/Tabs.svelte";
 
   /** Entrenador de oído: sesiones de 10 preguntas, sintéticas (intervalos, acordes, grados, progresiones, dictado) o con
    * trozos de las canciones de la biblioteca (grado y tipo del acorde, nota e intervalos de la voz). Lo que se falla
@@ -22,7 +32,8 @@
 
   let kinds = $state<Kind[]>([]); // los de la sesión en marcha; vacío: eligiendo
   let n = $state(0);
-  let right = $state(0);
+  let marks = $state<boolean[]>([]); // acierto de cada pregunta de la sesión
+  const right = $derived(marks.filter(Boolean).length);
   let q = $state.raw<Question | null>(null);
   let picked = $state<string | null>(null);
   let typed = $state<number[]>([]); // dictado
@@ -139,7 +150,7 @@
   // ---------------------------------------------------------------- sesión
 
   function start(ks: Kind[]) {
-    [n, right, done, changes, notice, q] = [0, 0, false, [], "", null];
+    [n, marks, done, changes, notice, q] = [0, [], false, [], "", null];
     kinds = ks;
     void next();
   }
@@ -171,7 +182,7 @@
 
   function finish(ok: boolean) {
     const cur = q!;
-    if (ok) right++;
+    marks = [...marks, ok];
     void recordEar(cur.kind, cur.item, ok).then((c) => {
       if (c) changes = [...changes, `${KINDS[cur.kind].title}: ${c === "sube" ? "¡subes" : "bajas"} al nivel ${levelOf(ear, cur.kind)}`];
     });
@@ -221,147 +232,227 @@
     return keys.map((p) => (BLACK.has(p % 12) ? { p, black: true, x: w } : { p, black: false, x: w++ }));
   });
   const name = (p: number, k = { tonic: 0, minor: false }) => noteName(((p % 12) + 12) % 12, k, notation.latin);
-  const levelText = (k: Kind) => `nivel ${levelOf(ear, k)}/${maxLevel(k)}`;
-  const accText = (k: Kind) => {
-    const a = accuracy(ear, k);
-    return a == null ? "" : ` · ${Math.round(a * 100)} %`;
-  };
+  const ringColor = (a: number | null) => (a == null ? "var(--line-hi)" : a >= 0.85 ? "var(--ok)" : a >= 0.6 ? "var(--warn)" : "var(--bad)");
+  const pressColor = $derived({ ...ROLL_DEFAULT, ...settings.rollStyle }.color);
+
+  /** Un grado («V», «ii°», «bVII») como acorde en `k`, para pintarlo por su función: el que degree() llama así. */
+  const C_MAJOR: Key = { tonic: 0, minor: false };
+  function romanChord(label: string, k: Key) {
+    const kind = label.endsWith("°") ? "dim" : label.replace(/^[b#]/, "")[0] === label.replace(/^[b#]/, "")[0].toLowerCase() ? "m" : "";
+    for (let root = 0; root < 12; root++) {
+      const c = { root, kind, bass: root, t: 0, end: 0 };
+      if (degree(c, k) === label) return c;
+    }
+    return null;
+  }
+  /** Las respuestas que son acordes (grados, progresiones): cada grado, un acorde coloreado. */
+  const chordsOf = (kind: Kind, opt: string, k: Key) =>
+    kind === "progresion" || kind === "cancion-grado" ? opt.split("–").map((r) => ({ r, c: romanChord(r, kind === "progresion" ? C_MAJOR : k) })) : null;
 </script>
 
 <svelte:window onkeydown={onkey} />
 
-<div class="ear">
-  <span class="kicker">Oído</span>
-  <h1>Entrenador de oído</h1>
+{#snippet levelDots(k: Kind)}
+  <span class="lv" title="Nivel {levelOf(ear, k)} de {maxLevel(k)}" aria-label="Nivel {levelOf(ear, k)} de {maxLevel(k)}">
+    {#each Array(maxLevel(k)) as _, i (i)}<i class:on={i < levelOf(ear, k)}></i>{/each}
+  </span>
+{/snippet}
 
+{#snippet sessionDots()}
+  <span class="dots" aria-label="Pregunta {n + 1} de {ROUNDS}">
+    {#each Array(ROUNDS) as _, i (i)}<i class:ok={marks[i] === true} class:bad={marks[i] === false} class:now={i === n && !done}></i>{/each}
+  </span>
+{/snippet}
+
+<section class="ear">
   {#if !kinds.length}
-    <p class="muted intro">Diez preguntas por sesión. Lo que falles vuelve antes, y cada tipo sube de nivel al acertar el 85 % de las últimas 20 (y baja por debajo del 60 %). Las de canciones usan trozos de tu biblioteca con acordes: primero suena la cadencia de su tonalidad.</p>
-    {#if notice}<p class="hint">{notice}</p>{/if}
+    <header class="head">
+      <h1>Oído</h1>
+      <span class="fill"></span>
+      <Tabs size="sm" label="Acordes de canciones" bind:value={() => (inst ? "i" : "m"), (v) => (inst = v === "i")}
+        options={[{ value: "i", label: "Instrumento", title: "Acordes de canciones: el piano o la guitarra, si los hay" }, { value: "m", label: "Mezcla", title: "Acordes de canciones: la mezcla" }]} />
+    </header>
     <div class="start">
-      <button class="primary" onclick={() => start(withAudio.length ? ALL : SYNTH)}>Sesión recomendada</button>
-      <button class="ghost" onclick={() => start(SYNTH)}>Solo sintético</button>
-      <button class="ghost" disabled={!withAudio.length} onclick={() => start(SONG)} title={withAudio.length ? "" : "Ninguna canción con audio y pistas separadas"}>Solo canciones</button>
-      <span class="grow"></span>
-      <div class="seg" title="Qué se oye en las preguntas de acordes de canciones">
-        <button class:on={inst} onclick={() => (inst = true)}>Instrumento</button>
-        <button class:on={!inst} onclick={() => (inst = false)}>Mezcla</button>
-      </div>
+      <Button variant="primary" size="lg" icon="play" onclick={() => start(withAudio.length ? ALL : SYNTH)}>Sesión recomendada</Button>
+      <Button size="lg" variant="ghost" onclick={() => start(SYNTH)}>Solo sintético</Button>
+      <Button size="lg" variant="ghost" disabled={!withAudio.length} onclick={() => start(SONG)} title={withAudio.length ? "Trozos de tu biblioteca" : "Ninguna canción con audio y pistas separadas"}>Solo canciones</Button>
     </div>
+    {#if notice}<p class="notice"><Icon name="alert" size={14} /> {notice}</p>{/if}
     <div class="kinds">
       {#each ALL as k (k)}
-        <div class="card kind">
-          <div>
-            <strong>{KINDS[k].title}</strong>
-            <small class="muted">{levelText(k)}{accText(k)}</small>
+        {@const a = accuracy(ear, k)}
+        {@const off = KINDS[k].song && !withAudio.length}
+        <article class="kind" class:off>
+          <button type="button" class="hit" disabled={off} aria-label="Practicar {KINDS[k].title}" onclick={() => start([k])}></button>
+          <ProgressRing value={a ?? 0} size={52} stroke={4} color={ringColor(a)} label="Acierto reciente">
+            <span class="num">{a == null ? "–" : Math.round(a * 100)}</span>
+          </ProgressRing>
+          <div class="kt">
+            <strong>{KINDS[k].title.replace(" · canciones", "")}</strong>
+            <span class="row">{#if KINDS[k].song}<Icon name="library" size={12} />{/if}{@render levelDots(k)}</span>
+            {#if !KINDS[k].song}<small class="pool">{pool(k, levelOf(ear, k)).join(" · ")}</small>{/if}
           </div>
-          {#if !KINDS[k].song}<small class="muted mono pool">{pool(k, levelOf(ear, k)).join(" · ")}</small>{/if}
-          <button class="ghost sm" disabled={KINDS[k].song && !withAudio.length} onclick={() => start([k])}>Practicar</button>
-        </div>
+        </article>
       {/each}
     </div>
+    <p class="foot">10 preguntas · lo que fallas vuelve antes · sube de nivel al 85 % de las últimas 20</p>
   {:else if done}
-    <div class="card result">
-      <strong class="score">{right}/{ROUNDS}</strong>
-      <span>{right / ROUNDS >= 0.85 ? "¡Muy bien!" : right / ROUNDS >= 0.6 ? "Vas bien." : "Escucha despacio: el oído se entrena con constancia."}</span>
-      {#each changes as c (c)}<span class="chip">{c}</span>{/each}
+    <div class="result">
+      <ProgressRing value={right / ROUNDS} size={140} stroke={10} color={ringColor(right / ROUNDS)} label="Acierto">
+        <strong class="num">{right}<small>/{ROUNDS}</small></strong>
+      </ProgressRing>
+      {@render sessionDots()}
+      {#each changes as c (c)}<Chip icon={c.includes("sube") ? "top" : "chevron-down"}>{c}</Chip>{/each}
       <div class="start">
-        <button class="primary" onclick={() => start(kinds)}>Otra sesión</button>
-        <button class="ghost" onclick={() => ((kinds = []), (done = false), (q = null))}>Elegir otra</button>
+        <Button variant="primary" icon="retry" onclick={() => start(kinds)}>Otra sesión</Button>
+        <Button variant="ghost" icon="grid" onclick={() => ((kinds = []), (done = false), (q = null))}>Elegir otra</Button>
       </div>
     </div>
   {:else if busy || !q}
-    <p class="muted"><span class="spinner"></span> {busy}</p>
+    <EmptyState icon="ear" title={busy || "Preparando…"}>{#snippet actions()}<ProgressRing value={null} size={24} />{/snippet}</EmptyState>
   {:else}
-    <div class="card quiz">
-      <div class="head">
-        <span class="kicker">{KINDS[q.kind].title} · {levelText(q.kind)}</span>
-        <small class="muted">{n + 1}/{ROUNDS}</small>
-      </div>
-      <strong class="prompt">{q.prompt}</strong>
-      <div class="row">
-        <button class="ghost sm" onclick={() => q && play(q.sound)} title="Repetir (R)">♪ Repetir</button>
-        {#if q.from && qsong?.harmonic && q.sound.clip?.src === "acorde"}
-          <div class="seg">
-            <button class:on={inst} onclick={() => ((inst = true), q && play(q.sound))}>{qsong.harmonic === "piano" ? "Piano" : qsong.harmonic === "guitar" ? "Guitarra" : "Instrumentos"}</button>
-            <button class:on={!inst} onclick={() => ((inst = false), q && play(q.sound))}>Mezcla</button>
-          </div>
-        {/if}
-      </div>
+    {@const a = accuracy(ear, q.kind)}
+    <header class="qhead">
+      <Button size="sm" variant="ghost" icon="back" onclick={() => ((kinds = []), (q = null), stop())}>Oído</Button>
+      <span class="kind-now">
+        <ProgressRing value={a ?? 0} size={22} stroke={2.5} color={ringColor(a)} label="Acierto reciente" />
+        <strong>{KINDS[q.kind].title}</strong>
+        {@render levelDots(q.kind)}
+      </span>
+      <span class="fill"></span>
+      {@render sessionDots()}
+    </header>
+
+    <div class="stage">
+      <button type="button" class="listen" onclick={() => q && play(q.sound)} aria-label="Repetir (R)" title="Repetir (R)">
+        <Icon name="volume" size={36} />
+        <kbd>R</kbd>
+      </button>
+      <p class="prompt">{q.prompt}</p>
+      {#if q.from && qsong?.harmonic && q.sound.clip?.src === "acorde"}
+        <Tabs size="sm" label="Qué suena" bind:value={() => (inst ? "i" : "m"), (v) => ((inst = v === "i"), q && play(q.sound))}
+          options={[{ value: "i", label: qsong.harmonic === "piano" ? "Piano" : qsong.harmonic === "guitar" ? "Guitarra" : "Instrumentos" }, { value: "m", label: "Mezcla" }]} />
+      {/if}
 
       {#if q.seq}
-        <div class="kb" style:width="{kb.filter((k) => !k.black).length * 34}px">
+        <div class="kb" style:--k={pressColor} style:width="{kb.filter((k) => !k.black).length * 44}px">
           {#each kb as k (k.p)}
-            <button class="key" class:black={k.black} style:left="{k.black ? k.x * 34 - 11 : k.x * 34}px" class:typed={typed.includes(k.p)} onclick={() => key(k.p)} aria-label={name(k.p)}>
-              {#if !k.black}<span>{name(k.p)}</span>{/if}
+            {@const at = typed.indexOf(k.p)}
+            <button type="button" class="key" class:black={k.black} style:left="{k.black ? k.x * 44 - 14 : k.x * 44}px" class:typed={at >= 0}
+              class:ok={picked != null && q.seq.includes(k.p)} onclick={() => key(k.p)} aria-label={name(k.p)}>
+              <span>{at >= 0 ? at + 1 : k.black ? "" : name(k.p)}</span>
             </button>
           {/each}
         </div>
-        <div class="row">
-          <span class="mono">{typed.map((p) => name(p)).join(" ") || "…"} <small class="muted">({typed.length}/{q.seq.length})</small></span>
-          {#if typed.length && picked == null}<button class="ghost sm" onclick={() => (typed = typed.slice(0, -1))}>Borrar</button>{/if}
+        <div class="typed">
+          {#each q.seq as _, i (i)}<span class="slot num" class:filled={typed[i] != null}>{typed[i] != null ? name(typed[i]) : ""}</span>{/each}
+          {#if typed.length && picked == null}<Button size="sm" variant="ghost" icon="undo" onclick={() => (typed = typed.slice(0, -1))}>Borrar</Button>{/if}
         </div>
       {:else}
-        <div class="opts">
+        <div class="opts" style:--cols={q.options.length <= 4 ? q.options.length : q.options.length <= 8 ? 4 : 6}>
           {#each q.options as o, i (o)}
-            <button class="ghost opt" class:ok={picked != null && o === q.answer} class:bad={picked === o && o !== q.answer} onclick={() => answer(o)} title="Tecla {i + 1}">{o}</button>
+            {@const cs = chordsOf(q.kind, o, q.from?.key ?? C_MAJOR)}
+            <Answer kbd={i < 9 ? String(i + 1) : undefined} onclick={() => answer(o)} disabled={picked != null}
+              state={picked == null ? "idle" : o === q.answer ? "right" : picked === o ? "wrong" : "dim"}>
+              {#if cs}
+                {#each cs as x, j (j)}
+                  {#if x.c}<ChordChip chord={x.c} tonality={q.kind === "progresion" ? C_MAJOR : (q.from?.key ?? C_MAJOR)} name={x.r} showDegree={false} size={cs.length > 1 ? "md" : "lg"} />{:else}{x.r}{/if}
+                {/each}
+              {:else}{o}{/if}
+            </Answer>
           {/each}
         </div>
       {/if}
 
       {#if picked != null}
-        <div class="reveal">
-          <span class={picked === q.answer || picked === "ok" ? "good" : "wrong"}>{picked === q.answer || picked === "ok" ? "¡Bien!" : "No."}</span>
-          {#if q.seq}
-            Era: <span class="mono">{q.seq.map((p) => name(p)).join(" ")}</span>
-          {:else}
-            Era: <strong>{q.answer}</strong>{q.extra ? ` (${q.extra})` : ""}
-          {/if}
+        {@const good = picked === q.answer || picked === "ok"}
+        <div class="reveal" class:good>
+          <Icon name={good ? "check" : "close"} size={18} />
+          <span>
+            {#if q.seq}<span class="num">{q.seq.map((p) => name(p)).join(" ")}</span>
+            {:else}<strong>{q.answer}</strong>{q.extra ? ` · ${q.extra}` : ""}{/if}
+          </span>
           {#if q.from}
-            <span class="muted">
-              · {q.from.chord ? `${chordName(q.from.chord, q.from.key, notation)} (${degree(q.from.chord, q.from.key)}) · ` : ""}{keyName(q.from.key, notation.latin)}
+            <small class="from">
+              {q.from.chord ? `${chordName(q.from.chord, q.from.key, notation)} (${degree(q.from.chord, q.from.key)}) · ` : ""}{keyName(q.from.key, notation.latin)}
               · {q.from.title} — {q.from.artist} · {fmtClock(q.from.t)}
-            </span>
+            </small>
+            <Button size="sm" variant="ghost" icon="audio" onclick={() => q?.from && play({ notes: [], clip: q.from.context })}>Con contexto</Button>
           {/if}
-        </div>
-        <div class="row">
-          {#if q.from}<button class="ghost sm" onclick={() => q?.from && play({ notes: [], clip: q.from.context })}>♪ Con contexto</button>{/if}
-          <span class="grow"></span>
-          <button class="primary sm" onclick={advance}>{n + 1 >= ROUNDS ? "Terminar" : "Siguiente"} ↵</button>
+          <span class="fill"></span>
+          <Button variant="primary" kbd="↵" onclick={advance}>{n + 1 >= ROUNDS ? "Terminar" : "Siguiente"}</Button>
         </div>
       {/if}
+      {#if notice}<p class="notice"><Icon name="alert" size={14} /> {notice}</p>{/if}
     </div>
-    {#if notice}<p class="hint">{notice}</p>{/if}
-    <p class="hint">Teclas: 1-9 contestar · R repetir · Enter seguir.</p>
   {/if}
-</div>
+</section>
 
 <style>
-  .ear { display: flex; flex-direction: column; gap: 10px; }
-  h1 { margin: 2px 0 4px; }
-  .intro { margin: 0; max-width: 680px; line-height: 1.6; }
-  .start, .row, .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .head { justify-content: space-between; }
-  .grow { flex: 1; }
-  .kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
-  .kind { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; align-items: flex-start; }
-  .kind div { display: flex; flex-direction: column; gap: 2px; }
-  .pool { font-size: 11px; line-height: 1.5; }
-  .quiz, .result { display: flex; flex-direction: column; gap: 12px; padding: 16px; align-items: flex-start; }
-  .quiz .head { align-self: stretch; }
-  .prompt { font-weight: 600; font-size: 15px; }
-  .score { font-size: 22px; }
-  .opts { display: flex; flex-wrap: wrap; gap: 6px; }
-  .opt { min-width: 70px; }
-  .opt.ok { background: color-mix(in srgb, var(--ok) 25%, var(--panel)); border-color: var(--ok); color: var(--text); }
-  .opt.bad { background: color-mix(in srgb, var(--bad) 20%, var(--panel)); border-color: var(--bad); }
-  .reveal { line-height: 1.6; }
-  .good { color: var(--ok); font-weight: 600; }
-  .wrong { color: var(--bad); font-weight: 600; }
-  .kb { position: relative; height: 110px; max-width: 100%; }
-  .key { position: absolute; top: 0; width: 33px; height: 110px; border-radius: 0 0 4px 4px; background: #eceae4; border: 1px solid #2e2723; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; }
-  .key span { font: 600 9px var(--mono); color: #1c0f05; }
-  .key.black { width: 22px; height: 68px; background: #15161c; border-color: #000; z-index: 1; }
-  .key:hover { filter: brightness(0.92); }
-  .key.typed { background: #f6c27e; }
-  .key.black.typed { background: #e08a2a; }
+  .ear { display: flex; flex-direction: column; gap: var(--s4); min-height: 100%; max-width: 1080px; width: 100%; margin: 0 auto; }
+  .fill { flex: 1; }
+  .head, .start, .qhead, .row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+  .notice { display: flex; align-items: center; gap: var(--s2); color: var(--warn); font-size: var(--fs-sm); }
+  .foot { font-size: var(--fs-xs); color: var(--text-3); }
+
+  .kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--s3); }
+  .kind {
+    position: relative; display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); min-width: 0;
+    border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); transition: border-color var(--t-fast), background var(--t-fast);
+  }
+  .kind:hover:not(.off) { border-color: var(--line-hi); background: var(--panel-hi); }
+  .kind.off { opacity: 0.45; }
+  .hit { position: absolute; inset: 0; z-index: 1; padding: 0; border: 0; border-radius: inherit; background: none; }
+  .kind .num { font-size: var(--fs-sm); color: var(--text); }
+  .kt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .kt strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row { color: var(--text-3); gap: 6px; }
+  .pool { font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lv { display: inline-flex; gap: 3px; }
+  .lv i { width: 10px; height: 4px; border-radius: 2px; background: var(--line-hi); }
+  .lv .on { background: var(--text); }
+
+  .dots { display: flex; gap: 5px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-hi); }
+  .dots .now { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--text-2); }
+  .dots .ok { background: var(--ok); }
+  .dots .bad { background: var(--bad); }
+
+  .result { display: flex; flex-direction: column; align-items: center; gap: var(--s4); margin: auto; }
+  .result strong { font-size: var(--fs-2xl); }
+  .result strong small { font-size: var(--fs-md); color: var(--text-2); }
+
+  .kind-now { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: var(--s4); padding-top: var(--s4); }
+  .listen {
+    position: relative; display: grid; place-items: center; width: 112px; height: 112px; border-radius: 50%; border: 1px solid var(--line-hi);
+    background: var(--panel); color: var(--text); transition: background var(--t-fast), transform var(--t-fast);
+  }
+  .listen:hover { background: var(--panel-hi); transform: scale(1.03); }
+  .listen kbd { position: absolute; bottom: 14px; }
+  .prompt { color: var(--text-2); text-align: center; }
+  .opts { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: var(--s2); width: 100%; }
+
+  .kb { position: relative; height: 160px; max-width: 100%; }
+  .key {
+    position: absolute; top: 0; width: 43px; height: 160px; border-radius: 0 0 6px 6px; background: #f3f0e8; border: 1px solid #00000059;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 10px; transition: background var(--t-fast);
+  }
+  .key span { font: 700 11px var(--mono); color: #1c0f05; }
+  .key.black { width: 28px; height: 98px; background: #1d1d22; border-color: #000; z-index: 1; }
+  .key.black span { color: #fff; }
+  .key:hover { filter: brightness(0.93); }
+  .key.typed { background: var(--k); }
+  .key.ok { box-shadow: inset 0 -5px 0 var(--ok); }
+  .typed { display: flex; align-items: center; gap: var(--s2); }
+  .slot { display: grid; place-items: center; width: 44px; height: 32px; border-radius: var(--r-md); border: 1px dashed var(--line-hi); font-size: var(--fs-sm); }
+  .slot.filled { border-style: solid; background: var(--panel-hi); }
+
+  .reveal {
+    display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; width: 100%; padding: var(--s3) var(--s4); border-radius: var(--r-lg);
+    background: color-mix(in oklab, var(--bad) 10%, var(--panel)); color: var(--bad); animation: rise var(--t) var(--ease);
+  }
+  .reveal.good { background: color-mix(in oklab, var(--ok) 10%, var(--panel)); color: var(--ok); }
+  .reveal span, .reveal strong { color: var(--text); }
+  .from { color: var(--text-2); font-size: var(--fs-sm); }
 </style>

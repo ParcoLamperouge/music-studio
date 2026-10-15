@@ -43,10 +43,35 @@
     cloud: "M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5a4 4 0 0 1-.5 8.5z",
     hidden: "M3 3l18 18 M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-2.4 3 M6.6 6.6C4.3 8.1 3 12 3 12s4 6 9 6a9 9 0 0 0 4.4-1.1",
     play: "M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z",
+    prev: "M6 5v14 M18 6v12l-9-6z",
+    next: "M18 5v14 M6 6v12l9-6z",
     pause: "M6 5h4v14H6z M14 5h4v14h-4z",
+    // Aprender, Curso, Oído
+    loop: "M17 2l3 3-3 3 M4 11V9a4 4 0 0 1 4-4h12 M7 22l-3-3 3-3 M20 13v2a4 4 0 0 1-4 4H4",
+    wait: "M6 3h12 M6 21h12 M7 3c0 5 10 5 10 9s-10 4-10 9 M17 3c0 5-10 5-10 9s10 4 10 9",
+    score: "M3 6h18 M3 10h18 M3 14h18 M3 18h18 M14 18V6",
+    roll: "M4 4v16h16 M8 8h4 M10 12h6 M7 16h5 M15 6h4",
+    sliders: "M4 6h10 M18 6h2 M4 12h2 M10 12h10 M4 18h12 M20 18h0 M14 4v4 M6 10v4 M16 16v4",
+    undo: "M9 14 4 9l5-5 M4 9h11a5 5 0 0 1 0 10h-3",
+    redo: "M15 14l5-5-5-5 M20 9H9a5 5 0 0 0 0 10h3",
+    record: "M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12z",
+    download: "M12 4v11 M7 10l5 5 5-5 M5 20h14",
+    edit: "M4 20h4L19 9l-4-4L4 16z M13 7l4 4",
+    flame: "M12 22a7 7 0 0 0 7-7c0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-3 2-5 5-5 8a7 7 0 0 0 7 7z",
+    star: "M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z",
+    target: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z M12 12h.01",
+    grid: "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z",
+    metronome: "M9 3h6l4 18H5z M12 17l5-11 M8 17h8",
+    keyboard: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10",
+    minus: "M5 12h14",
+    eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z",
+    help: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6 M12 17h.01",
+    // Canción
+    expand: "M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5",
+    info: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 11v5 M12 7.5h.01",
   } as const;
   export type IconName = keyof typeof ICONS;
-  const FILLED = new Set<IconName>(["play", "pause"]);
+  const FILLED = new Set<IconName>(["play", "pause", "record"]);
 </script>
 
 <script lang="ts">

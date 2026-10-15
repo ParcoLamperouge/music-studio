@@ -2,7 +2,13 @@
   import { openPath } from "@tauri-apps/plugin-opener";
   import { enqueue, hasDirector, listDir, paths, readJson, removeFile, type Detail, type Track } from "./engine";
   import { jobOf, jobText, store } from "./store.svelte";
+  import Button from "./ui/Button.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import IconButton from "./ui/IconButton.svelte";
+  import ProgressRing from "./ui/ProgressRing.svelte";
+  import Tabs from "./ui/Tabs.svelte";
 
+  // Edits (vídeo vertical con la letra al ritmo): crear uno nuevo y los que ya hay de esta canción, como pósters.
   let { track, detail }: { track: Track; detail: Detail | null } = $props();
 
   type Project = { id: string; name: string; key: string; start: number; end: number; rate: number; updated: number; style?: { template?: string } };
@@ -43,77 +49,53 @@
   const fmtDate = (ms: number) => new Date(ms).toLocaleString("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const clip = (p: Project) => `${Math.round((p.end - p.start) / (p.rate || 1))} s`;
   const audioJob = $derived(jobOf(track.key, ["audio", "import"]));
+  const modes = $derived([
+    { value: "auto", label: "Automático", title: "Reglas locales: plantilla según bpm y energía" },
+    ...(ai ? [{ value: "ai", label: "IA", icon: "sparkle" as const, title: "Claude dirige plantilla, colores y cortes" }] : []),
+    ...presets.map((p) => ({ value: p.id, label: p.name })),
+  ]);
 </script>
 
 <div class="edits">
-  <section class="card new">
-    <div>
-      <span class="kicker">Nuevo edit</span>
-      <h2>Vídeo vertical con la letra, al ritmo</h2>
-      <p>
-        Estribillo, plantilla según bpm y energía, palabras largas destacadas. Usa la letra palabra a palabra de aquí
-        {track.stems === "complete" ? "y la batería separada para los golpes." : "y los pulsos del audio (con pistas, la batería afina los golpes)."}
-      </p>
-    </div>
-    {#if !track.audio}
-      <div class="need">
-        <p>Necesita el audio.</p>
+  <div class="grid">
+    <div class="tile new">
+      <span class="poster add"><Icon name="edits" size={28} /></span>
+      {#if !track.audio}
         {#if audioJob && audioJob.status !== "error"}
-          <span class="muted">{jobText(audioJob)}</span>
+          <span class="job"><ProgressRing value={null} size={14} />{jobText(audioJob)}</span>
         {:else}
-          <button class="primary" onclick={() => enqueue("audio", [track.key])}>Descargar audio</button>
+          <Button variant="primary" size="sm" icon="download" title="Un edit necesita el audio" onclick={() => enqueue("audio", [track.key])}>Descargar audio</Button>
         {/if}
-      </div>
-    {:else}
-      <div class="modes">
-        <div class="seg">
-          <button class:on={mode === "auto"} onclick={() => (mode = "auto")} title="Reglas locales">Automático</button>
-          <button class:on={mode === "ai"} disabled={!ai} onclick={() => (mode = "ai")} title={ai ? "Claude dirige plantilla, colores y cortes" : "Arranca con ANTHROPIC_API_KEY para usarlo"}>✨ IA</button>
-          {#each presets as p (p.id)}
-            <button class:on={mode === p.id} onclick={() => (mode = p.id)}>{p.name}</button>
-          {/each}
-        </div>
-        <button class="primary" disabled={!detail?.doc} onclick={create} title={detail?.doc ? "" : "Primero la letra"}>Crear edit</button>
-      </div>
-    {/if}
-  </section>
-
-  <section>
-    <div class="head">
-      <span class="kicker">Edits de esta canción</span>
-      <button class="link" onclick={() => openPath(`${paths.edits}/renders`)}>Carpeta de vídeos</button>
+      {:else}
+        <Tabs size="sm" options={modes} bind:value={mode} label="Cómo se monta" />
+        <Button variant="primary" size="sm" icon="plus" disabled={!detail?.doc} title={detail?.doc ? "Vídeo vertical con la letra, al ritmo" : "Primero la letra"} onclick={create}>Nuevo edit</Button>
+      {/if}
     </div>
-    {#if loaded && !projects.length}
-      <p class="muted">Ninguno todavía.</p>
-    {/if}
-    <div class="grid">
-      {#each projects as p, i (p.id)}
-        <article style:--d="{i * 40}ms">
-          <button class="open" onclick={() => go(`project=${encodeURIComponent(p.id)}`)}>
-            <span class="poster"><i>{p.style?.template ?? "edit"}</i></span>
-            <strong>{p.name}</strong>
-            <small class="mono">{clip(p)} · {fmtDate(p.updated)}</small>
-          </button>
-          <button class="icon-btn sm del" onclick={() => del(p)} title="Borrar">
-            <svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2m-7 0 1 12h8l1-12" /></svg>
-          </button>
-        </article>
-      {/each}
-    </div>
-  </section>
+    {#each projects as p, i (p.id)}
+      <article class="tile" style:--d="{i * 30}ms">
+        <button type="button" class="open" onclick={() => go(`project=${encodeURIComponent(p.id)}`)}>
+          <span class="poster"><Icon name="edits" size={20} /><i>{p.style?.template ?? "edit"}</i></span>
+          <strong>{p.name}</strong>
+          <small class="num">{clip(p)} · {fmtDate(p.updated)}</small>
+        </button>
+        <span class="del"><IconButton icon="trash" label="Borrar" size="sm" onclick={() => del(p)} /></span>
+      </article>
+    {/each}
+  </div>
+  {#if loaded && !projects.length}<p class="none">Ninguno todavía.</p>{/if}
 
   {#if renders.length}
-    <section>
-      <span class="kicker">Exportados en esta sesión</span>
+    <section class="renders">
+      <div class="rhead"><Icon name="download" size={14} /><span>Exportados</span><IconButton icon="folder" label="Carpeta de vídeos" size="sm" onclick={() => openPath(`${paths.edits}/renders`)} /></div>
       {#each renders as j (j.id)}
         <div class="render">
-          <span>{j.title}</span>
+          <span class="rt">{j.title}</span>
           {#if j.status === "done"}
-            <button class="link" onclick={() => openPath(j.result?.path)}>Abrir MP4</button>
+            <Button size="sm" variant="ghost" icon="edits" onclick={() => openPath(j.result?.path)}>Abrir MP4</Button>
           {:else if j.status === "error"}
-            <span class="error-text">{j.error}</span>
+            <span class="err" title={j.error}><Icon name="alert" size={14} />{j.error}</span>
           {:else}
-            <span class="muted">{jobText(j)}</span>
+            <span class="job"><ProgressRing value={j.pct != null && j.status === "running" ? j.pct / 100 : null} size={14} />{jobText(j)}</span>
           {/if}
         </div>
       {/each}
@@ -122,27 +104,28 @@
 </div>
 
 <style>
-  .edits { display: flex; flex-direction: column; gap: 20px; padding-bottom: 20px; }
-  .new { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding: 16px; }
-  h2 { margin: 4px 0 6px; }
-  .new p { margin: 0; color: var(--text-3); font-size: 12px; max-width: 560px; }
-  .modes { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-  .modes .seg { align-self: flex-end; flex-wrap: wrap; }
-  .need { text-align: right; }
-  .need p { margin: 0 0 8px; }
-  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-  article { position: relative; }
-  .open { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 0; border: 0; background: none; text-align: left; }
+  .edits { display: flex; flex-direction: column; gap: var(--s5); padding: var(--s2) 0 var(--s5); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--s4); }
+  .tile { position: relative; display: flex; flex-direction: column; gap: var(--s2); min-width: 0; animation: rise var(--t-slow) var(--ease) backwards; animation-delay: var(--d, 0ms); }
+  .new { align-items: stretch; }
+  .new :global(.tabs-ui) { flex-wrap: wrap; }
+  .open { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 0; border: 0; background: none; text-align: left; min-width: 0; }
   .poster {
-    aspect-ratio: 9 / 14; border-radius: var(--radius); display: grid; place-items: end start; padding: 10px; margin-bottom: 6px;
-    background: var(--panel); border: 1px solid var(--line); transition: border-color 0.15s;
+    aspect-ratio: 9 / 14; border-radius: var(--r-lg); display: flex; flex-direction: column; justify-content: space-between; padding: var(--s3);
+    background: var(--panel); border: 1px solid var(--line); color: var(--text-3); transition: border-color var(--t-fast); margin-bottom: var(--s1);
   }
-  .poster i { font-style: normal; font-size: 13px; color: var(--text-2); }
-  .open:hover .poster { border-color: var(--accent); }
+  .poster i { font-style: normal; font-size: var(--fs-md); color: var(--text-2); }
+  .poster.add { align-items: center; justify-content: center; border-style: dashed; aspect-ratio: auto; height: 120px; }
+  .open:hover .poster { border-color: var(--line-hi); }
   .open strong { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .open small { color: var(--text-3); font-size: 11px; }
-  .del { position: absolute; top: 6px; right: 6px; opacity: 0; background: #0009; }
-  article:hover .del { opacity: 1; }
-  .render { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .open small { color: var(--text-3); font-size: var(--fs-xs); }
+  .del { position: absolute; top: var(--s2); right: var(--s2); opacity: 0; transition: opacity var(--t-fast); }
+  .tile:hover .del, .del:focus-within { opacity: 1; }
+  .none { color: var(--text-3); font-size: var(--fs-sm); }
+  .renders { display: flex; flex-direction: column; }
+  .rhead { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-sm); margin-bottom: var(--s1); }
+  .render { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); padding: var(--s2) 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+  .rt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job { display: inline-flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-sm); }
+  .err { display: inline-flex; align-items: center; gap: 4px; color: var(--bad); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

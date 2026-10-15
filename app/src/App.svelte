@@ -3,7 +3,7 @@
   import { onMount, untrack } from "svelte";
   import AddDialog, { loadAfter, thenOf } from "./lib/AddDialog.svelte";
   import CourseView from "./lib/CourseView.svelte";
-  import { deck, deckToggle } from "./lib/deck.svelte";
+  import { deck, deckPause, deckPlay, deckToggle } from "./lib/deck.svelte";
   import EarView from "./lib/EarView.svelte";
   import { enqueue, gpuName, importSources, initPaths, run } from "./lib/engine";
   import LearnView from "./lib/LearnView.svelte";
@@ -69,7 +69,8 @@
   });
 
   const songOpen = $derived(view === "biblioteca" && songShown && !!loaded && store.tracks.some((t) => t.key === loaded));
-  const showPlayer = $derived(ready && !songOpen && view !== "cantar" && (!!deck.key || !!store.playing));
+  // la canción cargada solo suena (y se ve abajo) en Biblioteca; lo de Spotify, en cualquier vista
+  const showPlayer = $derived(ready && !songOpen && view !== "cantar" && ((!!deck.key && view === "biblioteca") || !!store.playing));
 
   function url(extra: Record<string, string> = {}) {
     const p = new URLSearchParams({ mode: view, ...(loaded && songShown && view === "biblioteca" ? { song: loaded } : {}), ...extra });
@@ -78,9 +79,14 @@
   /** Ir a una vista; pulsar la que ya está abierta vuelve a su principio (en Biblioteca, a la rejilla). */
   function go(v: View, extra: Record<string, string> = {}) {
     if (v === view && v === "biblioteca") songShown = false;
-    if (v === "cantar" && deck.playing) deckToggle();
+    if (v !== "biblioteca") deckPause(); // fuera de Biblioteca la canción no suena
     view = v;
     url(extra);
+  }
+  /** ▶ desde la rejilla o el mini-reproductor: la carga (sin abrir su página) y suena en cuanto esté lista. */
+  function playSong(key: string) {
+    if (loaded !== key) loaded = key;
+    deckPlay(key);
   }
   function openSong(key: string, tab?: string) {
     loaded = key;
@@ -123,7 +129,7 @@
     ...RAIL.map((r, i) => ({ id: `view:${r.id}`, label: r.label, icon: r.icon, kbd: `Alt+${i + 1}`, group: "Ir a", run: () => go(r.id) })),
     { id: "add", label: "Añadir canciones", hint: "enlace, YouTube, nombre o ficheros", icon: "plus", kbd: "N", group: "Acciones", run: () => (adding = true) },
     { id: "queue", label: "Cola de trabajo", icon: "queue", kbd: "Q", group: "Acciones", run: () => (queueOpen = true) },
-    ...(deck.key ? [{ id: "toggle", label: deck.playing ? "Pausar" : "Reproducir", hint: store.tracks.find((t) => t.key === deck.key)?.title, icon: (deck.playing ? "pause" : "play") as IconName, group: "Acciones", run: deckToggle }] : []),
+    ...(deck.key && view === "biblioteca" ? [{ id: "toggle", label: deck.playing ? "Pausar" : "Reproducir", hint: store.tracks.find((t) => t.key === deck.key)?.title, icon: (deck.playing ? "pause" : "play") as IconName, group: "Acciones", run: deckToggle }] : []),
     { id: "settings", label: "Ajustes", hint: "Spotify, notas, servidor, playlists", icon: "settings", group: "Acciones", run: () => (settingsOpen = true) },
   ]);
 
@@ -183,7 +189,7 @@
       {/if}
 
       {#if view === "biblioteca" && !songOpen}
-        <Library bind:picked current={deck.key} onopen={(k) => openSong(k)} onadd={() => (adding = true)} onbulk={bulk} onqueue={() => (queueOpen = true)} />
+        <Library bind:picked current={deck.key} onopen={(k) => openSong(k)} onplay={playSong} onadd={() => (adding = true)} onbulk={bulk} onqueue={() => (queueOpen = true)} />
       {:else if view === "cantar" && loaded}
         <div class="page"><SingView key={loaded} onback={() => go("biblioteca")} /></div>
       {:else if view === "aprender"}
@@ -202,7 +208,7 @@
     </main>
 
     {#if showPlayer}
-      <MiniPlayer onopen={(k) => openSong(k)} onclose={closeSong} />
+      <MiniPlayer deckOn={view === "biblioteca"} onopen={(k) => openSong(k)} onplay={playSong} onclose={closeSong} />
     {/if}
   </div>
 
@@ -226,7 +232,6 @@
   .page.hidden { display: none; }
   .page.song { padding: var(--s2) var(--s5) var(--s4); }
   .page.padded { padding: var(--s5) var(--s6); }
-  .page.song > :global(.view) { height: auto; flex: 1; } /* SongView antigua bajo la miga; fuera cuando se rehaga */
   .crumb { display: flex; margin: 0 0 var(--s2) calc(-1 * var(--s2)); flex: none; }
 
   .boot { height: 100vh; display: grid; place-items: center; }

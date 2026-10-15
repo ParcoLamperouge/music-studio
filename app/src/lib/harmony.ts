@@ -38,7 +38,9 @@ function profile(tracks: { stem: string; notes: Note[] }[], a: number, b: number
       if (o <= 0) continue;
       const w = o * (0.5 + v) * k;
       pc[p % 12] += w;
-      if (stem === lowStem) low[p % 12] += w / Math.max(1, (p - 24) / 12);
+      // la grave manda: la mitad de peso por cada tercera mayor más arriba. Con un peso casi plano, en un bajo Alberti
+      // (Do-Sol-Mi-Sol) la quinta, que suena el doble, salía de bajo: Do/Sol en vez de Do en toda la obra
+      if (stem === lowStem) low[p % 12] += w * 2 ** ((24 - p) / 4);
     }
   }
   // sin bajo separado (o la pista sola) no se sabe qué nota va abajo (la voz no cuenta): sin barra
