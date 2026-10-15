@@ -128,15 +128,38 @@ assert.deepEqual(sampleFor(62), [63, 2 ** (-1 / 12)]);
 assert.deepEqual(sampleFor(15), [21, 2 ** (-6 / 12)], "por debajo de La0, la de La0");
 console.log("piano ok");
 
-// nivel 5: sin piano de verdad (unas pocas notas sueltas), la línea real del bajo con los acordes; con piano, el piano
+// nivel 5: sin piano de verdad (unas pocas notas sueltas), solo la línea real del bajo; con piano, el piano; sin nada, calla
 const bassLine: Note[] = [[1, 1.4, 36, 0.8], [1.5, 2.9, 43, 0.8], [3, 4.9, 31, 0.8]];
 const sparse = arrange({ ...base, melody: sung, level: 5, piano: [[1, 1.2, 50, 0.5]], bass: bassLine });
-assert.ok(sparse.lh.some((n) => n.p === 36 && n.b === 0) && sparse.lh.some((n) => n.p === 43), "la línea del bajo, tal cual");
-assert.ok(sparse.lh.some((n) => n.b === 1 && n.p >= 48), "y los acordes en los pulsos");
+assert.deepEqual(sparse.lh.map((n) => n.p), [36, 43, 31], "la línea del bajo, tal cual: sin acordes inventados");
+assert.equal(arrange({ ...base, melody: sung, level: 5, piano: [[1, 1.2, 50, 0.5]] }).lh.length, 0, "sin nada de verdad, la izquierda calla");
+assert.equal(arrange({ ...base, melody: null, level: 5 }).lh.length, 0, "también sin melodía");
 const pianoLow: Note[] = Array.from({ length: 16 }, (_, i) => [1 + i * 0.5, 1.5 + i * 0.5, 48 + (i % 3) * 4, 0.7]);
 const real = arrange({ ...base, melody: sung, level: 5, piano: pianoLow, bass: bassLine });
 assert.equal(real.lh.length, 16, "con piano de verdad, su parte grave");
 console.log("nivel 5 ok");
+
+// la izquierda sigue al acompañamiento: 16 compases de Do–Sol–Lam–Fa; lleno (1), callado (0), poco (0,25), lleno
+{
+  const cs = Array.from({ length: 16 }, (_, k) => ch(1 + k * 2, 3 + k * 2, [0, 7, 9, 5][k % 4], k % 4 === 2 ? "m" : ""));
+  const bs = Array.from({ length: 70 }, (_, i) => 1 + i * 0.5);
+  const s = { ...base, chords: cs, beats: bs, melody: sung };
+  const act = Array.from({ length: 64 }, (_, i) => (i < 16 || i >= 48 ? 1 : i < 32 ? 0 : 0.25));
+  const inBars = (ns: { b: number }[], k0: number, k1: number) => ns.filter((n) => n.b >= k0 * 4 && n.b < k1 * 4);
+  for (const style of ["clasico", "pop"] as const) for (const level of [1, 3, 4, 6] as const) {
+    const free = arrange({ ...s, level, style }), led = arrange({ ...s, level, style, activity: act });
+    assert.equal(inBars(led.lh, 4, 8).length, 0, `${style} ${level}: calla donde no suena el acompañamiento`);
+    assert.deepEqual(inBars(led.lh, 0, 4), inBars(free.lh, 0, 4), `${style} ${level}: lleno, igual que sin seguirlo`);
+    const lite = inBars(led.lh, 8, 12);
+    assert.ok(lite.length > 0 && (level === 1 || lite.length < inBars(free.lh, 8, 12).length), `${style} ${level}: poco, más ligera`);
+    assert.ok(new Set(lite.map((n) => n.b % 4)).size <= 2, `${style} ${level}: ligera, notas largas`);
+    assert.deepEqual(led.rh, free.rh, "la melodía no se toca");
+  }
+  const chordsOnly = arrange({ ...s, melody: null, level: 3, activity: act });
+  assert.equal(inBars(chordsOnly.rh, 4, 8).length + inBars(chordsOnly.lh, 4, 8).length, 0, "solo acordes: callan las dos manos");
+  assert.deepEqual(arrange({ ...s, level: 5, bass: bassLine, activity: act }).lh, arrange({ ...s, level: 5, bass: bassLine }).lh, "el 5, tal cual");
+}
+console.log("actividad ok");
 
 // solo acompañamiento: la izquierda también sube de nivel (no se queda en raíz + quinta)
 const accLeft = (level: 1 | 2 | 3 | 4 | 5) => arrange({ ...base, melody: null, level, bass: bassLine }).lh;

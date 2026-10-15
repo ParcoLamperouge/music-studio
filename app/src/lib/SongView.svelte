@@ -158,9 +158,11 @@
 
   // ---- ajustes guardados: por canción y generales
   let restored = $state(false);
+  let stored = {}; // lo guardado por otras vistas (Aprender: lhOff) se conserva al guardar
   $effect(() => {
     untrack(async () => {
       const view = await readJson(viewPath(key), { volume: {}, muted: {}, solo: {}, roll: {}, scoreHidden: {}, tab: "", metro: $state.snapshot(metro) });
+      stored = view;
       Object.assign(volume, view.volume);
       Object.assign(muted, view.muted);
       Object.assign(solo, view.solo);
@@ -179,7 +181,7 @@
     const k = untrack(() => key);
     flush = () => {
       flush = null;
-      void writeJson(viewPath(k), view);
+      void writeJson(viewPath(k), { ...stored, ...view });
     };
     const t = setTimeout(() => flush?.(), 500);
     return () => clearTimeout(t);

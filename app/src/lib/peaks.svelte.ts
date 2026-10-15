@@ -61,3 +61,13 @@ export function rms(data: Float32Array, columns: number) {
   const max = Math.max(...out, 1e-6);
   return out.map((v) => Math.round((v / max) * 100) / 100);
 }
+
+/** Energía RMS (sin normalizar) entre cada pulso y el siguiente. */
+export function beatRms(buf: AudioBuffer, beats: number[]) {
+  const d = buf.getChannelData(0), sr = buf.sampleRate;
+  return beats.slice(0, -1).map((t, i) => {
+    let sum = 0, n = 0;
+    for (let j = Math.max(0, Math.floor(t * sr)), end = Math.min(d.length, Math.floor(beats[i + 1] * sr)); j < end; j += 8) (sum += d[j] * d[j]), n++;
+    return n ? Math.sqrt(sum / n) : 0;
+  });
+}

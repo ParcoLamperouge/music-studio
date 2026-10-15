@@ -1,10 +1,10 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, untrack } from "svelte";
-  import { ARRANGED, arrange, easyTranspose, fromBeat, levelLabel, judge, LEVELS, median, Practice, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
+  import { ARRANGED, arrange, easyTranspose, fromBeat, levelLabel, judge, LEVELS, median, Practice, quantile, toBeat, toMusicXML, toSeconds, VEL_TOL, type Arrangement, type Level } from "./arrange";
   import { accuracy, hardZones, tally, wrongAt, type Bars, type Zone } from "./zones";
   import { loadNotation } from "./ChordsTab.svelte";
-  import { enqueue, fmtClock, paths, readJson, songDetail, STEM_INFO, writeBytes, writeJson, type Detail, type Song } from "./engine";
+  import { enqueue, fmtClock, paths, readJson, songDetail, STEM_INFO, viewPath, writeBytes, writeJson, type Detail, type Song } from "./engine";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { Player, voice } from "./player";
@@ -12,6 +12,7 @@
   import { keyOf, LESSONS, stars, type Practice as CoursePractice } from "./course";
   import { EXERCISES, exercisePiece, type Exercise, type Hands } from "./exercises";
   import { OBRAS, type Obra } from "./obras";
+  import { beatRms } from "./peaks.svelte";
   import { record } from "./progress.svelte";
   import { songPiece, SONGS } from "./songs";
   import PieceEditor from "./PieceEditor.svelte";
@@ -224,9 +225,15 @@
       const cs = d.chordData?.chords;
       if (!cs?.length && d.audio && !jobOf(k, "chords")) void enqueue("chords", [k]); // los del audio, para la próxima vez
       stemSrcs = d.stemlab.stems.map((s) => ({ name: s.name, path: `${dir}/${s.file}` }));
+      const view = readJson<{ lhOff?: string[] }>(viewPath(k), {});
       await player.load(stemSrcs);
       audioSpeed = 1;
       if (key !== k) return;
+      // energía de cada pista por pulso, respecto a la de la canción entera (el 90 % de sus pulsos)
+      const en = stemSrcs.map((x) => [x.name, beatRms(player.buffers.get(x.name)!, bs)] as const);
+      const ref = quantile(bs.slice(1).map((_, i) => en.reduce((s, [, e]) => s + e[i], 0)), 0.9) || 1;
+      energy = Object.fromEntries(en.map(([n, e]) => [n, e.map((x) => x / ref)]));
+      lhOff = (await view).lhOff ?? [];
       [notes, beats, harmony, detail] = [ns, bs, cs?.length ? fromModel(cs, ns, bs, d.duration) : analyze(ns, bs, d.duration), d];
       baseDuration = player.duration;
       time = 0;
@@ -248,6 +255,17 @@
   const melodyStems = $derived(
     (detail?.stemlab?.stems ?? []).filter((s) => s.name !== "drums" && s.present).map((s) => ({ name: s.name, ready: notes.some((t) => t.stem === s.name) })),
   );
+  /** Las pistas que puede seguir la izquierda (las de la melodía menos la elegida) y las que sigue: por canción, en su
+   * views/<clave>.json (`lhOff`, las quitadas). Donde no suenan, la izquierda calla; donde suenan poco, se aligera. */
+  let energy = $state.raw<Record<string, number[]>>({});
+  let lhOff = $state<string[]>([]);
+  const lhStems = $derived(melodyStems.filter((s) => s.name !== o.melody).map((s) => s.name));
+  const lhOn = $derived(lhStems.filter((s) => !lhOff.includes(s)));
+  const activity = $derived(detail && lhOn.length ? (energy[lhOn[0]] ?? []).map((_, i) => lhOn.reduce((s, n) => s + (energy[n]?.[i] ?? 0), 0)) : undefined);
+  async function toggleLh(stem: string) {
+    const k = key, off = (lhOff = lhOff.includes(stem) ? lhOff.filter((s) => s !== stem) : [...lhOff, stem]);
+    if (k) void writeJson(viewPath(k), { ...(await readJson<object>(viewPath(k), {})), lhOff: off });
+  }
   const notesJob = $derived(key && o.melody !== "none" && melody === "none" ? jobOf(key, "notes", o.melody) : undefined);
   function pickMelody(stem: string) {
     o.melody = stem;
@@ -271,10 +289,14 @@
   const arr = $derived.by<Arrangement | null>(() => {
     if (!harmony || !loaded) return null;
     if (piece && (o.level === 5 || piece.exercise)) return pieceArrangement(piece, harmony.key, semis); // la pieza tal cual (un ejercicio, siempre)
+    const own = (stem: string) => notes.find((t) => t.stem === stem)?.notes;
+    // el original (5): la izquierda, de lo transcrito de las pistas elegidas si lo hay (el bajo como bajo, el resto como piano)
+    const mine = o.level === 5 && !piece && lhOn.some((s) => own(s));
     return arrange({
-      melody: melody === "none" ? null : (notes.find((t) => t.stem === melody)?.notes ?? null),
-      piano: notes.find((t) => t.stem === "piano")?.notes,
-      bass: notes.find((t) => t.stem === "bass")?.notes,
+      melody: melody === "none" ? null : (own(melody) ?? null),
+      piano: mine ? lhOn.filter((s) => s !== "bass").flatMap((s) => own(s) ?? []) : own("piano"),
+      bass: mine ? (lhOn.includes("bass") ? own("bass") : []) : own("bass"),
+      activity,
       chords: harmony.chords,
       beats,
       downbeats: piece ? [0] : detail?.beatData?.downbeats,
@@ -817,6 +839,16 @@
             {/each}
             <Chip active={o.melody === "none"} onclick={() => pickMelody("none")}>Solo acordes</Chip>
           </div>
+          {#if lhStems.length}
+            <span class="lbl">Acompañamiento <small class="faint">la izquierda toca donde suenan</small></span>
+            <div class="chips">
+              {#each lhStems as st (st)}
+                <Chip color={stemColor(st)} active={!lhOff.includes(st)} onclick={() => toggleLh(st)} title="Donde no suenan, la izquierda calla; donde suenan poco, toca lo justo">
+                  {STEM_INFO[st]?.label ?? st}
+                </Chip>
+              {/each}
+            </div>
+          {/if}
         {/if}
 
         {#if !exercise}

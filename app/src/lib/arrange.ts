@@ -478,6 +478,7 @@ export function arrange(o: {
   level: Level;
   transpose?: number;
   style?: "clasico" | "pop"; // cómo acompaña: bajo-acorde clásico (en el 6 y el 7, con la textura del original), o el ritmo y las octavas del pop
+  activity?: number[]; // cuánto suenan las pistas del acompañamiento en cada pulso (0-1); la izquierda calla o se aligera donde no
 }): Arrangement {
   const { beats, level } = o;
   const meter = o.meter && o.meter >= 2 && o.meter <= 7 ? o.meter : 4;
@@ -498,30 +499,54 @@ export function arrange(o: {
       : level >= 6 ? classic("lh") : accompaniment(segs, level, "lh");
   } else {
     // solo acompañamiento: la derecha, los acordes; la izquierda, el bajo, cada vez más cerca del de la canción
-    if (o.style === "pop" && level !== 5) {
-      [rh, lh] = [pop(segs, level, "rh", meter, start), pop(segs, level, "lh", meter, start, popEnergy(o.piano ?? o.bass, beats, meter, start))];
-      const t = o.transpose ?? 0;
-      const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));
-      return { rh: shift(rh), lh: shift(lh), key: { tonic: (o.key.tonic + t + 12) % 12, minor: o.key.minor }, transpose: t, meter, start };
+    if (o.style === "pop" && level !== 5) [rh, lh] = [pop(segs, level, "rh", meter, start), pop(segs, level, "lh", meter, start, popEnergy(o.piano ?? o.bass, beats, meter, start))];
+    else {
+      rh = level >= 6 ? classic("rh") : accompaniment(segs, level, "rh");
+      lh = level >= 6 ? (tex?.arp ? arpeggios(segs, 6, "lh", tex.down).filter((n) => n.p < 52) : blocks(segs, level, "lh", tex?.on ?? [], false)) : level <= 2 ? accompaniment(segs, 1, "lh") : level === 3 ? accompaniment(segs, 2, "lh") : level === 4 ? bassOnBeats(segs) : transcribedLeft(o.piano ?? [], o.bass ?? [], segs, beats);
     }
-    rh = level >= 6 ? classic("rh") : accompaniment(segs, level, "rh");
-    lh = level >= 6 ? (tex?.arp ? arpeggios(segs, 6, "lh", tex.down).filter((n) => n.p < 52) : blocks(segs, level, "lh", tex?.on ?? [], false)) : level <= 2 ? accompaniment(segs, 1, "lh") : level === 3 ? accompaniment(segs, 2, "lh") : level === 4 ? bassOnBeats(segs) : (realBass(o.bass ?? [], beats) ?? bassOnBeats(segs));
+  }
+  // la izquierda sigue al acompañamiento elegido: calla donde no suena, ligera (la del 1 o el 2) donde suena poco; sin
+  // melodía, la derecha igual (acordes largos). El 5 es el original: no se toca
+  if (o.activity?.length && level !== 5) {
+    const st = activityBars(o.activity, meter, start), lite = level <= 2 ? 1 : 2;
+    lh = gate(lh, o.style === "pop" ? pop(segs, lite, "lh", meter, start) : accompaniment(segs, lite, "lh"), st, meter, start);
+    if (!o.melody) rh = gate(rh, accompaniment(segs, 1, "rh"), st, meter, start);
   }
   const t = o.transpose ?? 0;
   const shift = (ns: ANote[]) => ns.map((n) => ({ ...n, p: n.p + t }));
   return { rh: shift(rh), lh: shift(lh), key: { tonic: (o.key.tonic + t + 12) % 12, minor: o.key.minor }, transpose: t, meter, start };
 }
 
-/** Nivel 5, izquierda: lo que toca el piano por debajo del Do central si la canción tiene piano de verdad (suena en al
- * menos el 40 % de la canción: muchas pistas «piano» son restos que el separador dejó ahí); si no, la línea real del bajo
- * (una voz, en registro de izquierda) con los acordes en los pulsos; sin bajo, el acompañamiento del nivel 4. */
+/** Nivel 5, izquierda: solo lo que suena de verdad, nada inventado. Lo que toca el «piano» (las pistas elegidas) por
+ * debajo del Do central si es de verdad (suena en al menos el 40 % de la canción: muchas pistas son restos que el
+ * separador dejó ahí); si no, la línea real del bajo (una voz, en registro de izquierda); sin nada, calla. */
 function transcribedLeft(piano: Note[], bass: Note[], segs: Seg[], beats: number[]): ANote[] {
-  const low = realPiano(piano, segs, beats);
-  if (low) return low;
-  const line = realBass(bass, beats);
-  if (!line) return accompaniment(segs, 4, "lh");
-  // los acordes del nivel 4 sin su bajo (lo pone la línea real)
-  return [...line, ...accompaniment(segs, 4, "lh").filter((n) => !segs.some((x) => Math.abs(x.b - n.b) < 1e-6 && n.p < 48))];
+  return realPiano(piano, segs, beats) ?? realBass(bass, beats) ?? [];
+}
+
+/** Cuantil `q` (0-1) de `xs`. */
+export const quantile = (xs: number[], q: number) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? s[Math.floor(q * (s.length - 1))] : 0;
+};
+
+/** Cómo suena el acompañamiento en cada compás: 0 calla, 1 poco, 2 lleno. Respecto a lo que suele sonar en esta canción
+ * (el 90 % de sus compases; al menos 0,2, que si todo es flojo, flojo se queda): por debajo del 15 % calla; por debajo
+ * de la mitad, poco, con la media de los compases de al lado (1-2-1) para que no cambie a cada compás. */
+function activityBars(act: number[], meter: number, start: number) {
+  const raw: number[] = [];
+  for (let b0 = start; b0 < act.length; b0 += meter) {
+    const xs = act.slice(Math.max(0, b0), b0 + meter);
+    raw.push(xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  }
+  const ref = Math.max(quantile(raw, 0.9), 0.2);
+  return raw.map((x, i) => (x / ref < 0.15 ? 0 : ((raw[i - 1] ?? x) + 2 * x + (raw[i + 1] ?? x)) / 4 / ref < 0.5 ? 1 : 2));
+}
+
+/** `full` en los compases llenos, `light` en los de poco, nada en los que callan (fuera de `st`, lleno). */
+function gate(full: ANote[], light: ANote[], st: number[], meter: number, start: number) {
+  const at = (n: ANote) => st[Math.floor((n.b - start) / meter + 1e-6)] ?? 2;
+  return [...full.filter((n) => at(n) === 2), ...light.filter((n) => at(n) === 1)];
 }
 
 /** Lo que toca el piano por debajo del Do central, si es piano de verdad (suena en al menos el 40 % de la canción); null si no. */
