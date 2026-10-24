@@ -2,6 +2,7 @@
   /** Carriles por instrumento (piano roll horizontal de cada pista, en su color) con una fila de acordes coloreados por
    * función encima. Ventana de `span` s alrededor de «ahora», que va a la izquierda; pulsar en un carril salta ahí. */
   import type { Snippet } from "svelte";
+  import { t } from "./i18n.svelte";
   import type { Key, Note } from "./harmony";
   import { chordFn, cssVar, stemColor } from "./ui/music";
 
@@ -46,7 +47,7 @@
   $effect(() => {
     if (!width) return;
     const t0 = time - span * LEAD;
-    const x = (t: number) => ((t - t0) / span) * width;
+    const x = (tr: number) => ((tr - t0) / span) * width;
     const now = x(time);
     const text = cssVar("--text"), line = cssVar("--line"), onData = cssVar("--on-data");
 
@@ -105,14 +106,14 @@
 </script>
 
 <div class="lanes">
-  <div class="head chords">Acordes</div>
+  <div class="head chords">{t("Acordes")}</div>
   <div class="cv top" bind:clientWidth={width}>
-    <canvas bind:this={chordCanvas} style:height="26px" onpointerdown={click} aria-label="Acordes: pulsa para ir ahí"></canvas>
+    <canvas bind:this={chordCanvas} style:height="26px" onpointerdown={click} aria-label={t("Acordes: pulsa para ir ahí")}></canvas>
   </div>
   {#each lanes as l, i (l.stem)}
     <div class="head" style:height="{rowH}px">{@render head(l)}</div>
     <div class="cv lane" style:height="{rowH}px">
-      <canvas bind:this={canvases[i]} style:height="{rowH}px" onpointerdown={click} aria-label="{l.label}: pulsa para ir ahí"></canvas>
+      <canvas bind:this={canvases[i]} style:height="{rowH}px" onpointerdown={click} aria-label={t("{label}: pulsa para ir ahí", { label: t(l.label) })}></canvas>
     </div>
   {/each}
 </div>

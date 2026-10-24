@@ -5,6 +5,7 @@
   import { decodeCached } from "./clip";
   import { fmtClock, readJson, songDetail } from "./engine";
   import { chordName, degree, fromModel, keyName, noteName, type Key, type Note } from "./harmony";
+  import { engineErr, t } from "./i18n.svelte";
   import { synth, voice } from "./player";
   import { ear, loadEar, recordEar } from "./progress.svelte";
   import { store } from "./store.svelte";
@@ -28,7 +29,7 @@
   const SYNTH = ALL.filter((k) => !KINDS[k].song);
   const SONG = ALL.filter((k) => KINDS[k].song);
   const notation = loadNotation();
-  const withAudio = $derived(store.tracks.filter((t) => t.stems && t.audio));
+  const withAudio = $derived(store.tracks.filter((tr) => tr.stems && tr.audio));
 
   let kinds = $state<Kind[]>([]); // los de la sesión en marcha; vacío: eligiendo
   let n = $state(0);
@@ -40,7 +41,7 @@
   let done = $state(false);
   let busy = $state("");
   let notice = $state("");
-  let changes = $state<string[]>([]);
+  let changes = $state<{ up: boolean; text: string }[]>([]);
   let inst = $state(true); // acordes de canciones: el instrumento armónico (si lo hay) en vez de la mezcla
 
   onMount(() => {
@@ -66,7 +67,7 @@
         const h = fromModel(cs, tracks, beats, d.duration);
         return {
           key, title: d.title, artist: d.artist, tonality: h.key, chords: h.chords, beats,
-          vocals: tracks.find((t) => t.stem === "vocals")?.notes ?? [],
+          vocals: tracks.find((tr) => tr.stem === "vocals")?.notes ?? [],
           harmonic: ["piano", "guitar", "other"].find((x) => stems.some((s) => s.name === x && s.present)) ?? null,
           paths: { mix: d.audioPath ?? `${dir}/${d.stemlab.mix}`, ...Object.fromEntries(stems.map((s) => [s.name, `${dir}/${s.file}`])) },
         };
@@ -78,11 +79,11 @@
   async function songQuestion(kind: Kind, avoid?: string) {
     const vocal = kind === "cancion-nota" || kind === "cancion-intervalo";
     const cands = withAudio
-      .filter((t) => !vocal || t.notes.includes("vocals"))
-      .map((t) => ({ t, r: Math.random() + (t.beats ? 1 : 0) }))
+      .filter((tr) => !vocal || tr.notes.includes("vocals"))
+      .map((tr) => ({ t: tr, r: Math.random() + (tr.beats ? 1 : 0) }))
       .sort((a, b) => b.r - a.r);
-    for (const { t } of cands.slice(0, 8)) {
-      const s = await loadSong(t.key);
+    for (const { t: tr } of cands.slice(0, 8)) {
+      const s = await loadSong(tr.key);
       const qs = s ? songQuestions(kind, s, levelOf(ear, kind)) : [];
       if (!s || !qs.length) continue;
       const item = pickItem(ear, kind, [...new Set(qs.map((x) => x.answer))], Date.now(), Math.random, avoid);
@@ -131,7 +132,7 @@
       }
       if (cb && snd.clip) {
         // AudioBufferSourceNode con offset (no <audio>: en WebKitGTK buscar es lento) y fundidos cortos para no chasquear
-        const { t, dur } = snd.clip, at = t0 + (snd.at ?? 0), f = 0.03;
+        const { t: ct, dur } = snd.clip, at = t0 + (snd.at ?? 0), f = 0.03;
         const s = ctx.createBufferSource(), g = ctx.createGain();
         s.buffer = cb;
         s.connect(g).connect(ctx.destination);
@@ -139,11 +140,11 @@
         g.gain.linearRampToValueAtTime(1, at + f);
         g.gain.setValueAtTime(1, at + dur - f);
         g.gain.linearRampToValueAtTime(0, at + dur);
-        s.start(at, t, dur);
+        s.start(at, ct, dur);
         srcs.push(s);
       }
     } catch (e) {
-      notice = `No se pudo reproducir: ${e instanceof Error ? e.message : e}`;
+      notice = t("No se pudo reproducir: {e}", { e: engineErr(String(e instanceof Error ? e.message : e)) });
     }
   }
 
@@ -163,12 +164,17 @@
     const avoid = prev?.kind === kind ? prev.item : undefined;
     let nq: Question | null = null;
     if (KINDS[kind].song) {
-      busy = "Buscando un trozo de canción…";
+      busy = t("Buscando un trozo de canción…");
       nq = await songQuestion(kind, avoid);
       busy = "";
       if (!nq) {
         kinds = kinds.filter((k) => k !== kind);
-        notice = `Sin canciones para «${KINDS[kind].title}»: hacen falta pistas separadas, acordes${kind === "cancion-nota" || kind === "cancion-intervalo" ? " y notas de la voz" : ""}.`;
+        notice = t(
+          kind === "cancion-nota" || kind === "cancion-intervalo"
+            ? "Sin canciones para «{title}»: hacen falta pistas separadas, acordes y notas de la voz."
+            : "Sin canciones para «{title}»: hacen falta pistas separadas, acordes.",
+          { title: KINDS[kind].title },
+        );
         if (!kinds.length) return void (q = null);
         return next();
       }
@@ -184,7 +190,14 @@
     const cur = q!;
     marks = [...marks, ok];
     void recordEar(cur.kind, cur.item, ok).then((c) => {
-      if (c) changes = [...changes, `${KINDS[cur.kind].title}: ${c === "sube" ? "¡subes" : "bajas"} al nivel ${levelOf(ear, cur.kind)}`];
+      if (c)
+        changes = [
+          ...changes,
+          {
+            up: c === "sube",
+            text: `${KINDS[cur.kind].title}: ${t(c === "sube" ? "¡subes al nivel {n}" : "bajas al nivel {n}", { n: levelOf(ear, cur.kind) })}`,
+          },
+        ];
     });
     if (ok && !cur.from) setTimeout(() => q === cur && advance(), 800);
   }
@@ -253,13 +266,13 @@
 <svelte:window onkeydown={onkey} />
 
 {#snippet levelDots(k: Kind)}
-  <span class="lv" title="Nivel {levelOf(ear, k)} de {maxLevel(k)}" aria-label="Nivel {levelOf(ear, k)} de {maxLevel(k)}">
+  <span class="lv" title={t("Nivel {n} de {m}", { n: levelOf(ear, k), m: maxLevel(k) })} aria-label={t("Nivel {n} de {m}", { n: levelOf(ear, k), m: maxLevel(k) })}>
     {#each Array(maxLevel(k)) as _, i (i)}<i class:on={i < levelOf(ear, k)}></i>{/each}
   </span>
 {/snippet}
 
 {#snippet sessionDots()}
-  <span class="dots" aria-label="Pregunta {n + 1} de {ROUNDS}">
+  <span class="dots" aria-label={t("Pregunta {n} de {m}", { n: n + 1, m: ROUNDS })}>
     {#each Array(ROUNDS) as _, i (i)}<i class:ok={marks[i] === true} class:bad={marks[i] === false} class:now={i === n && !done}></i>{/each}
   </span>
 {/snippet}
@@ -267,15 +280,15 @@
 <section class="ear">
   {#if !kinds.length}
     <header class="head">
-      <h1>Oído</h1>
+      <h1>{t("Oído")}</h1>
       <span class="fill"></span>
-      <Tabs size="sm" label="Acordes de canciones" bind:value={() => (inst ? "i" : "m"), (v) => (inst = v === "i")}
-        options={[{ value: "i", label: "Instrumento", title: "Acordes de canciones: el piano o la guitarra, si los hay" }, { value: "m", label: "Mezcla", title: "Acordes de canciones: la mezcla" }]} />
+      <Tabs size="sm" label={t("Acordes de canciones")} bind:value={() => (inst ? "i" : "m"), (v) => (inst = v === "i")}
+        options={[{ value: "i", label: t("Instrumento"), title: t("Acordes de canciones: el piano o la guitarra, si los hay") }, { value: "m", label: t("Mezcla"), title: t("Acordes de canciones: la mezcla") }]} />
     </header>
     <div class="start">
-      <Button variant="primary" size="lg" icon="play" onclick={() => start(withAudio.length ? ALL : SYNTH)}>Sesión recomendada</Button>
-      <Button size="lg" variant="ghost" onclick={() => start(SYNTH)}>Solo sintético</Button>
-      <Button size="lg" variant="ghost" disabled={!withAudio.length} onclick={() => start(SONG)} title={withAudio.length ? "Trozos de tu biblioteca" : "Ninguna canción con audio y pistas separadas"}>Solo canciones</Button>
+      <Button variant="primary" size="lg" icon="play" onclick={() => start(withAudio.length ? ALL : SYNTH)}>{t("Sesión recomendada")}</Button>
+      <Button size="lg" variant="ghost" onclick={() => start(SYNTH)}>{t("Solo sintético")}</Button>
+      <Button size="lg" variant="ghost" disabled={!withAudio.length} onclick={() => start(SONG)} title={withAudio.length ? t("Trozos de tu biblioteca") : t("Ninguna canción con audio y pistas separadas")}>{t("Solo canciones")}</Button>
     </div>
     {#if notice}<p class="notice"><Icon name="alert" size={14} /> {notice}</p>{/if}
     <div class="kinds">
@@ -283,8 +296,8 @@
         {@const a = accuracy(ear, k)}
         {@const off = KINDS[k].song && !withAudio.length}
         <article class="kind" class:off>
-          <button type="button" class="hit" disabled={off} aria-label="Practicar {KINDS[k].title}" onclick={() => start([k])}></button>
-          <ProgressRing value={a ?? 0} size={52} stroke={4} color={ringColor(a)} label="Acierto reciente">
+          <button type="button" class="hit" disabled={off} aria-label={t("Practicar {title}", { title: KINDS[k].title })} onclick={() => start([k])}></button>
+          <ProgressRing value={a ?? 0} size={52} stroke={4} color={ringColor(a)} label={t("Acierto reciente")}>
             <span class="num">{a == null ? "–" : Math.round(a * 100)}</span>
           </ProgressRing>
           <div class="kt">
@@ -295,27 +308,27 @@
         </article>
       {/each}
     </div>
-    <p class="foot">10 preguntas · lo que fallas vuelve antes · sube de nivel al 85 % de las últimas 20</p>
+    <p class="foot">{t("10 preguntas · lo que fallas vuelve antes · sube de nivel al 85 % de las últimas 20")}</p>
   {:else if done}
     <div class="result">
-      <ProgressRing value={right / ROUNDS} size={140} stroke={10} color={ringColor(right / ROUNDS)} label="Acierto">
+      <ProgressRing value={right / ROUNDS} size={140} stroke={10} color={ringColor(right / ROUNDS)} label={t("Acierto")}>
         <strong class="num">{right}<small>/{ROUNDS}</small></strong>
       </ProgressRing>
       {@render sessionDots()}
-      {#each changes as c (c)}<Chip icon={c.includes("sube") ? "top" : "chevron-down"}>{c}</Chip>{/each}
+      {#each changes as c (c)}<Chip icon={c.up ? "top" : "chevron-down"}>{c.text}</Chip>{/each}
       <div class="start">
-        <Button variant="primary" icon="retry" onclick={() => start(kinds)}>Otra sesión</Button>
-        <Button variant="ghost" icon="grid" onclick={() => ((kinds = []), (done = false), (q = null))}>Elegir otra</Button>
+        <Button variant="primary" icon="retry" onclick={() => start(kinds)}>{t("Otra sesión")}</Button>
+        <Button variant="ghost" icon="grid" onclick={() => ((kinds = []), (done = false), (q = null))}>{t("Elegir otra")}</Button>
       </div>
     </div>
   {:else if busy || !q}
-    <EmptyState icon="ear" title={busy || "Preparando…"}>{#snippet actions()}<ProgressRing value={null} size={24} />{/snippet}</EmptyState>
+    <EmptyState icon="ear" title={busy || t("Preparando…")}>{#snippet actions()}<ProgressRing value={null} size={24} />{/snippet}</EmptyState>
   {:else}
     {@const a = accuracy(ear, q.kind)}
     <header class="qhead">
-      <Button size="sm" variant="ghost" icon="back" onclick={() => ((kinds = []), (q = null), stop())}>Oído</Button>
+      <Button size="sm" variant="ghost" icon="back" onclick={() => ((kinds = []), (q = null), stop())}>{t("Oído")}</Button>
       <span class="kind-now">
-        <ProgressRing value={a ?? 0} size={22} stroke={2.5} color={ringColor(a)} label="Acierto reciente" />
+        <ProgressRing value={a ?? 0} size={22} stroke={2.5} color={ringColor(a)} label={t("Acierto reciente")} />
         <strong>{KINDS[q.kind].title}</strong>
         {@render levelDots(q.kind)}
       </span>
@@ -324,14 +337,14 @@
     </header>
 
     <div class="stage">
-      <button type="button" class="listen" onclick={() => q && play(q.sound)} aria-label="Repetir (R)" title="Repetir (R)">
+      <button type="button" class="listen" onclick={() => q && play(q.sound)} aria-label={t("Repetir (R)")} title={t("Repetir (R)")}>
         <Icon name="volume" size={36} />
         <kbd>R</kbd>
       </button>
       <p class="prompt">{q.prompt}</p>
       {#if q.from && qsong?.harmonic && q.sound.clip?.src === "acorde"}
-        <Tabs size="sm" label="Qué suena" bind:value={() => (inst ? "i" : "m"), (v) => ((inst = v === "i"), q && play(q.sound))}
-          options={[{ value: "i", label: qsong.harmonic === "piano" ? "Piano" : qsong.harmonic === "guitar" ? "Guitarra" : "Instrumentos" }, { value: "m", label: "Mezcla" }]} />
+        <Tabs size="sm" label={t("Qué suena")} bind:value={() => (inst ? "i" : "m"), (v) => ((inst = v === "i"), q && play(q.sound))}
+          options={[{ value: "i", label: qsong.harmonic === "piano" ? t("Piano") : qsong.harmonic === "guitar" ? t("Guitarra") : t("Instrumentos") }, { value: "m", label: t("Mezcla") }]} />
       {/if}
 
       {#if q.seq}
@@ -346,7 +359,7 @@
         </div>
         <div class="typed">
           {#each q.seq as _, i (i)}<span class="slot num" class:filled={typed[i] != null}>{typed[i] != null ? name(typed[i]) : ""}</span>{/each}
-          {#if typed.length && picked == null}<Button size="sm" variant="ghost" icon="undo" onclick={() => (typed = typed.slice(0, -1))}>Borrar</Button>{/if}
+          {#if typed.length && picked == null}<Button size="sm" variant="ghost" icon="undo" onclick={() => (typed = typed.slice(0, -1))}>{t("Borrar")}</Button>{/if}
         </div>
       {:else}
         <div class="opts" style:--cols={q.options.length <= 4 ? q.options.length : q.options.length <= 8 ? 4 : 6}>
@@ -377,10 +390,10 @@
               {q.from.chord ? `${chordName(q.from.chord, q.from.key, notation)} (${degree(q.from.chord, q.from.key)}) · ` : ""}{keyName(q.from.key, notation.latin)}
               · {q.from.title} — {q.from.artist} · {fmtClock(q.from.t)}
             </small>
-            <Button size="sm" variant="ghost" icon="audio" onclick={() => q?.from && play({ notes: [], clip: q.from.context })}>Con contexto</Button>
+            <Button size="sm" variant="ghost" icon="audio" onclick={() => q?.from && play({ notes: [], clip: q.from.context })}>{t("Con contexto")}</Button>
           {/if}
           <span class="fill"></span>
-          <Button variant="primary" kbd="↵" onclick={advance}>{n + 1 >= ROUNDS ? "Terminar" : "Siguiente"}</Button>
+          <Button variant="primary" kbd="↵" onclick={advance}>{n + 1 >= ROUNDS ? t("Terminar") : t("Siguiente")}</Button>
         </div>
       {/if}
       {#if notice}<p class="notice"><Icon name="alert" size={14} /> {notice}</p>{/if}

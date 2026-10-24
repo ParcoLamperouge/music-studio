@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "./i18n.svelte";
   import type { Key } from "./harmony";
   import { chips, shift, type Step, type SongHit } from "./progression";
   import { chordFn } from "./ui/music";
@@ -24,7 +25,7 @@
 
 <div class="lane" role="list">
   {#each cells as c, n (n)}
-    <span class="cell {c.kind}" class:now={sounding(c.i)} style:--c={c.color} title={c.tip} role="listitem">
+    <span class="cell {c.kind}" class:now={sounding(c.i)} style:--c={c.color} title={t(c.tip)} role="listitem">
       <b>{c.name}</b>{#if c.deg}<small>{c.deg}</small>{/if}
     </span>
   {/each}

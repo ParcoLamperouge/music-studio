@@ -5,6 +5,7 @@
   import { loadNotation } from "./ChordsTab.svelte";
   import { paths, writeBytes } from "./engine";
   import { chordName, keyName, noteName, type Chord, type Key } from "./harmony";
+  import { engineErr, t } from "./i18n.svelte";
   import { connect, input, pcKey, pcRelease, send, useInput } from "./keys.svelte";
   import { Live } from "./live";
   import { voice } from "./player";
@@ -92,7 +93,7 @@
     volume = v;
     store("estudio.midi.volume", String(v));
     // CC7 (volumen del canal) en el canal del teclado; casi todos los pianos digitales lo obedecen
-    send([0xb0 | live.channel, 7, v]).catch((e) => (error = String(e)));
+    send([0xb0 | live.channel, 7, v]).catch((e) => (error = engineErr(String(e))));
   }
 
   const stamp = (d: Date) => {
@@ -111,7 +112,7 @@
       saved = `${base}.mid`;
     } catch (e) {
       dirty = true;
-      error = `No se guardó la sesión: ${e}`;
+      error = t("No se guardó la sesión: {e}", { e: engineErr(String(e)) });
     }
   }
 
@@ -165,7 +166,7 @@
   const deviceItems = $derived<MenuItem[]>(
     input.ports.length
       ? input.ports.map((p) => ({ label: p, icon: p === input.connected ? "check" : "midi", run: () => connect(p) }))
-      : [{ label: "Ningún teclado MIDI conectado", disabled: true, run: () => {} }],
+      : [{ label: t("Ningún teclado MIDI conectado"), disabled: true, run: () => {} }],
   );
   const octave = $derived(`${noteName(0, { tonic: 0, minor: false }, latin)}${input.octave / 12 - 1}`);
 
@@ -191,11 +192,11 @@
     const draw = () => {
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       const now = performance.now() / 1000;
-      const t = live.time(now);
+      const lt = live.time(now);
       const win = settings.rollSpeed;
       const KEYS_H = keysHeight(keys);
       const rollH = H - KEYS_H;
-      const y = (x: number) => rollH - ((t - x) / win) * rollH;
+      const y = (x: number) => rollH - ((lt - x) / win) * rollH;
       const k = key ?? { tonic: 0, minor: false };
       const name = (p: number) => noteName(p % 12, k, latin);
       const lit = live.chord && key ? fnColor(chordFn(live.chord, key).color) : col.note;
@@ -219,7 +220,7 @@
       // ponytail: recorre todas las notas cada frame; en sesiones de horas, empezar por el final y cortar
       for (const [s, e, p, v] of live.notes) if (y(e) > 0) bar(s, e, p, v, false);
       g.fillStyle = g.shadowColor = lit;
-      for (const [p, n] of live.sounding) bar(n.t, t, p, n.v, true, n.held);
+      for (const [p, n] of live.sounding) bar(n.t, lt, p, n.v, true, n.held);
       g.globalAlpha = 1;
       g.shadowBlur = 0;
       g.fillStyle = col.hi;
@@ -236,36 +237,36 @@
 
 <section class="play">
   <header class="top">
-    <Menu items={deviceItems} label="Teclado MIDI">
+    <Menu items={deviceItems} label={t("Teclado MIDI")}>
       {#snippet trigger({ toggle, open })}
-        <Button variant="ghost" icon="midi" active={open} onclick={toggle} title="De qué teclado salen las notas">
+        <Button variant="ghost" icon="midi" active={open} onclick={toggle} title={t("De qué teclado salen las notas")}>
           <span class="dot" class:on={!!input.connected}></span>
-          <span class="dev">{input.connected || (input.ports.length ? "Elegir teclado" : "Sin teclado MIDI")}</span>
+          <span class="dev">{input.connected || (input.ports.length ? t("Elegir teclado") : t("Sin teclado MIDI"))}</span>
         </Button>
       {/snippet}
     </Menu>
-    {#if input.port && !input.connected}<Button size="sm" onclick={() => connect(input.port)}>Conectar</Button>{/if}
-    <span class="ctl" use:tooltip={input.hasOut ? "Volumen del teclado (CC7)" : "Este aparato no tiene salida MIDI: el volumen, en el propio teclado"}>
+    {#if input.port && !input.connected}<Button size="sm" onclick={() => connect(input.port)}>{t("Conectar")}</Button>{/if}
+    <span class="ctl" use:tooltip={input.hasOut ? t("Volumen del teclado (CC7)") : t("Este aparato no tiene salida MIDI: el volumen, en el propio teclado")}>
       <Icon name="volume" size={14} />
-      <Slider value={volume} min={0} max={127} step={1} label="Volumen del teclado" disabled={!input.hasOut} oninput={setVolume} />
+      <Slider value={volume} min={0} max={127} step={1} label={t("Volumen del teclado")} disabled={!input.hasOut} oninput={setVolume} />
     </span>
-    <span class="ctl" use:tooltip={"Velocidad: cuántos segundos de notas se ven subir"}>
+    <span class="ctl" use:tooltip={t("Velocidad: cuántos segundos de notas se ven subir")}>
       <Icon name="top" size={14} />
-      <Slider value={7 - settings.rollSpeed} min={1} max={6} step={0.5} label="Velocidad del roll" oninput={(v) => (settings.rollSpeed = 7 - v)} />
+      <Slider value={7 - settings.rollSpeed} min={1} max={6} step={0.5} label={t("Velocidad del roll")} oninput={(v) => (settings.rollSpeed = 7 - v)} />
     </span>
     <span class="sp"></span>
     {#if error || input.error}
-      <span class="err" use:tooltip={error || input.error}><Icon name="alert" size={14} /> {error || input.error}</span>
+      <span class="err" use:tooltip={error || engineErr(input.error)}><Icon name="alert" size={14} /> {error || engineErr(input.error)}</span>
     {/if}
-    <span class="status num" use:tooltip={saved ? `Guardada en ${saved}` : "Se guarda sola cada 15 s"}>
-      {count} notas{#if saved}<Icon name="check" size={13} />{/if}
+    <span class="status num" use:tooltip={saved ? t("Guardada en {path}", { path: saved }) : t("Se guarda sola cada 15 s")}>
+      {t("{n} notas", { n: count })}{#if saved}<Icon name="check" size={13} />{/if}
     </span>
-    <Button variant="ghost" size="sm" onclick={save} disabled={!count} title="Se guarda sola cada 15 s: .mid para reproducir y .json para la IA">Guardar</Button>
-    <Button variant="ghost" size="sm" icon="sessions" onclick={toSessions} title="Volver a oír y analizar lo tocado (se guarda esta antes)">Sesiones</Button>
-    <Button variant="primary" size="sm" icon="plus" onclick={fresh} disabled={!count} title="Guarda esta y empieza otra">Nueva sesión</Button>
+    <Button variant="ghost" size="sm" onclick={save} disabled={!count} title={t("Se guarda sola cada 15 s: .mid para reproducir y .json para la IA")}>{t("Guardar")}</Button>
+    <Button variant="ghost" size="sm" icon="sessions" onclick={toSessions} title={t("Volver a oír y analizar lo tocado (se guarda esta antes)")}>{t("Sesiones")}</Button>
+    <Button variant="primary" size="sm" icon="plus" onclick={fresh} disabled={!count} title={t("Guarda esta y empieza otra")}>{t("Nueva sesión")}</Button>
   </header>
 
-  <div class="trail" class:fade={trail.length > 6} aria-label="Acordes tocados">
+  <div class="trail" class:fade={trail.length > 6} aria-label={t("Acordes tocados")}>
     {#if trail.length || chord}
       {#each trail as c, i (i + history.length - trail.length)}
         {#if key}<ChordChip chord={c} tonality={key} name={nameOf(c)} size="sm" />{:else}<Chip>{nameOf(c)}</Chip>{/if}
@@ -275,7 +276,7 @@
         {#if key}<ChordChip {chord} tonality={key} name={nameOf(chord)} size="sm" active />{:else}<Chip active>{nameOf(chord)}</Chip>{/if}
       {/if}
     {:else}
-      <span class="tip">Los acordes que toques aparecen aquí, coloreados por su función.</span>
+      <span class="tip">{t("Los acordes que toques aparecen aquí, coloreados por su función.")}</span>
     {/if}
   </div>
 
@@ -286,27 +287,27 @@
     <div class="hud" aria-live="polite">
       <div class="now" style:--c={fn?.color ?? "var(--text)"} class:idle={!chord}>{chord ? nameOf(chord) : "—"}</div>
       {#if fn}
-        <div class="fn"><i style:background={fn.color}></i><b>{fn.label}</b> {FN_LABEL[fn.fn]}</div>
+        <div class="fn"><i style:background={fn.color}></i><b>{fn.label}</b> {t(FN_LABEL[fn.fn])}</div>
       {/if}
       <div class="notes num">{sounding.map((p) => noteName(p % 12, kk, latin) + (Math.floor(p / 12) - 1)).join(" ") || " "}</div>
-      {#if pedal}<span class="pedal">Pedal</span>{/if}
+      {#if pedal}<span class="pedal">{t("Pedal")}</span>{/if}
     </div>
     {/if}
 
-    <div class="key" use:tooltip={key ? `Tonalidad: ${keyName(key, latin)} (de lo tocado)` : "La tonalidad sale tras unas cuantas notas"}>
+    <div class="key" use:tooltip={key ? t("Tonalidad: {k} (de lo tocado)", { k: keyName(key, latin) }) : t("La tonalidad sale tras unas cuantas notas")}>
       <FifthsWheel tonality={key} chords={used} current={chord} size={168} {latin} />
     </div>
 
     {#if !count}
       <div class="idle-hint">
         <Icon name="midi" size={28} />
-        <strong>Toca algo</strong>
-        <span>{input.connected ? `Escuchando ${input.connected}` : "O usa el teclado del ordenador"}</span>
+        <strong>{t("Toca algo")}</strong>
+        <span>{input.connected ? t("Escuchando {dev}", { dev: input.connected }) : t("O usa el teclado del ordenador")}</span>
         <dl>
-          <dt><Kbd keys="A" /> … <Kbd keys="Ñ" /></dt><dd>blancas</dd>
-          <dt><Kbd keys="W" /> <Kbd keys="E" /> <Kbd keys="T" /> …</dt><dd>negras</dd>
-          <dt><Kbd keys="Z" /> <Kbd keys="X" /></dt><dd>octava ({octave})</dd>
-          <dt><Kbd keys="Espacio" /></dt><dd>pedal</dd>
+          <dt><Kbd keys="A" /> … <Kbd keys={t("Ñ")} /></dt><dd>{t("blancas")}</dd>
+          <dt><Kbd keys="W" /> <Kbd keys="E" /> <Kbd keys="T" /> …</dt><dd>{t("negras")}</dd>
+          <dt><Kbd keys="Z" /> <Kbd keys="X" /></dt><dd>{t("octava")} ({octave})</dd>
+          <dt><Kbd keys={t("Espacio")} /></dt><dd>{t("pedal")}</dd>
         </dl>
       </div>
     {/if}

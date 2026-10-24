@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "./i18n.svelte";
   import ProgressionPins from "./ProgressionPins.svelte";
   import ProgressionSearch from "./ProgressionSearch.svelte";
   import Chip from "./ui/Chip.svelte";
@@ -15,28 +16,28 @@
   let q = $state("");
   const songs = $derived(
     [...store.tracks]
-      .filter((t) => t.audio && `${t.artist} ${t.title}`.toLowerCase().includes(q.toLowerCase()))
+      .filter((tr) => tr.audio && `${tr.artist} ${tr.title}`.toLowerCase().includes(q.toLowerCase()))
       .sort((a, b) => a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title))
       .slice(0, 40),
   );
-  const cur = $derived(store.tracks.find((t) => t.key === from));
+  const cur = $derived(store.tracks.find((tr) => tr.key === from));
   const pick = (k: string) => ((from = k), (text = ""), (pickOpen = false));
 </script>
 
 <div class="view">
   <div class="inner">
     <header>
-      <h1>Progresiones</h1>
+      <h1>{t("Progresiones")}</h1>
       <Popover bind:open={pickOpen} width={340} align="end">
         {#snippet trigger({ toggle })}
-          <Button size="sm" icon="library" active={!!from} onclick={toggle}>{cur ? `${cur.title}` : "Desde una canción"}</Button>
+          <Button size="sm" icon="library" active={!!from} onclick={toggle}>{cur ? `${cur.title}` : t("Desde una canción")}</Button>
         {/snippet}
         <div class="pk">
-          <Search bind:value={q} size="sm" placeholder="Buscar canción" />
+          <Search bind:value={q} size="sm" placeholder={t("Buscar canción")} />
           <div class="list">
-            {#if from}<Button variant="ghost" size="sm" icon="close" onclick={() => ((from = ""), (pickOpen = false))}>Quitar</Button>{/if}
-            {#each songs as t (t.key)}
-              <Button variant="ghost" size="sm" active={t.key === from} onclick={() => pick(t.key)}>{t.title} · {t.artist}</Button>
+            {#if from}<Button variant="ghost" size="sm" icon="close" onclick={() => ((from = ""), (pickOpen = false))}>{t("Quitar")}</Button>{/if}
+            {#each songs as tr (tr.key)}
+              <Button variant="ghost" size="sm" active={tr.key === from} onclick={() => pick(tr.key)}>{tr.title} · {tr.artist}</Button>
             {/each}
           </div>
         </div>

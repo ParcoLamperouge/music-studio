@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "./i18n.svelte";
   import { seekOnOpen } from "./progindex";
   import { pinId, pins, playAll, playPreview, preview, stopAll, stopPreview, togglePin } from "./preview.svelte";
   import ProgressionLane from "./ProgressionLane.svelte";
@@ -14,20 +15,20 @@
 {#if pins.length}
   <section class="pins">
     <div class="head">
-      <span>Comparar · {pins.length}</span>
-      <Button size="sm" icon={preview.id ? "pause" : "play"} onclick={() => (preview.id ? stopAll() : void playAll())}>{preview.id ? "Parar" : "Todas"}</Button>
+      <span>{t("Comparar · {n}", { n: pins.length })}</span>
+      <Button size="sm" icon={preview.id ? "pause" : "play"} onclick={() => (preview.id ? stopAll() : void playAll())}>{preview.id ? t("Parar") : t("Todas")}</Button>
     </div>
     {#each pins as p (pinId(p))}
       {@const on = preview.id === pinId(p)}
       <div class="pin" class:on>
         <div class="who">
-          <IconButton icon={on && !preview.loading ? "pause" : "play"} label={on ? "Parar" : "Escuchar"} size="sm" active={on} onclick={() => (on ? stopPreview() : void playPreview(p))} />
+          <IconButton icon={on && !preview.loading ? "pause" : "play"} label={on ? t("Parar") : t("Escuchar")} size="sm" active={on} onclick={() => (on ? stopPreview() : void playPreview(p))} />
           <span class="nm" title="{track(p.key)?.title ?? p.key}"><b>{track(p.key)?.title ?? p.key}</b><i>{track(p.key)?.artist ?? ""}</i></span>
         </div>
         <ProgressionLane hit={p} />
         <div class="acts">
-          <IconButton icon="chevron-right" label="Abrir" size="sm" onclick={() => (seekOnOpen(p.key, p.t), onopen(p.key, p.t))} />
-          <IconButton icon="close" label="Quitar" size="sm" onclick={() => togglePin(p)} />
+          <IconButton icon="chevron-right" label={t("Abrir")} size="sm" onclick={() => (seekOnOpen(p.key, p.t), onopen(p.key, p.t))} />
+          <IconButton icon="close" label={t("Quitar")} size="sm" onclick={() => togglePin(p)} />
         </div>
         {#if on && preview.dur}<i class="bar" style:width="{Math.min(100, (preview.pos / preview.dur) * 100)}%"></i>{/if}
       </div>

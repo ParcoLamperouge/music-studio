@@ -5,6 +5,7 @@
   import { onDestroy } from "svelte";
   import { fmtClock, readJson, songDetail } from "./engine";
   import { noteName, type Note } from "./harmony";
+  import { engineErr, t } from "./i18n.svelte";
   import { Player } from "./player";
   import { hz2midi, median, offsetAt, phrases, phraseScores, score, scoreFrame, shiftLabel, transposition, type Phrase, type Scored } from "./sing";
   import Button from "./ui/Button.svelte";
@@ -81,7 +82,7 @@
       raf = requestAnimationFrame(loop);
       void startMic(); // ya se ve la nota antes de dar al play
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = engineErr(e instanceof Error ? e.message : String(e));
     } finally {
       loading = false;
     }
@@ -101,7 +102,7 @@
       console.info("[estudio] micro:", stream.getAudioTracks()[0]?.label);
       return true;
     } catch (e) {
-      micError = `Sin micro: ${e instanceof Error ? e.message : e}`;
+      micError = t("Sin micro: {e}", { e: engineErr(String(e instanceof Error ? e.message : e)) });
       console.warn("[estudio]", micError);
       return false;
     }
@@ -121,10 +122,10 @@
     playing = player.playing;
   }
 
-  function seek(t: number) {
-    player.seek(t);
-    frames = frames.filter((f) => f.t < t); // cantar otra vez un trozo sustituye lo de antes
-    time = t;
+  function seek(tr: number) {
+    player.seek(tr);
+    frames = frames.filter((f) => f.t < tr); // cantar otra vez un trozo sustituye lo de antes
+    time = tr;
   }
 
   function again() {
@@ -169,8 +170,8 @@
     if (midi == null) now = null;
     else {
       // lo que entra ahora se cantó oyendo la canción hace un rato: salida + media ventana + lo que se ajuste a mano
-      const t = time - (player.ctx.outputLatency || player.ctx.baseLatency || 0) - N / 2 / player.ctx.sampleRate - latency / 1000;
-      const f = scoreFrame(ref, { t, midi }, free ? (shift ?? 0) : 0);
+      const tr = time - (player.ctx.outputLatency || player.ctx.baseLatency || 0) - N / 2 / player.ctx.sampleRate - latency / 1000;
+      const f = scoreFrame(ref, { t: tr, midi }, free ? (shift ?? 0) : 0);
       now = f.grade ? { midi, err: f.err, graded: true, at: f.ref! + (free ? (shift ?? 0) : 0) + f.err / 100 } : { midi, err: (midi - Math.round(midi)) * 100, graded: false, at: null };
       if (player.playing) {
         frames.push(f);
@@ -295,7 +296,7 @@
     !now ? null : Math.abs(now.err) <= 50 ? { c: "var(--ontime)", mark: "•", text: "afinado" } : now.err < 0 ? { c: "var(--early)", mark: "↓", text: "bajo" } : { c: "var(--late)", mark: "↑", text: "alto" },
   );
   const scoreColor = (s: number | null) => (s == null ? "var(--text-3)" : s >= 75 ? "var(--ok)" : s >= 40 ? "var(--warn)" : "var(--bad)");
-  const pct = (t: number) => `${(Math.max(0, Math.min(t, duration)) / (duration || 1)) * 100}%`;
+  const pct = (at: number) => `${(Math.max(0, Math.min(at, duration)) / (duration || 1)) * 100}%`;
   const scored = $derived(results ? ph.map((p, i) => ({ p, s: results![i] })).filter((x) => x.s != null) : []);
 
   function onkey(e: KeyboardEvent) {
@@ -307,7 +308,7 @@
 
   onDestroy(() => {
     cancelAnimationFrame(raf);
-    stream?.getTracks().forEach((t) => t.stop());
+    stream?.getTracks().forEach((tr) => tr.stop());
     player.stop();
     void player.ctx.close();
   });
@@ -317,48 +318,48 @@
 
 <section class="sing">
   <header class="top">
-    <IconButton icon="back" label="Volver a la canción" onclick={onback} side="bottom" />
+    <IconButton icon="back" label={t("Volver a la canción")} onclick={onback} side="bottom" />
     <Icon name="mic" size={16} />
     <div class="title">
       <strong>{title}</strong>
       {#if artist}<span>{artist}</span>{/if}
     </div>
     <span class="sp"></span>
-    <span use:tooltip={"Puntúa la melodía aunque la cantes en otro tono"}><Toggle bind:checked={free}>Transposición libre</Toggle></span>
-    <span use:tooltip={"La voz original, bajita, para guiarte"}><Toggle bind:checked={guide}>Voz original</Toggle></span>
-    <span class="lat" use:tooltip={"Latencia del micro: si lo que cantas sale siempre tarde, súbela"}>
+    <span use:tooltip={t("Puntúa la melodía aunque la cantes en otro tono")}><Toggle bind:checked={free}>{t("Transposición libre")}</Toggle></span>
+    <span use:tooltip={t("La voz original, bajita, para guiarte")}><Toggle bind:checked={guide}>{t("Voz original")}</Toggle></span>
+    <span class="lat" use:tooltip={t("Latencia del micro: si lo que cantas sale siempre tarde, súbela")}>
       <Icon name="sessions" size={14} />
-      <Slider bind:value={latency} min={0} max={500} step={10} label="Latencia del micro (ms)" />
+      <Slider bind:value={latency} min={0} max={500} step={10} label={t("Latencia del micro (ms)")} />
       <span class="num">{latency} ms</span>
     </span>
   </header>
 
   {#if loading}
-    <div class="center"><ProgressRing value={null} size={36} label="Cargando" /></div>
+    <div class="center"><ProgressRing value={null} size={36} label={t("Cargando")} /></div>
   {:else if error}
-    <EmptyState icon="alert" title="No se puede cantar esta">
+    <EmptyState icon="alert" title={t("No se puede cantar esta")}>
       {error}
-      {#snippet actions()}<Button onclick={onback} icon="back">Volver a la canción</Button>{/snippet}
+      {#snippet actions()}<Button onclick={onback} icon="back">{t("Volver a la canción")}</Button>{/snippet}
     </EmptyState>
   {:else}
     <div class="readout">
       <div class="pitch" style:--c={dev?.c ?? "var(--text-3)"}>
         <span class="note">{now ? name(now.midi) : "—"}</span>
-        <span class="dev">{dev ? `${dev.mark} ${dev.text}` : micError ? "sin micro" : "canta"}</span>
+        <span class="dev">{dev ? `${dev.mark} ${t(dev.text)}` : micError ? t("sin micro") : t("canta")}</span>
       </div>
-      <div class="gauge" use:tooltip={"Desafinación en cents: ±50 es acierto"}>
+      <div class="gauge" use:tooltip={t("Desafinación en cents: ±50 es acierto")}>
         <div class="track"><span class="zone"></span>{#if now}<span class="needle" style:left="{50 + Math.max(-100, Math.min(100, now.err)) / 2}%"></span>{/if}</div>
         <div class="scale num"><span>−100 ¢</span><b>{now ? `${now.err > 0 ? "+" : ""}${Math.round(now.err)} ¢` : "0 ¢"}</b><span>+100 ¢</span></div>
       </div>
-      <span use:tooltip={"Tu tono respecto al original (sin contar octavas)"}><Chip icon="audio" active={shift != null && shift !== 0}>{shiftLabel(shift)}</Chip></span>
+      <span use:tooltip={t("Tu tono respecto al original (sin contar octavas)")}><Chip icon="audio" active={shift != null && shift !== 0}>{shiftLabel(shift)}</Chip></span>
       <span class="sp"></span>
-      <div class="ring" use:tooltip={"Esta frase"}>
-        <ProgressRing value={(phraseNow ?? 0) / 100} size={56} stroke={5} color={scoreColor(phraseNow)} label="Frase"><b class="num">{phraseNow ?? "—"}</b></ProgressRing>
-        <small>frase</small>
+      <div class="ring" use:tooltip={t("Esta frase")}>
+        <ProgressRing value={(phraseNow ?? 0) / 100} size={56} stroke={5} color={scoreColor(phraseNow)} label={t("Frase")}><b class="num">{phraseNow ?? "—"}</b></ProgressRing>
+        <small>{t("frase")}</small>
       </div>
-      <div class="ring" use:tooltip={"Toda la toma"}>
-        <ProgressRing value={(total ?? 0) / 100} size={56} stroke={5} color={scoreColor(total)} label="Toma"><b class="num">{total ?? "—"}</b></ProgressRing>
-        <small>toma</small>
+      <div class="ring" use:tooltip={t("Toda la toma")}>
+        <ProgressRing value={(total ?? 0) / 100} size={56} stroke={5} color={scoreColor(total)} label={t("Toma")}><b class="num">{total ?? "—"}</b></ProgressRing>
+        <small>{t("toma")}</small>
       </div>
     </div>
 
@@ -373,57 +374,57 @@
         <div class="summary">
           <Card>
             <div class="sum">
-              <ProgressRing value={total / 100} size={132} stroke={10} color={scoreColor(total)} label="Puntuación de la toma">
+              <ProgressRing value={total / 100} size={132} stroke={10} color={scoreColor(total)} label={t("Puntuación de la toma")}>
                 <span class="big num">{total}</span>
               </ProgressRing>
               <div class="sum-body">
-                <h2>{total >= 85 ? "¡Clavada!" : total >= 65 ? "Muy bien" : total >= 40 ? "Vas bien" : "Otra vuelta"}</h2>
-                <div class="split" aria-label="Reparto de aciertos">
+                <h2>{total >= 85 ? t("¡Clavada!") : total >= 65 ? t("Muy bien") : total >= 40 ? t("Vas bien") : t("Otra vuelta")}</h2>
+                <div class="split" aria-label={t("Reparto de aciertos")}>
                   <i style:width="{stats.ok * 100}%" style:background="var(--ontime)"></i>
                   <i style:width="{stats.partial * 100}%" style:background="var(--warn)"></i>
                   <i style:width="{stats.bad * 100}%" style:background="var(--miss)"></i>
                 </div>
                 <div class="legend num">
-                  <span><i style:background="var(--ontime)"></i>• {Math.round(stats.ok * 100)}% afinado</span>
-                  <span><i style:background="var(--warn)"></i>~ {Math.round(stats.partial * 100)}% cerca</span>
-                  <span><i style:background="var(--miss)"></i>× {Math.round(stats.bad * 100)}% fuera</span>
+                  <span><i style:background="var(--ontime)"></i>• {Math.round(stats.ok * 100)}% {t("afinado")}</span>
+                  <span><i style:background="var(--warn)"></i>~ {Math.round(stats.partial * 100)}% {t("cerca")}</span>
+                  <span><i style:background="var(--miss)"></i>× {Math.round(stats.bad * 100)}% {t("fuera")}</span>
                 </div>
                 <p class="bias" style:color={Math.abs(stats.bias) < 10 ? "var(--ontime)" : stats.bias < 0 ? "var(--early)" : "var(--late)"}>
-                  {Math.abs(stats.bias) < 10 ? "• Centrado" : stats.bias < 0 ? `↓ Tiendes a cantar bajo (${Math.round(stats.bias)} ¢)` : `↑ Tiendes a cantar alto (+${Math.round(stats.bias)} ¢)`}
+                  {Math.abs(stats.bias) < 10 ? t("• Centrado") : stats.bias < 0 ? t("↓ Tiendes a cantar bajo ({n} ¢)", { n: Math.round(stats.bias) }) : t("↑ Tiendes a cantar alto (+{n} ¢)", { n: Math.round(stats.bias) })}
                   <span>· {shiftLabel(shift)}</span>
                 </p>
               </div>
             </div>
             {#if scored.length}
-              <div class="bars" aria-label="Puntuación por frase">
+              <div class="bars" aria-label={t("Puntuación por frase")}>
                 {#each scored as { p, s } (p.t)}
-                  <button type="button" class="pbar" style:--h="{Math.max(6, s!)}%" style:--c={scoreColor(s)} onclick={() => ((summary = false), seek(Math.max(0, p.t - 1)))} use:tooltip={`${s} · ${p.text || fmtClock(p.t)}`} aria-label="Frase {fmtClock(p.t)}: {s}"></button>
+                  <button type="button" class="pbar" style:--h="{Math.max(6, s!)}%" style:--c={scoreColor(s)} onclick={() => ((summary = false), seek(Math.max(0, p.t - 1)))} use:tooltip={`${s} · ${p.text || fmtClock(p.t)}`} aria-label={t("Frase {at}: {s}", { at: fmtClock(p.t), s: s! })}></button>
                 {/each}
               </div>
             {/if}
             <div class="sum-actions">
-              <Button variant="ghost" onclick={() => (summary = false)}>Seguir</Button>
-              <Button variant="primary" icon="retry" onclick={again}>Otra toma</Button>
+              <Button variant="ghost" onclick={() => (summary = false)}>{t("Seguir")}</Button>
+              <Button variant="primary" icon="retry" onclick={again}>{t("Otra toma")}</Button>
             </div>
           </Card>
         </div>
       {/if}
     </div>
 
-    <div class="phrases" aria-label="Frases">
+    <div class="phrases" aria-label={t("Frases")}>
       {#each ph as p, i (p.t)}
         {@const s = results?.[i] ?? (i === lineAt ? phraseNow : null)}
-        <button type="button" class="ph" class:now={i === lineAt} style:left={pct(p.t)} style:width={pct(p.end - p.t)} style:--c={scoreColor(s ?? null)} class:has={s != null} onclick={() => seek(Math.max(0, p.t - 1))} use:tooltip={`${s ?? "—"} · ${p.text || fmtClock(p.t)}`} aria-label="Ir a la frase {fmtClock(p.t)}"></button>
+        <button type="button" class="ph" class:now={i === lineAt} style:left={pct(p.t)} style:width={pct(p.end - p.t)} style:--c={scoreColor(s ?? null)} class:has={s != null} onclick={() => seek(Math.max(0, p.t - 1))} use:tooltip={`${s ?? "—"} · ${p.text || fmtClock(p.t)}`} aria-label={t("Ir a la frase {at}", { at: fmtClock(p.t) })}></button>
       {/each}
       <span class="head" style:left={pct(time)}></span>
     </div>
 
     <footer class="transport">
-      <Button variant="primary" icon={playing ? "pause" : "play"} onclick={toggle} kbd="Espacio">{playing ? "Pausa" : "Cantar"}</Button>
+      <Button variant="primary" icon={playing ? "pause" : "play"} onclick={toggle} kbd={t("Espacio")}>{playing ? t("Pausa") : t("Cantar")}</Button>
       <span class="clock num">{fmtClock(time)} <span>/ {fmtClock(duration)}</span></span>
-      <div class="scrub"><Slider value={time} min={0} max={duration || 1} step={0.1} label="Posición" oninput={seek} /></div>
-      <span class="vol"><Icon name="volume" size={14} /><Slider bind:value={volume} min={0} max={1.5} label="Volumen" /></span>
-      <span class="tip" class:err={!!micError}>{micError || "Con auriculares: si el micro oye la canción, se lía."}</span>
+      <div class="scrub"><Slider value={time} min={0} max={duration || 1} step={0.1} label={t("Posición")} oninput={seek} /></div>
+      <span class="vol"><Icon name="volume" size={14} /><Slider bind:value={volume} min={0} max={1.5} label={t("Volumen")} /></span>
+      <span class="tip" class:err={!!micError}>{micError || t("Con auriculares: si el micro oye la canción, se lía.")}</span>
     </footer>
   {/if}
 </section>

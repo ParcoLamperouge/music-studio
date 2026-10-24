@@ -9,6 +9,7 @@
   import { enqueue, fmtClock, listDir, paths, readBytes, readJson, removeFile, songDetail, STEM_INFO, viewPath, writeBytes, writeJson, type Detail } from "./engine";
   import { analyze as analyzeNotes, degree, fromModel, keyName, named, parseKey, type Key, type Note } from "./harmony";
   import { sessionForAI, songForAI, stamps } from "./live";
+  import { engineErr, t } from "./i18n.svelte";
   import { loadPiano } from "./piano";
   import { toToon } from "./toon";
   import { fromSession } from "./piece";
@@ -123,7 +124,7 @@
   const available = $derived(
     store.tracks
       .filter((t) => t.stems && t.present.length && !songs.includes(t.key))
-      .filter((t) => `${t.title} ${t.artist}`.toLowerCase().includes(query.trim().toLowerCase()))
+      .filter((tr) => `${tr.title} ${tr.artist}`.toLowerCase().includes(query.trim().toLowerCase()))
       .sort((a, b) => a.title.localeCompare(b.title)),
   );
 
@@ -183,7 +184,7 @@
       if (sel !== it || p !== player) return; // se eligió otra mientras se sintetizaba
       player.setBuffer("piano", buf);
     } catch (e) {
-      error = `No se pudo sintetizar: ${e}`;
+      error = t("No se pudo sintetizar: {e}", { e: engineErr(String(e)) });
     }
     loading = false;
     const md = await readBytes(`${it.base}.analisis.md`).catch(() => null);
@@ -228,7 +229,7 @@
         tonality = h.key;
       }
     } catch (e) {
-      if (!stale()) error = e instanceof Error ? e.message : String(e);
+      if (!stale()) error = engineErr(e instanceof Error ? e.message : String(e));
     } finally {
       if (!stale()) loading = false;
     }
@@ -260,14 +261,14 @@
     playing = player.playing;
   }
 
-  function seek(t: number) {
-    player.seek(Math.max(0, Math.min(t, duration)));
+  function seek(tr: number) {
+    player.seek(Math.max(0, Math.min(tr, duration)));
     time = player.time();
   }
 
   /** Un tiempo del análisis: ir ahí y escucharlo. */
-  function jump(t: number) {
-    seek(t);
+  function jump(tr: number) {
+    seek(tr);
     if (!player.playing) toggle();
   }
 
@@ -283,7 +284,7 @@
       const text = await invoke<string>("analyze_session", { path: `${base}.toon` });
       if (target === base) analysis = text;
     } catch (e) {
-      if (target === base) error = String(e);
+      if (target === base) error = engineErr(String(e));
     }
     analyzing = false;
   }
@@ -300,7 +301,7 @@
   /** La sesión como pieza, para practicarla en Aprender (o retocarla en el editor). */
   async function toPiece() {
     if (!sel?.s) return;
-    const pc = await savePiece(fromSession(sel.s.notes, `Sesión del ${when(sel.name)}`));
+    const pc = await savePiece(fromSession(sel.s.notes, t("Sesión del {when}", { when: when(sel.name) })));
     onlearn(pc.id);
   }
 
@@ -315,12 +316,12 @@
       const it = items.find((x) => x.base === base);
       if (it) void open(it);
     } catch (e) {
-      error = `No se pudo importar: ${e}`;
+      error = t("No se pudo importar: {e}", { e: String(e) });
     }
   }
 
   async function remove() {
-    if (!sel || !confirm(`Borrar la sesión del ${when(sel.name)} (.mid, .json, .toon y su análisis). No se puede deshacer.`)) return;
+    if (!sel || !confirm(t("Borrar la sesión del {when} (.mid, .json, .toon y su análisis). No se puede deshacer.", { when: when(sel.name) }))) return;
     for (const ext of [".json", ".mid", ".toon", ".analisis.md"]) await removeFile(sel.base + ext).catch(() => {});
     reset();
     sel = null;
@@ -427,17 +428,17 @@
   }
 
   const sessionMenu: MenuItem[] = [
-    { label: "Mostrar en la carpeta", icon: "folder", title: "El .mid se abre en cualquier programa", run: () => sel && revealItemInDir(`${sel.base}.mid`) },
+    { label: t("Mostrar en la carpeta"), icon: "folder", title: t("El .mid se abre en cualquier programa"), run: () => sel && revealItemInDir(`${sel.base}.mid`) },
     "-",
-    { label: "Borrar sesión…", icon: "trash", danger: true, run: remove },
+    { label: t("Borrar sesión…"), icon: "trash", danger: true, run: remove },
   ];
-  const songMenu: MenuItem[] = [{ label: "Quitar de la lista", icon: "close", title: "La canción sigue en la biblioteca", run: removeSong }];
+  const songMenu: MenuItem[] = [{ label: t("Quitar de la lista"), icon: "close", title: t("La canción sigue en la biblioteca"), run: removeSong }];
 </script>
 
 <svelte:window onkeydown={onkey} />
 
 {#snippet linked(text: string)}
-  {#each stamps(text) as p, i (i)}{#if p.t != null}<span class="ts"><Chip icon="play" onclick={() => jump(p.t!)} title="Ir a {p.text}">{p.text}</Chip></span>{:else}{p.text}{/if}{/each}
+  {#each stamps(text) as p, i (i)}{#if p.t != null}<span class="ts"><Chip icon="play" onclick={() => jump(p.t!)} title={t("Ir a {text}", { text: p.text })}>{p.text}</Chip></span>{:else}{p.text}{/if}{/each}
 {/snippet}
 
 {#snippet stat(label: string, value: string)}
@@ -449,58 +450,58 @@
     <header class="list-head">
       <Tabs
         bind:value={tab}
-        label="Qué ver"
+        label={t("Qué ver")}
         options={[
-          { value: "sesiones", label: "Sesiones", count: items.length },
-          { value: "canciones", label: "Canciones", count: songs.length },
+          { value: "sesiones", label: t("Sesiones"), count: items.length },
+          { value: "canciones", label: t("Canciones"), count: songs.length },
         ]}
       />
       {#if tab === "sesiones"}
-        <IconButton icon="upload" label="Importar MIDI o MusicXML" onclick={importSession} />
+        <IconButton icon="upload" label={t("Importar MIDI o MusicXML")} onclick={importSession} />
       {:else}
-        <IconButton icon="plus" label="Añadir canciones separadas" onclick={() => (adding = true)} />
+        <IconButton icon="plus" label={t("Añadir canciones separadas")} onclick={() => (adding = true)} />
       {/if}
     </header>
     {#if (tab === "sesiones" ? items : songs).length > 4}
-      <div class="filter"><Search bind:value={filter} size="sm" placeholder={tab === "sesiones" ? "Fecha, tonalidad…" : "Canción o artista"} /></div>
+      <div class="filter"><Search bind:value={filter} size="sm" placeholder={tab === "sesiones" ? t("Fecha, tonalidad…") : t("Canción o artista")} /></div>
     {/if}
 
     <div class="cards">
       {#if tab === "sesiones"}
         {#each shownItems as it (it.name)}
           <article class="sc" class:on={sel?.name === it.name} class:broken={!it.s}>
-            <button type="button" class="hit" onclick={() => open(it)} disabled={!it.s} aria-label="Abrir la sesión del {when(it.name)}"></button>
+            <button type="button" class="hit" onclick={() => open(it)} disabled={!it.s} aria-label={t("Abrir la sesión del {when}", { when: when(it.name) })}></button>
             {#if it.s}
               <canvas class="thumb" use:thumb={it.s} aria-hidden="true"></canvas>
               <div class="strip" aria-hidden="true">{#each strip(it.s) as c, i (i)}<i style:left="{c.left}%" style:width="{c.width}%" style:background={c.color}></i>{/each}</div>
             {/if}
             <div class="meta">
               <span class="t">{when(it.name)}</span>
-              <span class="a num">{#if it.s}{fmtClock(it.s.duration)} · {it.s.notes.length} notas{it.s.key ? ` · ${it.s.key}` : ""}{:else}no se puede leer{/if}</span>
+              <span class="a num">{#if it.s}{fmtClock(it.s.duration)} · {t("{n} notas", { n: it.s.notes.length })}{it.s.key ? ` · ${it.s.key}` : ""}{:else}{t("no se puede leer")}{/if}</span>
             </div>
           </article>
         {:else}
-          <EmptyState icon="midi" title={items.length ? "Ninguna coincide" : "Aún no hay sesiones"}>
-            {items.length ? "" : "Se guardan solas al tocar en Tocar."}
-            {#snippet actions()}<Button icon="upload" onclick={importSession}>Importar MIDI</Button>{/snippet}
+          <EmptyState icon="midi" title={items.length ? t("Ninguna coincide") : t("Aún no hay sesiones")}>
+            {items.length ? "" : t("Se guardan solas al tocar en Tocar.")}
+            {#snippet actions()}<Button icon="upload" onclick={importSession}>{t("Importar MIDI")}</Button>{/snippet}
           </EmptyState>
         {/each}
       {:else}
         {#each shownSongs as k (k)}
-          {@const t = trackOf(k)}
+          {@const tr = trackOf(k)}
           <article class="sc" class:on={song === k}>
-            <button type="button" class="hit" onclick={() => openSong(k)} aria-label="Abrir {t?.title ?? k}"></button>
+            <button type="button" class="hit" onclick={() => openSong(k)} aria-label={t("Abrir {title}", { title: tr?.title ?? k })}></button>
             <div class="wave"><WaveThumb peaks={waves[k]} height={36} /></div>
             <div class="meta">
-              <span class="t">{t?.title ?? k}</span>
-              <span class="a">{t ? t.artist : "ya no está en la biblioteca"}</span>
-              {#if t}<span class="dots">{#each t.present as s (s)}<i style:background={stemColor(s)} use:tooltip={STEM_INFO[s]?.label ?? s}></i>{/each}</span>{/if}
+              <span class="t">{tr?.title ?? k}</span>
+              <span class="a">{tr ? tr.artist : t("ya no está en la biblioteca")}</span>
+              {#if tr}<span class="dots">{#each tr.present as s (s)}<i style:background={stemColor(s)} use:tooltip={t(STEM_INFO[s]?.label ?? s)}></i>{/each}</span>{/if}
             </div>
           </article>
         {:else}
-          <EmptyState icon="stems" title="Escucha por instrumentos">
-            Añade canciones con las pistas separadas.
-            {#snippet actions()}<Button variant="primary" icon="plus" onclick={() => (adding = true)}>Añadir canción</Button>{/snippet}
+          <EmptyState icon="stems" title={t("Escucha por instrumentos")}>
+            {t("Añade canciones con las pistas separadas.")}
+            {#snippet actions()}<Button variant="primary" icon="plus" onclick={() => (adding = true)}>{t("Añadir canción")}</Button>{/snippet}
           </EmptyState>
         {/each}
       {/if}
@@ -509,30 +510,30 @@
 
   <main class="detail">
     {#if !(sel?.s || song)}
-      <EmptyState icon="sessions" title="Tus sesiones, otra vez">
-        Elige una sesión o una canción para oírla, ver sus acordes y analizarla con Claude.
+      <EmptyState icon="sessions" title={t("Tus sesiones, otra vez")}>
+        {t("Elige una sesión o una canción para oírla, ver sus acordes y analizarla con Claude.")}
       </EmptyState>
     {:else}
-      {@const t = song ? trackOf(song) : null}
+      {@const tr = song ? trackOf(song) : null}
       <header class="hero">
         <div class="who">
-          <span class="kick">{song ? "Canción" : "Sesión"}</span>
-          <h1>{song ? (t?.title ?? song) : when(sel!.name)}</h1>
-          {#if song && t?.artist}<span class="sub">{t.artist}</span>{/if}
+          <span class="kick">{song ? t("Canción") : t("Sesión")}</span>
+          <h1>{song ? (tr?.title ?? song) : when(sel!.name)}</h1>
+          {#if song && tr?.artist}<span class="sub">{tr.artist}</span>{/if}
         </div>
         <div class="actions">
           <Button variant="primary" icon="sparkle" onclick={analyze} disabled={analyzing || (!!song && !aiStems.length)}>
-            {analyzing ? "Claude escuchando…" : analysis ? "Analizar otra vez" : "Analizar con Claude"}
+            {analyzing ? t("Claude escuchando…") : analysis ? t("Analizar otra vez") : t("Analizar con Claude")}
           </Button>
           {#if song}
-            <Button icon="library" onclick={() => song && onsong(song)} title="Letra, partitura, acordes…">Abrir canción</Button>
-            <Menu items={songMenu} align="end" label="Más">
-              {#snippet trigger({ toggle, open })}<IconButton icon="more" label="Más" active={open} onclick={toggle} />{/snippet}
+            <Button icon="library" onclick={() => song && onsong(song)} title={t("Letra, partitura, acordes…")}>{t("Abrir canción")}</Button>
+            <Menu items={songMenu} align="end" label={t("Más")}>
+              {#snippet trigger({ toggle, open })}<IconButton icon="more" label={t("Más")} active={open} onclick={toggle} />{/snippet}
             </Menu>
           {:else}
-            <Button icon="learn" onclick={toPiece} title="Pasarla a pieza para practicarla con niveles (o retocarla en el editor)">Practicar en Aprender</Button>
-            <Menu items={sessionMenu} align="end" label="Más">
-              {#snippet trigger({ toggle, open })}<IconButton icon="more" label="Más" active={open} onclick={toggle} />{/snippet}
+            <Button icon="learn" onclick={toPiece} title={t("Pasarla a pieza para practicarla con niveles (o retocarla en el editor)")}>{t("Practicar en Aprender")}</Button>
+            <Menu items={sessionMenu} align="end" label={t("Más")}>
+              {#snippet trigger({ toggle, open })}<IconButton icon="more" label={t("Más")} active={open} onclick={toggle} />{/snippet}
             </Menu>
           {/if}
         </div>
@@ -540,17 +541,17 @@
 
       <div class="stats">
         {#if song}
-          {@render stat("Tonalidad", keyLabel || "—")}
-          {@render stat("Tempo", t?.bpm ? `${Math.round(t.bpm)} bpm` : "—")}
-          {@render stat("Duración", duration ? fmtClock(duration) : "—")}
-          {@render stat("Pistas", String(lanes.length))}
-          {@render stat("Acordes", String(top.length))}
+          {@render stat(t("Tonalidad"), keyLabel || "—")}
+          {@render stat(t("Tempo"), tr?.bpm ? `${Math.round(tr.bpm)} bpm` : "—")}
+          {@render stat(t("Duración"), duration ? fmtClock(duration) : "—")}
+          {@render stat(t("Pistas"), String(lanes.length))}
+          {@render stat(t("Acordes"), String(top.length))}
         {:else if sel?.s}
-          {@render stat("Duración", fmtClock(sel.s.duration))}
-          {@render stat("Notas", String(sel.s.notes.length))}
-          {@render stat("Tonalidad", sel.s.key ?? "—")}
-          {@render stat("Pedal", `${sel.s.pedal.length} veces`)}
-          {@render stat("Teclado", sel.s.device)}
+          {@render stat(t("Duración"), fmtClock(sel.s.duration))}
+          {@render stat(t("Notas"), String(sel.s.notes.length))}
+          {@render stat(t("Tonalidad"), sel.s.key ?? "—")}
+          {@render stat(t("Pedal"), t("{n} veces", { n: sel.s.pedal.length }))}
+          {@render stat(t("Teclado"), sel.s.device)}
         {/if}
       </div>
 
@@ -558,43 +559,43 @@
 
       <div class="transport">
         {#if loading}
-          <span class="spin" use:tooltip={song ? "Cargando pistas…" : "Sintetizando el piano…"}><ProgressRing value={null} size={24} label="Cargando" /></span>
+          <span class="spin" use:tooltip={song ? t("Cargando pistas…") : t("Sintetizando el piano…")}><ProgressRing value={null} size={24} label={t("Cargando")} /></span>
         {:else}
-          <IconButton icon={playing ? "pause" : "play"} label={playing ? "Pausa" : "Reproducir"} kbd="Espacio" size="lg" active={playing} onclick={toggle} disabled={!duration} />
+          <IconButton icon={playing ? "pause" : "play"} label={playing ? t("Pausa") : t("Reproducir")} kbd={t("Espacio")} size="lg" active={playing} onclick={toggle} disabled={!duration} />
         {/if}
         <span class="clock num">{fmtClock(time)}<span> / {fmtClock(duration)}</span></span>
         <div class="master"><MasterStrip {duration} {time} chords={duration ? chords : []} {tonality} onseek={seek} /></div>
-        <span class="vol" use:tooltip={"Volumen general"}><Icon name="volume" size={14} /><Slider bind:value={settings.masterVolume} min={0} max={1.5} label="Volumen general" /></span>
+        <span class="vol" use:tooltip={t("Volumen general")}><Icon name="volume" size={14} /><Slider bind:value={settings.masterVolume} min={0} max={1.5} label={t("Volumen general")} /></span>
       </div>
 
       {#if loading && !lanes.length}
-        <div class="loading"><ProgressRing value={null} size={28} label="Cargando" /><span>Cargando pistas…</span></div>
+        <div class="loading"><ProgressRing value={null} size={28} label={t("Cargando")} /><span>{t("Cargando pistas…")}</span></div>
       {:else if lanes.length}
         <SessionLanes lanes={shownLanes} {chords} {tonality} {time} {span} onseek={seek}>
           {#snippet head(l)}
-            <div class="lane-name"><i style:background={stemColor(l.stem)}></i><span>{l.label}</span></div>
+            <div class="lane-name"><i style:background={stemColor(l.stem)}></i><span>{t(l.label)}</span></div>
             {#if song}
               <div class="lane-ctl">
-                <Button size="sm" variant="ghost" active={!!muted[l.stem]} onclick={() => (muted[l.stem] = !muted[l.stem])} title="Silenciar">M</Button>
-                <Button size="sm" variant="ghost" active={!!solo[l.stem]} onclick={() => (solo[l.stem] = !solo[l.stem])} title="Solo">S</Button>
-                <Slider bind:value={volume[l.stem]} min={0} max={1.5} label="Volumen de {l.label}" color={stemColor(l.stem)} />
+                <Button size="sm" variant="ghost" active={!!muted[l.stem]} onclick={() => (muted[l.stem] = !muted[l.stem])} title={t("Silenciar")}>M</Button>
+                <Button size="sm" variant="ghost" active={!!solo[l.stem]} onclick={() => (solo[l.stem] = !solo[l.stem])} title={t("Solo")}>S</Button>
+                <Slider bind:value={volume[l.stem]} min={0} max={1.5} label={t("Volumen de {stem}", { stem: t(l.label) })} color={stemColor(l.stem)} />
               </div>
-              {#if !l.notes.length}<small class="dim">sin notas</small>{/if}
+              {#if !l.notes.length}<small class="dim">{t("sin notas")}</small>{/if}
             {:else}
-              <small class="dim num">{l.notes.length} notas</small>
+              <small class="dim num">{t("{n} notas", { n: l.notes.length })}</small>
             {/if}
           {/snippet}
         </SessionLanes>
-        <div class="zoom" use:tooltip={"Segundos que se ven en los carriles"}>
-          <Icon name="search" size={13} /><Slider value={42 - span} min={6} max={38} step={1} label="Zoom de los carriles" oninput={(v) => (span = 42 - v)} />
+        <div class="zoom" use:tooltip={t("Segundos que se ven en los carriles")}>
+          <Icon name="search" size={13} /><Slider value={42 - span} min={6} max={38} step={1} label={t("Zoom de los carriles")} oninput={(v) => (span = 42 - v)} />
         </div>
       {/if}
 
       <div class="harmony">
         <Card>
-          <h3>Acordes que más suenan</h3>
+          <h3>{t("Acordes que más suenan")}</h3>
           {#if top.length}
-            {#if fromNotes}<p class="note">De las notas transcritas: los del audio (lv-chordia) están en la cola y saldrán la próxima vez.</p>{/if}
+            {#if fromNotes}<p class="note">{t("De las notas transcritas: los del audio (lv-chordia) están en la cola y saldrán la próxima vez.")}</p>{/if}
             <ol class="bars">
               {#each top.slice(0, 8) as c (c.name)}
                 {@const f = tonality ? chordFn(c, tonality) : null}
@@ -607,18 +608,18 @@
               {/each}
             </ol>
           {:else}
-            <p class="note">{song ? "Sin acordes todavía: sus pistas no tienen notas y los del audio (lv-chordia) están en la cola." : "Sin acordes: hacen falta tres notas a la vez."}</p>
+            <p class="note">{song ? t("Sin acordes todavía: sus pistas no tienen notas y los del audio (lv-chordia) están en la cola.") : t("Sin acordes: hacen falta tres notas a la vez.")}</p>
           {/if}
         </Card>
         <Card>
-          <h3>Tonalidad</h3>
+          <h3>{t("Tonalidad")}</h3>
           <div class="wheel"><FifthsWheel {tonality} chords={wheelChords} {current} size={190} {latin} /></div>
         </Card>
       </div>
 
       {#if chords.length}
         <Card>
-          <h3 use:tooltip={"Pulsa un acorde para ir a él"}>Progresión <small class="num">{chords.length}</small></h3>
+          <h3 use:tooltip={t("Pulsa un acorde para ir a él")}>{t("Progresión")} <small class="num">{chords.length}</small></h3>
           <div class="prog">
             {#each chords as c, i (i)}
               {#if tonality}
@@ -633,21 +634,21 @@
 
       <section class="ai">
         <header class="ai-head">
-          <h2><Icon name="sparkle" size={16} /> Análisis de Claude</h2>
+          <h2><Icon name="sparkle" size={16} /> {t("Análisis de Claude")}</h2>
           {#if song}
-            <div class="ai-stems" aria-label="Instrumentos para Claude">
+            <div class="ai-stems" aria-label={t("Instrumentos para Claude")}>
               {#each noted as st (st.name)}
                 <Chip color={stemColor(st.name)} active={aiStems.includes(st.name)} count={st.notes} onclick={() => (aiStems = aiStems.includes(st.name) ? aiStems.filter((x) => x !== st.name) : [...aiStems, st.name])}>
-                  {STEM_INFO[st.name]?.label ?? st.name}
+                  {t(STEM_INFO[st.name]?.label ?? st.name)}
                 </Chip>
               {:else}
-                <span class="note">Ninguna pista tiene notas todavía: sácalas en la canción.</span>
+                <span class="note">{t("Ninguna pista tiene notas todavía: sácalas en la canción.")}</span>
               {/each}
             </div>
           {/if}
         </header>
         {#if analyzing}
-          <div class="loading"><ProgressRing value={null} size={22} label="Analizando" /><span>Claude está escuchando…</span></div>
+          <div class="loading"><ProgressRing value={null} size={22} label={t("Analizando")} /><span>{t("Claude está escuchando…")}</span></div>
         {:else if sections.length}
           <div class="ai-grid">
             {#each sections as s, i (i)}
@@ -660,32 +661,32 @@
             {/each}
           </div>
         {:else}
-          <p class="note">Aún sin analizar: Claude lee las notas, los acordes y {song ? "la letra" : "el pedal"}, y marca los momentos para ir a ellos.</p>
+          <p class="note">{t("Aún sin analizar: Claude lee las notas, los acordes y {what}, y marca los momentos para ir a ellos.", { what: song ? t("la letra") : t("el pedal") })}</p>
         {/if}
       </section>
     {/if}
   </main>
 </div>
 
-<Dialog bind:open={adding} title="Añadir canciones">
+<Dialog bind:open={adding} title={t("Añadir canciones")}>
   <div class="adder">
-    <Search bind:value={query} placeholder="Buscar entre las separadas…" />
+    <Search bind:value={query} placeholder={t("Buscar entre las separadas…")} />
     <div class="picklist">
-      {#each available as t (t.key)}
-        <label class:on={picked.includes(t.key)}>
-          <input type="checkbox" bind:group={picked} value={t.key} />
-          <span class="t">{t.title}</span>
-          <span class="dots">{#each t.present as s (s)}<i style:background={stemColor(s)}></i>{/each}</span>
-          <small>{t.artist}</small>
+      {#each available as tr (tr.key)}
+        <label class:on={picked.includes(tr.key)}>
+          <input type="checkbox" bind:group={picked} value={tr.key} />
+          <span class="t">{tr.title}</span>
+          <span class="dots">{#each tr.present as s (s)}<i style:background={stemColor(s)}></i>{/each}</span>
+          <small>{tr.artist}</small>
         </label>
       {:else}
-        <p class="note">{query ? "Ninguna coincide." : "No quedan canciones separadas sin añadir (sepáralas en la canción)."}</p>
+        <p class="note">{query ? t("Ninguna coincide.") : t("No quedan canciones separadas sin añadir (sepáralas en la canción).")}</p>
       {/each}
     </div>
   </div>
   {#snippet footer()}
-    <Button variant="ghost" onclick={() => ((adding = false), (picked = []))}>Cancelar</Button>
-    <Button variant="primary" disabled={!picked.length} onclick={addSongs}>Añadir{picked.length ? ` (${picked.length})` : ""}</Button>
+    <Button variant="ghost" onclick={() => ((adding = false), (picked = []))}>{t("Cancelar")}</Button>
+    <Button variant="primary" disabled={!picked.length} onclick={addSongs}>{t("Añadir")}{picked.length ? ` (${picked.length})` : ""}</Button>
   {/snippet}
 </Dialog>
 

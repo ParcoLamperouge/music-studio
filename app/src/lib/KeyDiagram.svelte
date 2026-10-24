@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { t } from "./i18n.svelte";
   import { loadNotation } from "./ChordsTab.svelte";
   import { noteName } from "./harmony";
   import { loadPiano } from "./piano";
@@ -58,7 +59,7 @@
       {#if on.has(p)}<text x={xOf(p - 1) + W} y={BH - 8} class="n">{label(p)}</text>{/if}
     {/each}
   </svg>
-  <Button size="sm" variant="ghost" icon="volume" onclick={listen} title={together ? "Oír el acorde" : "Oír las notas una a una"}>Escuchar</Button>
+  <Button size="sm" variant="ghost" icon="volume" onclick={listen} title={together ? t("Oír el acorde") : t("Oír las notas una a una")}>{t("Escuchar")}</Button>
 </div>
 
 <style>

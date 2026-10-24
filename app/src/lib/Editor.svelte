@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "./i18n.svelte";
   import { doubtful, fmtTime, parseTime, type Line, type Lyrics, type Word } from "./engine";
 
   let {
@@ -46,9 +47,9 @@
   }
   const r3 = (x: number) => Math.round(x * 1000) / 1000;
   /** Mover la línea mueve sus palabras con ella; quitarle el tiempo las quita. */
-  function setT(l: Line, t: number | null) {
-    const d = t != null && l.t != null ? t - l.t : null;
-    l.t = t;
+  function setT(l: Line, v: number | null) {
+    const d = v != null && l.t != null ? v - l.t : null;
+    l.t = v;
     if (d == null) {
       delete l.end;
       delete l.words;
@@ -62,12 +63,12 @@
     touch();
   }
   /** Tiempo de una palabra (su fin se mueve igual). La primera manda en el inicio de la línea. */
-  function setWordT(l: Line, w: Word, t: number | null) {
-    if (t == null) return;
-    t = r3(Math.max(0, t));
-    if (w.end != null) w.end = r3(Math.max(t, w.end + t - w.t));
-    w.t = t;
-    if (l.words![0] === w) l.t = t;
+  function setWordT(l: Line, w: Word, v: number | null) {
+    if (v == null) return;
+    v = r3(Math.max(0, v));
+    if (w.end != null) w.end = r3(Math.max(v, w.end + v - w.t));
+    w.t = v;
+    if (l.words![0] === w) l.t = v;
     touch();
   }
   function insert(k: number) {
@@ -91,7 +92,7 @@
   }
   /** Texto pegado: una línea por renglón. Si el número de líneas no cambia, conserva los tiempos. */
   function applyPaste() {
-    const texts = paste!.split("\n").map((t) => t.trim());
+    const texts = paste!.split("\n").map((tx) => tx.trim());
     const keep = texts.length === lines.length;
     lines = texts.map((text, k) => (keep && lines[k].text === text ? lines[k] : { t: keep ? lines[k].t : null, text }));
     paste = null;
@@ -129,30 +130,30 @@
 
 <aside class="drawer">
   <header>
-    <h2>Editar letra</h2>
-    <button class="icon-btn sm" onclick={onclose} title="Cerrar (E)">✕</button>
+    <h2>{t("Editar letra")}</h2>
+    <button class="icon-btn sm" onclick={onclose} title={t("Cerrar (E)")}>✕</button>
   </header>
 
   <div class="tools">
-    <button class="primary sm" disabled={!dirty} onclick={save}>Guardar</button>
-    <button class="ghost sm" onclick={() => (paste = lines.map((l) => l.text).join("\n"))}>Pegar / editar texto</button>
+    <button class="primary sm" disabled={!dirty} onclick={save}>{t("Guardar")}</button>
+    <button class="ghost sm" onclick={() => (paste = lines.map((l) => l.text).join("\n"))}>{t("Pegar / editar texto")}</button>
     <button class="ghost sm" class:on={tap >= 0} onclick={() => (tap = tap >= 0 ? -1 : Math.max(0, lines.findIndex((l) => l.t == null)))}>
-      {tap >= 0 ? "Parar tap" : "Sincronizar a mano"}
+      {tap >= 0 ? t("Parar tap") : t("Sincronizar a mano")}
     </button>
     <button class="ghost sm" disabled={busy || !lines.some((l) => l.text)} onclick={() => { const d = result(); dirty = false; onai(d); }}
-      title="Guarda y alinea tu texto escuchando el audio (Whisper), sin usar los tiempos por línea.">
-      {busy ? "Sincronizando…" : "Desde el audio"}
+      title={t("Guarda y alinea tu texto escuchando el audio (Whisper), sin usar los tiempos por línea.")}>
+      {busy ? t("Sincronizando…") : t("Desde el audio")}
     </button>
     <button class="ghost sm" disabled={busy || !lines.some((l) => l.t != null && l.text)} onclick={() => { const d = result(); dirty = false; onfast(d); }}
-      title="Guarda y coloca las palabras con el audio sin tocar el inicio de ninguna línea (los que ves aquí).">
-      Dentro de cada línea
+      title={t("Guarda y coloca las palabras con el audio sin tocar el inicio de ninguna línea (los que ves aquí).")}>
+      {t("Dentro de cada línea")}
     </button>
     <button class="ghost sm" disabled={busy || !history} onclick={onrestore}
-      title="Deshace la última sincronización con IA ({history} guardadas).">
-      Volver a la anterior{history > 1 ? ` (${history})` : ""}
+      title={t("Deshace la última sincronización con IA ({n} guardadas).", { n: history })}>
+      {t(history > 1 ? "Volver a la anterior ({n})" : "Volver a la anterior", history > 1 ? { n: history } : undefined)}
     </button>
     <span class="nudge">
-      Todo
+      {t("Todo")}
       <button class="ghost sm" onclick={() => shift(-0.1)}>−0.1 s</button>
       <button class="ghost sm" onclick={() => shift(0.1)}>+0.1 s</button>
     </span>
@@ -160,40 +161,40 @@
 
   {#if job}
     <p class="hint busy">
-      {otherSong ? `La IA está con «${otherSong}»; cuando acabe sigue con esta.` : `IA: ${job.label}${job.total ? ` (${job.step}/${job.total})` : ""}…`}
+      {otherSong ? t("La IA está con «{song}»; cuando acabe sigue con esta.", { song: otherSong }) : job.total ? t("IA: {label} ({step}/{total})…", { label: job.label, step: job.step!, total: job.total }) : t("IA: {label}…", { label: job.label })}
     </p>
   {/if}
 
   {#if doc.source === "ia" && !doc.edited}
     <p class="hint warn">
-      Transcrita por IA: revísala.{doubts ? ` ${doubts} líneas con palabras dudosas marcadas en amarillo (▶ para oírlas).` : ""}
+      {t("Transcrita por IA: revísala.")}{doubts ? ` ${t("{n} líneas con palabras dudosas marcadas en amarillo (▶ para oírlas).", { n: doubts })}` : ""}
     </p>
   {/if}
 
   {#if tap >= 0}
-    <p class="hint">Reproduce la canción y pulsa <kbd>Espacio</kbd> justo cuando empiece cada línea resaltada. <kbd>⌫</kbd> vuelve una atrás.</p>
+    <p class="hint">{t("Reproduce la canción y pulsa")} <kbd>{t("Espacio")}</kbd> {t("justo cuando empiece cada línea resaltada.")} <kbd>⌫</kbd> {t("vuelve una atrás.")}</p>
   {/if}
 
   {#if paste != null}
     <div class="paste">
-      <textarea bind:value={paste} rows="16" placeholder="Una línea de la letra por renglón. Renglón vacío = pausa."></textarea>
+      <textarea bind:value={paste} rows="16" placeholder={t("Una línea de la letra por renglón. Renglón vacío = pausa.")}></textarea>
       <div class="tools">
-        <button class="primary sm" onclick={applyPaste}>Aplicar</button>
-        <button class="ghost sm" onclick={() => (paste = null)}>Cancelar</button>
+        <button class="primary sm" onclick={applyPaste}>{t("Aplicar")}</button>
+        <button class="ghost sm" onclick={() => (paste = null)}>{t("Cancelar")}</button>
       </div>
     </div>
   {/if}
 
   <div class="rows" bind:this={rows}>
     {#each lines as l, k (k)}
-      <div class="row" class:doubt={doubtful(l).length} title={doubtful(l).length ? `La IA no tiene claro: ${doubtful(l).join(", ")}` : undefined} class:tapnext={k === tap} class:playing={l.t != null && l.t <= now && (lines[k + 1]?.t ?? Infinity) > now}>
+      <div class="row" class:doubt={doubtful(l).length} title={doubtful(l).length ? t("La IA no tiene claro: {words}", { words: doubtful(l).join(", ") }) : undefined} class:tapnext={k === tap} class:playing={l.t != null && l.t <= now && (lines[k + 1]?.t ?? Infinity) > now}>
         <input class="time" value={fmtTime(l.t)} placeholder="--:--" onchange={(e) => setT(l, parseTime(e.currentTarget.value))} />
-        <button class="icon-btn sm" title="Poner el tiempo actual" onclick={() => setT(l, Math.round(now * 100) / 100)}>⏱</button>
-        <button class="icon-btn sm" title="Ir aquí" disabled={l.t == null} onclick={() => onseek(l.t!)}>▶</button>
+        <button class="icon-btn sm" title={t("Poner el tiempo actual")} onclick={() => setT(l, Math.round(now * 100) / 100)}>⏱</button>
+        <button class="icon-btn sm" title={t("Ir aquí")} disabled={l.t == null} onclick={() => onseek(l.t!)}>▶</button>
         <input class="text" value={l.text} oninput={(e) => setText(l, e.currentTarget.value)} />
-        <button class="icon-btn sm" class:on={open === k} disabled={!l.words?.length} title="Tiempo de cada palabra" onclick={() => (open = open === k ? -1 : k)}>⋯</button>
-        <button class="icon-btn sm" title="Línea debajo" onclick={() => insert(k)}>＋</button>
-        <button class="icon-btn sm" title="Borrar" onclick={() => remove(k)}>✕</button>
+        <button class="icon-btn sm" class:on={open === k} disabled={!l.words?.length} title={t("Tiempo de cada palabra")} onclick={() => (open = open === k ? -1 : k)}>⋯</button>
+        <button class="icon-btn sm" title={t("Línea debajo")} onclick={() => insert(k)}>＋</button>
+        <button class="icon-btn sm" title={t("Borrar")} onclick={() => remove(k)}>✕</button>
       </div>
       {#if open === k && l.words?.length}
         <div class="words">
@@ -203,15 +204,15 @@
               <button class="icon-btn sm" title="−0.05 s" onclick={() => setWordT(l, w, w.t - 0.05)}>−</button>
               <input class="wt" value={fmtTime(w.t)} onchange={(e) => setWordT(l, w, parseTime(e.currentTarget.value))} />
               <button class="icon-btn sm" title="+0.05 s" onclick={() => setWordT(l, w, w.t + 0.05)}>+</button>
-              <button class="icon-btn sm" title="Poner el tiempo actual" disabled={!now} onclick={() => setWordT(l, w, now)}>⏱</button>
-              <button class="icon-btn sm" title="Ir aquí" onclick={() => onseek(w.t)}>▶</button>
+              <button class="icon-btn sm" title={t("Poner el tiempo actual")} disabled={!now} onclick={() => setWordT(l, w, now)}>⏱</button>
+              <button class="icon-btn sm" title={t("Ir aquí")} onclick={() => onseek(w.t)}>▶</button>
             </div>
           {/each}
         </div>
       {/if}
     {:else}
-      <p class="hint">Sin letra. Pega el texto o añade líneas.</p>
-      <button class="ghost sm" onclick={() => insert(-1)}>＋ Añadir línea</button>
+      <p class="hint">{t("Sin letra. Pega el texto o añade líneas.")}</p>
+      <button class="ghost sm" onclick={() => insert(-1)}>＋ {t("Añadir línea")}</button>
     {/each}
   </div>
 </aside>

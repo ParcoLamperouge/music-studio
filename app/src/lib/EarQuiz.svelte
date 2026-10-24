@@ -29,6 +29,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { stars } from "./course";
+  import { t } from "./i18n.svelte";
   import { loadPiano } from "./piano";
   import { voice } from "./player";
   import Answer from "./ui/Answer.svelte";
@@ -110,26 +111,26 @@
       <ProgressRing value={right / ROUNDS} size={72} stroke={6} color={right / ROUNDS >= 0.85 ? "var(--ok)" : right / ROUNDS >= 0.6 ? "var(--warn)" : "var(--bad)"}>
         <strong class="num">{right}/{ROUNDS}</strong>
       </ProgressRing>
-      <span class="stars" aria-label="{stars(right / ROUNDS)} de 3 estrellas">
+      <span class="stars" aria-label={t("{n} de 3 estrellas", { n: stars(right / ROUNDS) })}>
         {#each [0, 1, 2] as i (i)}<span class:on={i < stars(right / ROUNDS)}><Icon name="star" size={18} /></span>{/each}
       </span>
-      <Button icon="retry" onclick={restart}>Otra vez</Button>
+      <Button icon="retry" onclick={restart}>{t("Otra vez")}</Button>
     </div>
   {:else if !current}
-    <Button variant="primary" icon="ear" onclick={ask}>Empezar · {ROUNDS} preguntas</Button>
+    <Button variant="primary" icon="ear" onclick={ask}>{t("Empezar · {n} preguntas", { n: ROUNDS })}</Button>
   {:else}
     <div class="head">
-      <IconButton icon="volume" label="Repetir" kbd="R" onclick={play} />
-      <strong>{q.title}</strong>
+      <IconButton icon="volume" label={t("Repetir")} kbd="R" onclick={play} />
+      <strong>{t(q.title)}</strong>
       <span class="fill"></span>
-      <span class="dots" aria-label="Pregunta {n + 1} de {ROUNDS}">
+      <span class="dots" aria-label={t("Pregunta {n} de {m}", { n: n + 1, m: ROUNDS })}>
         {#each Array(ROUNDS) as _, i (i)}<i class:ok={marks[i] === true} class:bad={marks[i] === false} class:now={i === n}></i>{/each}
       </span>
     </div>
     <div class="opts" style:--cols={Math.min(q.options.length, 4)}>
       {#each q.options as o, i (o.label)}
         <Answer kbd={String(i + 1)} onclick={() => answer(i)} disabled={picked != null}
-          state={picked == null ? "idle" : i === current.answer ? "right" : picked === i ? "wrong" : "dim"}>{o.label}</Answer>
+          state={picked == null ? "idle" : i === current.answer ? "right" : picked === i ? "wrong" : "dim"}>{t(o.label)}</Answer>
       {/each}
     </div>
   {/if}
