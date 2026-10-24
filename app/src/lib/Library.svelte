@@ -2,6 +2,7 @@
   import { isUrl, loadAfter, thenOf } from "./AddDialog.svelte";
   import { deck, deckToggle } from "./deck.svelte";
   import { fmtBytes, importSources, type Track } from "./engine";
+  import { t } from "./i18n.svelte";
   import { fold } from "./shell/nav";
   import SongCard from "./SongCard.svelte";
   import { live, store } from "./store.svelte";
@@ -45,16 +46,16 @@
     } catch {}
   });
 
-  const FILTERS: [string, string, (t: Track) => boolean][] = [
+  const FILTERS: [string, string, (tr: Track) => boolean][] = [
     ["all", "Todas", () => true],
-    ["busy", "Trabajando", (t) => live(t.key).length > 0],
-    ["nolyrics", "Sin letra", (t) => !t.lyrics || t.lyrics.status === "plain" || t.lyrics.status === "empty"],
-    ["review", "Por revisar", (t) => !!t.lyrics?.doubts && !t.lyrics.edited],
-    ["unsplit", "Sin separar", (t) => t.stems !== "complete"],
-    ["scored", "Con partitura", (t) => t.notes.length > 0],
-    ["edits", "Con edits", (t) => t.edits > 0],
-    ["hidden", "Ocultas", (t) => !!t.lyrics?.hidden],
-    ["failed", "Fallidas", (t) => t.failed],
+    ["busy", "Trabajando", (tr) => live(tr.key).length > 0],
+    ["nolyrics", "Sin letra", (tr) => !tr.lyrics || tr.lyrics.status === "plain" || tr.lyrics.status === "empty"],
+    ["review", "Por revisar", (tr) => !!tr.lyrics?.doubts && !tr.lyrics.edited],
+    ["unsplit", "Sin separar", (tr) => tr.stems !== "complete"],
+    ["scored", "Con partitura", (tr) => tr.notes.length > 0],
+    ["edits", "Con edits", (tr) => tr.edits > 0],
+    ["hidden", "Ocultas", (tr) => !!tr.lyrics?.hidden],
+    ["failed", "Fallidas", (tr) => tr.failed],
   ];
   const SORTS: [string, string][] = [["recent", "Recientes"], ["artist", "Artista"], ["title", "Título"], ["size", "Tamaño"]];
   const BY: Record<string, (a: Track, b: Track) => number> = {
@@ -68,24 +69,24 @@
   const shown = $derived.by(() => {
     const test = FILTERS.find((f) => f[0] === filter)?.[2] ?? (() => true);
     const needle = fold(q.trim());
-    return store.tracks.filter((t) => test(t) && (!needle || fold(`${t.artist} ${t.title}`).includes(needle))).sort(BY[sort] ?? BY.recent);
+    return store.tracks.filter((tr) => test(tr) && (!needle || fold(`${tr.artist} ${tr.title}`).includes(needle))).sort(BY[sort] ?? BY.recent);
   });
   // anterior / siguiente del mini-reproductor siguen lo que se ve
-  $effect(() => void (deck.order = shown.map((t) => t.key)));
-  const total = $derived(store.tracks.reduce((n, t) => n + t.bytes, 0));
+  $effect(() => void (deck.order = shown.map((tr) => tr.key)));
+  const total = $derived(store.tracks.reduce((n, tr) => n + tr.bytes, 0));
 
-  function click(e: MouseEvent, t: Track, i: number) {
+  function click(e: MouseEvent, tr: Track, i: number) {
     if (e.shiftKey && anchor >= 0) {
       const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)];
       picked = [...new Set([...picked, ...shown.slice(a, b + 1).map((x) => x.key)])];
       return;
     }
     anchor = i;
-    if (e.ctrlKey || e.metaKey || picked.length) toggle(t);
-    else onopen(t.key);
+    if (e.ctrlKey || e.metaKey || picked.length) toggle(tr);
+    else onopen(tr.key);
   }
-  function toggle(t: Track) {
-    picked = picked.includes(t.key) ? picked.filter((k) => k !== t.key) : [...picked, t.key];
+  function toggle(tr: Track) {
+    picked = picked.includes(tr.key) ? picked.filter((k) => k !== tr.key) : [...picked, tr.key];
   }
 
   function onkey(e: KeyboardEvent) {
@@ -98,22 +99,23 @@
       picked = [];
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && !typing) {
       e.preventDefault();
-      picked = shown.map((t) => t.key);
+      picked = shown.map((tr) => tr.key);
     }
   }
 
   const bulk = (action: string) => onbulk(action, [...picked]);
-  const more: MenuItem[] = [
-    { label: "Volver a sincronizar la letra", icon: "lyrics", run: () => bulk("sync") },
-    { label: "Comprobar la versión del audio", icon: "audio", title: "Whisper comprueba que el audio es la versión de los tiempos de la letra", run: () => bulk("align-audio") },
-    { label: "Buscar la letra otra vez", icon: "search", run: () => bulk("letra-force") },
-    { label: "Sacar pulsos", icon: "sessions", run: () => bulk("beats") },
-    { label: "Sincronizar con el servidor", icon: "cloud", run: () => bulk("remote") },
+  // etiquetas traducidas dentro de $derived: se recalculan al cambiar el idioma
+  let more: MenuItem[] = $derived([
+    { label: t("Volver a sincronizar la letra"), icon: "lyrics", run: () => bulk("sync") },
+    { label: t("Comprobar la versión del audio"), icon: "audio", title: t("Whisper comprueba que el audio es la versión de los tiempos de la letra"), run: () => bulk("align-audio") },
+    { label: t("Buscar la letra otra vez"), icon: "search", run: () => bulk("letra-force") },
+    { label: t("Sacar pulsos"), icon: "sessions", run: () => bulk("beats") },
+    { label: t("Sincronizar con el servidor"), icon: "cloud", run: () => bulk("remote") },
     "-",
-    { label: "Borrar audio en caché", icon: "trash", run: () => bulk("delete-audio") },
-    { label: "Borrar pistas y partituras", icon: "trash", run: () => bulk("delete-stems") },
-    { label: "Borrar canciones…", icon: "trash", danger: true, run: () => bulk("delete-all") },
-  ];
+    { label: t("Borrar audio en caché"), icon: "trash", run: () => bulk("delete-audio") },
+    { label: t("Borrar pistas y partituras"), icon: "trash", run: () => bulk("delete-stems") },
+    { label: t("Borrar canciones…"), icon: "trash", danger: true, run: () => bulk("delete-all") },
+  ]);
 
   async function importLink(e: Event) {
     e.preventDefault();
@@ -129,29 +131,29 @@
 <section class="lib">
   <header class="head">
     <div class="title">
-      <h1>Biblioteca</h1>
+      <h1>{t("Biblioteca")}</h1>
       <span class="sub num">{store.tracks.length} · {fmtBytes(total)}</span>
     </div>
     <div class="tools">
-      <div class="find"><Search bind:ref={search} bind:value={q} placeholder="Buscar artista o canción" kbd="/" /></div>
+      <div class="find"><Search bind:ref={search} bind:value={q} placeholder={t("Buscar artista o canción")} kbd="/" /></div>
       <Menu
         align="end"
-        label="Ordenar"
-        items={SORTS.map(([id, label]) => ({ label, icon: sort === id ? "check" : undefined, run: () => (sort = id) }))}
+        label={t("Ordenar")}
+        items={SORTS.map(([id, label]) => ({ label: t(label), icon: sort === id ? "check" : undefined, run: () => (sort = id) }))}
       >
         {#snippet trigger({ toggle })}
-          <Button variant="ghost" icon="sort" onclick={toggle} title="Ordenar">{SORTS.find((s) => s[0] === sort)?.[1]}</Button>
+          <Button variant="ghost" icon="sort" onclick={toggle} title={t("Ordenar")}>{t(SORTS.find((s) => s[0] === sort)?.[1] ?? "")}</Button>
         {/snippet}
       </Menu>
-      <Button variant="primary" icon="plus" kbd="N" onclick={onadd}>Añadir</Button>
+      <Button variant="primary" icon="plus" kbd="N" onclick={onadd}>{t("Añadir")}</Button>
     </div>
   </header>
 
   {#if store.tracks.length}
-    <nav class="filters" aria-label="Filtros">
+    <nav class="filters" aria-label={t("Filtros")}>
       {#each FILTERS as [id, label] (id)}
         {#if id === "all" || counts[id] || filter === id}
-          <Chip active={filter === id} count={counts[id]} onclick={() => (filter = id)}>{label}</Chip>
+          <Chip active={filter === id} count={counts[id]} onclick={() => (filter = id)}>{t(label)}</Chip>
         {/if}
       {/each}
     </nav>
@@ -163,33 +165,33 @@
 
   <div class="scroll">
     {#if !store.tracks.length}
-      <EmptyState icon="library" title="Tu biblioteca está vacía">
-        Pega un enlace, busca en YouTube o arrastra audio aquí.
+      <EmptyState icon="library" title={t("Tu biblioteca está vacía")}>
+        {t("Pega un enlace, busca en YouTube o arrastra audio aquí.")}
         {#snippet actions()}
           <form class="quick" onsubmit={importLink}>
-            <input class="quick-input" bind:value={link} placeholder="https://youtube.com/watch?v=…" aria-label="Enlace" />
-            <Button variant="primary" type="submit">{isUrl(link) ? "Importar" : "Añadir"}</Button>
+            <input class="quick-input" bind:value={link} placeholder="https://youtube.com/watch?v=…" aria-label={t("Enlace")} />
+            <Button variant="primary" type="submit">{isUrl(link) ? t("Importar") : t("Añadir")}</Button>
           </form>
         {/snippet}
       </EmptyState>
     {:else if !shown.length}
-      <EmptyState icon="search" title="Nada por aquí">
+      <EmptyState icon="search" title={t("Nada por aquí")}>
         {#snippet actions()}
-          <Button onclick={() => ((q = ""), (filter = "all"))}>Ver todas</Button>
+          <Button onclick={() => ((q = ""), (filter = "all"))}>{t("Ver todas")}</Button>
         {/snippet}
       </EmptyState>
     {:else}
       <div class="grid" class:picking={picked.length > 0}>
-        {#each shown as t, i (t.key)}
+        {#each shown as tr, i (tr.key)}
           <SongCard
-            track={t}
-            picked={picked.includes(t.key)}
+            track={tr}
+            picked={picked.includes(tr.key)}
             picking={picked.length > 0}
-            current={t.key === current}
-            playing={t.key === current && deck.playing}
-            onplay={() => (t.key === current && deck.duration > 0 ? deckToggle() : onplay(t.key))}
-            onclick={(e) => click(e, t, i)}
-            ontoggle={(e) => (e.shiftKey ? click(e, t, i) : ((anchor = i), toggle(t)))}
+            current={tr.key === current}
+            playing={tr.key === current && deck.playing}
+            onplay={() => (tr.key === current && deck.duration > 0 ? deckToggle() : onplay(tr.key))}
+            onclick={(e) => click(e, tr, i)}
+            ontoggle={(e) => (e.shiftKey ? click(e, tr, i) : ((anchor = i), toggle(tr)))}
           />
         {/each}
       </div>
@@ -197,21 +199,21 @@
   </div>
 
   {#if picked.length}
-    <div class="bulk" role="toolbar" aria-label="Acciones con la selección">
+    <div class="bulk" role="toolbar" aria-label={t("Acciones con la selección")}>
       <strong class="num">{picked.length}</strong>
-      <span class="sel">seleccionadas</span>
-      <Button size="sm" variant="ghost" onclick={() => (picked = shown.map((t) => t.key))}>Todas</Button>
+      <span class="sel">{t("seleccionadas")}</span>
+      <Button size="sm" variant="ghost" onclick={() => (picked = shown.map((tr) => tr.key))}>{t("Todas")}</Button>
       <span class="div"></span>
-      <Button size="sm" variant="primary" icon="sparkle" onclick={() => bulk("todo")} title="Pistas, letra palabra a palabra y notas de cada instrumento">Todo</Button>
-      <Button size="sm" icon="lyrics" onclick={() => bulk("letra")}>Letra</Button>
-      <Button size="sm" icon="stems" onclick={() => bulk("separate")}>Pistas</Button>
-      <Button size="sm" icon="notes" onclick={() => bulk("notes-all")}>Notas</Button>
-      <Menu items={more} side="top" align="end" label="Más acciones">
+      <Button size="sm" variant="primary" icon="sparkle" onclick={() => bulk("todo")} title={t("Pistas, letra palabra a palabra y notas de cada instrumento")}>{t("Todo")}</Button>
+      <Button size="sm" icon="lyrics" onclick={() => bulk("letra")}>{t("Letra")}</Button>
+      <Button size="sm" icon="stems" onclick={() => bulk("separate")}>{t("Pistas")}</Button>
+      <Button size="sm" icon="notes" onclick={() => bulk("notes-all")}>{t("Notas")}</Button>
+      <Menu items={more} side="top" align="end" label={t("Más acciones")}>
         {#snippet trigger({ toggle, open })}
-          <IconButton icon="more" label="Más acciones" size="sm" active={open} onclick={toggle} />
+          <IconButton icon="more" label={t("Más acciones")} size="sm" active={open} onclick={toggle} />
         {/snippet}
       </Menu>
-      <IconButton icon="close" label="Quitar selección" kbd="Esc" size="sm" onclick={() => (picked = [])} />
+      <IconButton icon="close" label={t("Quitar selección")} kbd="Esc" size="sm" onclick={() => (picked = [])} />
     </div>
   {/if}
 </section>

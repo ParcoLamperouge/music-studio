@@ -6,6 +6,7 @@
   import EditsTab from "./EditsTab.svelte";
   import { enqueue, fmtClock, log, PITCHED, readJson, run, songDetail, SOURCE_LABEL, STEM_INFO, viewPath, writeJson, type Detail, type Job, type Track } from "./engine";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
+  import { engineErr, t } from "./i18n.svelte";
   import { ledOf, type Led } from "./Leds.svelte";
   import LyricsTab from "./LyricsTab.svelte";
   import MiniMixer from "./MiniMixer.svelte";
@@ -56,9 +57,9 @@
     { value: "edits", label: "Edits", icon: "edits" },
   ];
   /** Pestañas de antes (y de los enlaces): el piano roll vive ahora en cada pista. */
-  const tabOf = (t?: string): Tab | null => (t === "roll" ? "mix" : TABS.some((x) => x.value === t) ? (t as Tab) : null);
+  const tabOf = (tr?: string): Tab | null => (tr === "roll" ? "mix" : TABS.some((x) => x.value === tr) ? (tr as Tab) : null);
 
-  const track = $derived(store.tracks.find((t) => t.key === key) as Track | undefined);
+  const track = $derived(store.tracks.find((tr) => tr.key === key) as Track | undefined);
   let detail = $state<Detail | null>(null);
   let detailError = $state("");
   const player = new Player();
@@ -88,7 +89,7 @@
   const tracks = $derived(
     stemlab ? stemlab.stems.map((s) => ({ name: s.name, path: `${stemlab.dir}/${s.file}`, present: s.present })) : detail?.audioPath ? [{ name: "mix", path: detail.audioPath, present: true }] : [],
   );
-  const sig = $derived(tracks.map((t) => t.path).join("|"));
+  const sig = $derived(tracks.map((tr) => tr.path).join("|"));
 
   // ---- ficha: al abrir y cada vez que la cola cambia algo de esta canción
   const rev = $derived(store.rev[key] ?? 0);
@@ -124,10 +125,10 @@
     loadError = "";
     const t0 = performance.now();
     try {
-      for (const t of tracks) {
-        if (volume[t.name] == null) volume[t.name] = 1;
-        if (muted[t.name] == null) muted[t.name] = !t.present;
-        if (solo[t.name] == null) solo[t.name] = false;
+      for (const tr of tracks) {
+        if (volume[tr.name] == null) volume[tr.name] = 1;
+        if (muted[tr.name] == null) muted[tr.name] = !tr.present;
+        if (solo[tr.name] == null) solo[tr.name] = false;
       }
       await player.load(tracks);
       duration = player.duration;
@@ -183,8 +184,8 @@
       flush = null;
       void writeJson(viewPath(k), { ...stored, ...view });
     };
-    const t = setTimeout(() => flush?.(), 500);
-    return () => clearTimeout(t);
+    const tm = setTimeout(() => flush?.(), 500);
+    return () => clearTimeout(tm);
   });
   $effect(() => {
     const now = () => flush?.();
@@ -201,7 +202,7 @@
   const audible = (name: string) => (anySolo ? solo[name] : !muted[name]);
   $effect(() => {
     if (loading) return;
-    for (const t of tracks) player.setGain(t.name, audible(t.name) ? (volume[t.name] ?? 1) : 0);
+    for (const tr of tracks) player.setGain(tr.name, audible(tr.name) ? (volume[tr.name] ?? 1) : 0);
     player.setGain(CLICK, metro.on && beatData ? metro.volume : 0);
   });
   $effect(() => {
@@ -224,7 +225,7 @@
     else player.play();
     playing = player.playing;
   }
-  const seek = (t: number) => player.seek(Math.max(0, Math.min(t, duration)));
+  const seek = (tr: number) => player.seek(Math.max(0, Math.min(tr, duration)));
   // el mini-reproductor de abajo la controla aunque se esté en otra vista
   $effect(() => attachDeck(untrack(() => key), { toggle, seek }));
   $effect(() => void Object.assign(deck, { playing, time, duration: loading || !tracks.length ? 0 : duration })); // duration > 0: audio listo
@@ -251,7 +252,7 @@
   const metroBeats = $derived.by(() => {
     const b = beatData?.beats ?? [];
     if (metro.factor === 0.5) return b.filter((_, i) => i % 2 === 0);
-    if (metro.factor === 2) return b.flatMap((t, i) => (i + 1 < b.length ? [t, (t + b[i + 1]) / 2] : [t]));
+    if (metro.factor === 2) return b.flatMap((tr, i) => (i + 1 < b.length ? [tr, (tr + b[i + 1]) / 2] : [tr]));
     return b;
   });
   $effect(() => {
@@ -289,7 +290,7 @@
       .filter((s) => s.roll && audible(s.name))
       .map((s) => ({ stem: s.name, name: STEM_INFO[s.name].label, color: STEM_INFO[s.name].color, path: `${stemlab!.dir}/${s.roll}`, hidden: !roll[s.name] })),
   );
-  const rollShown = $derived(tab === "mix" && rollTracks.some((t) => !t.hidden));
+  const rollShown = $derived(tab === "mix" && rollTracks.some((tr) => !tr.hidden));
   function toggleAllRolls() {
     const on = !stems.some((s) => s.roll && roll[s.name]);
     for (const s of stems) if (s.roll) roll[s.name] = on;
@@ -325,7 +326,7 @@
     });
   });
   const harmony = $derived.by<Harmony | null>(() => {
-    const ts = src === "mix" ? noteTracks : noteTracks.filter((t) => t.stem === src);
+    const ts = src === "mix" ? noteTracks : noteTracks.filter((tr) => tr.stem === src);
     return noted.length && ts.length ? analyze(ts, beatData?.beats ?? [], duration || detail?.duration || 0) : null;
   });
   const shownHarmony = $derived(src === "mix" ? (modelHarmony ?? harmony) : harmony);
@@ -367,15 +368,15 @@
       stems: "Se borran las pistas separadas y sus partituras.",
       all: "Se borra todo: letra (y su historial), audio, pistas, partituras y edits. No se puede deshacer.",
     }[what];
-    if (!confirm(msg)) return;
+    if (!confirm(t(msg))) return;
     player.stop();
     await run("delete", [key, what]);
     if (what === "all") ondeleted();
   }
 
   function onkey(e: KeyboardEvent) {
-    const t = e.target as HTMLElement;
-    const typing = t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && !["range", "checkbox"].includes(t.type)) || t.isContentEditable;
+    const tr = e.target as HTMLElement;
+    const typing = tr instanceof HTMLTextAreaElement || (tr instanceof HTMLInputElement && !["range", "checkbox"].includes(tr.type)) || tr.isContentEditable;
     if (!active || typing || e.ctrlKey || e.metaKey || e.altKey || document.querySelector("[aria-modal='true'], dialog[open]")) return;
     const k = e.key.toLowerCase();
     if (e.code === "Space") toggle();
@@ -393,43 +394,43 @@
 
   const lyricLabel = $derived.by(() => {
     const l = track?.lyrics;
-    if (!l) return isStemOnly ? "Sin artista ni título" : "Sin letra";
-    const src = (SOURCE_LABEL[l.source ?? ""] ?? l.source ?? "") + (l.times_from ? ` + ${SOURCE_LABEL[l.times_from] ?? l.times_from}` : "");
-    const how = { words: l.synced_by === "ia" ? (l.ai_mode === "lineas" ? "IA rápida" : "IA palabra a palabra") : "palabra a palabra", lines: "por líneas", plain: "sin tiempos", instrumental: "instrumental", empty: "vacía" }[l.status];
+    if (!l) return t(isStemOnly ? "Sin artista ni título" : "Sin letra");
+    const src = t(SOURCE_LABEL[l.source ?? ""] ?? l.source ?? "") + (l.times_from ? ` + ${t(SOURCE_LABEL[l.times_from] ?? l.times_from)}` : "");
+    const how = { words: l.synced_by === "ia" ? (l.ai_mode === "lineas" ? t("IA rápida") : t("IA palabra a palabra")) : t("palabra a palabra"), lines: t("por líneas"), plain: t("sin tiempos"), instrumental: t("instrumental"), empty: t("vacía") }[l.status];
     return `${how}${src ? ` · ${src}` : ""}`;
   });
 
   type Step = { stage: Stage; name: string; icon: IconName; state: string; job?: Job; action?: { label: string; run: () => void; title?: string }; go?: Tab };
   const steps = $derived.by<Step[]>(() => {
-    const t = track;
-    if (!t) return [];
+    const tr = track;
+    if (!tr) return [];
     return [
       {
-        stage: "audio", name: "Audio", icon: "audio", go: "mix", job: stage(["audio", "import"]),
-        state: t.audio ? (stemlab ? "Mezcla de StemLab" : "WAV en caché") : "Sin audio",
-        action: t.audio || isStemOnly ? undefined : { label: "Descargar", run: () => act("audio"), title: "Primer resultado de YouTube con ese título y duración" },
+        stage: "audio", name: t("Audio"), icon: "audio", go: "mix", job: stage(["audio", "import"]),
+        state: tr.audio ? (stemlab ? t("Mezcla de StemLab") : t("WAV en caché")) : t("Sin audio"),
+        action: tr.audio || isStemOnly ? undefined : { label: t("Descargar"), run: () => act("audio"), title: t("Primer resultado de YouTube con ese título y duración") },
       },
       {
-        stage: "letra", name: "Letra", icon: "lyrics", go: "letra", job: stage(["letra", "find", "sync"]), state: lyricLabel,
-        action: isStemOnly ? { label: "Ponerle nombre", run: () => (tab = "letra") }
-          : !t.lyrics ? { label: "Buscar y sincronizar", run: () => act("letra") }
-          : t.lyrics.status !== "words" && t.lyrics.status !== "instrumental" ? { label: "Palabra a palabra", run: () => act("sync") }
-          : { label: "Editar", run: () => ((tab = "letra"), (editing = true)) },
+        stage: "letra", name: t("Letra"), icon: "lyrics", go: "letra", job: stage(["letra", "find", "sync"]), state: lyricLabel,
+        action: isStemOnly ? { label: t("Ponerle nombre"), run: () => (tab = "letra") }
+          : !tr.lyrics ? { label: t("Buscar y sincronizar"), run: () => act("letra") }
+          : tr.lyrics.status !== "words" && tr.lyrics.status !== "instrumental" ? { label: t("Palabra a palabra"), run: () => act("sync") }
+          : { label: t("Editar"), run: () => ((tab = "letra"), (editing = true)) },
       },
       {
-        stage: "pistas", name: "Pistas", icon: "stems", go: "mix", job: stage(["separate"]),
-        state: t.stems === "complete" ? `${t.present.length} de 6 con sonido` : t.stems ? "Separación a medias" : "Sin separar",
-        action: t.stems === "complete" ? undefined : { label: t.stems ? "Rehacer" : "Separar", run: () => act("separate"), title: "BS-RoFormer (voz) + BS-Roformer-SW (6 pistas), en GPU" },
+        stage: "pistas", name: t("Pistas"), icon: "stems", go: "mix", job: stage(["separate"]),
+        state: tr.stems === "complete" ? t("{n} de 6 con sonido", { n: tr.present.length }) : tr.stems ? t("Separación a medias") : t("Sin separar"),
+        action: tr.stems === "complete" ? undefined : { label: tr.stems ? t("Rehacer") : t("Separar"), run: () => act("separate"), title: t("BS-RoFormer (voz) + BS-Roformer-SW (6 pistas), en GPU") },
       },
       {
-        stage: "notas", name: "Notas", icon: "notes", go: "score", job: stage(["notes"]),
-        state: t.notes.length ? `${t.notes.length} de ${pitched.length || "?"} instrumentos` : "Sin notas",
-        action: t.notes.length >= pitched.length && pitched.length ? undefined : { label: t.notes.length ? "Sacar el resto" : "Sacar notas", run: () => act("notes-all", quality()), title: "basic-pitch en CPU; la voz lleva la letra de Letras" },
+        stage: "notas", name: t("Notas"), icon: "notes", go: "score", job: stage(["notes"]),
+        state: tr.notes.length ? t("{n} de {m} instrumentos", { n: tr.notes.length, m: pitched.length || "?" }) : t("Sin notas"),
+        action: tr.notes.length >= pitched.length && pitched.length ? undefined : { label: tr.notes.length ? t("Sacar el resto") : t("Sacar notas"), run: () => act("notes-all", quality()), title: t("basic-pitch en CPU; la voz lleva la letra de Letras") },
       },
       {
-        stage: "edits", name: "Edits", icon: "edits", go: "edits", job: stage(["render"]),
-        state: t.edits ? `${t.edits} ${t.edits > 1 ? "edits" : "edit"}` : "Ninguno",
-        action: { label: "Nuevo edit", run: () => (tab = "edits") },
+        stage: "edits", name: t("Edits"), icon: "edits", go: "edits", job: stage(["render"]),
+        state: tr.edits ? (tr.edits > 1 ? t("{n} edits", { n: tr.edits }) : t("{n} edit", { n: tr.edits })) : t("Ninguno"),
+        action: { label: t("Nuevo edit"), run: () => (tab = "edits") },
       },
     ];
   });
@@ -442,12 +443,12 @@
   };
 
   const moreItems = $derived<MenuItem[]>([
-    ...(stemlab ? [{ label: "Abrir carpeta de pistas", icon: "folder" as const, run: () => openPath(stemlab.dir) }] : []),
-    { label: "Volver a sacar los pulsos", icon: "metronome", run: () => act("beats") },
+    ...(stemlab ? [{ label: t("Abrir carpeta de pistas"), icon: "folder" as const, run: () => openPath(stemlab.dir) }] : []),
+    { label: t("Volver a sacar los pulsos"), icon: "metronome", run: () => act("beats") },
     "-",
-    ...(track?.audio && !isStemOnly ? [{ label: "Borrar audio en caché", icon: "trash" as const, run: () => del("audio") }] : []),
-    ...(track?.stems ? [{ label: "Borrar pistas y partituras", icon: "trash" as const, run: () => del("stems") }] : []),
-    { label: "Borrar la canción…", icon: "trash", danger: true, run: () => del("all") },
+    ...(track?.audio && !isStemOnly ? [{ label: t("Borrar audio en caché"), icon: "trash" as const, run: () => del("audio") }] : []),
+    ...(track?.stems ? [{ label: t("Borrar pistas y partituras"), icon: "trash" as const, run: () => del("stems") }] : []),
+    { label: t("Borrar la canción…"), icon: "trash", danger: true, run: () => del("all") },
   ]);
   const KEYS: [string, string][] = [
     ["Espacio", "Reproducir / pausa"],
@@ -500,10 +501,10 @@
       {#if job}
         {@render jobLine(job)}
       {:else}
-        <p class:err={failed}>{failed ? s.job!.error : s.state}</p>
+        <p class:err={failed}>{failed ? engineErr(s.job!.error) : s.state}</p>
       {/if}
       <div class="pane-acts">
-        {#if s.go}<Button size="sm" variant="ghost" onclick={() => (tab = s.go!)}>Ver</Button>{/if}
+        {#if s.go}<Button size="sm" variant="ghost" onclick={() => (tab = s.go!)}>{t("Ver")}</Button>{/if}
         {#if s.action && !job}<Button size="sm" variant="secondary" icon={failed ? "retry" : undefined} title={s.action.title} onclick={s.action.run}>{s.action.label}</Button>{/if}
       </div>
     </div>
@@ -512,20 +513,20 @@
 
 <div class="song-page">
   {#if detailError && !detail}
-    <EmptyState icon="alert" title="No se pudo abrir">{detailError}</EmptyState>
+    <EmptyState icon="alert" title={t("No se pudo abrir")}>{engineErr(detailError)}</EmptyState>
   {:else if track}
     <header class="head">
       <div class="who">
-        <span class="artist">{track.artist || "Sin artista"}</span>
+        <span class="artist">{track.artist || t("Sin artista")}</span>
         <h1 title={track.title || key}>{track.title || key}</h1>
         <div class="chips">
-          {#if keyLabel}<Chip icon="chords" title="Tonalidad">{keyLabel}</Chip>{/if}
-          {#if beatData || track.bpm}<Chip icon="metronome" title="Tempo">{Math.round(beatData?.bpm ?? track.bpm ?? 0)} BPM</Chip>{/if}
-          {#if total}<Chip icon="wait" title="Duración">{fmtClock(total)}</Chip>{/if}
-          {#if busy.length}<Chip icon="queue" title="Trabajos de esta canción en la cola" count={busy.length}>En cola</Chip>{/if}
+          {#if keyLabel}<Chip icon="chords" title={t("Tonalidad")}>{keyLabel}</Chip>{/if}
+          {#if beatData || track.bpm}<Chip icon="metronome" title={t("Tempo")}>{Math.round(beatData?.bpm ?? track.bpm ?? 0)} BPM</Chip>{/if}
+          {#if total}<Chip icon="wait" title={t("Duración")}>{fmtClock(total)}</Chip>{/if}
+          {#if busy.length}<Chip icon="queue" title={t("Trabajos de esta canción en la cola")} count={busy.length}>{t("En cola")}</Chip>{/if}
         </div>
       </div>
-      <nav class="steps" aria-label="Etapas del análisis">
+      <nav class="steps" aria-label={t("Etapas del análisis")}>
         {#each steps as s, i (s.stage)}
           {#if i}<i class="joint" class:done={ledOf(track, s.stage) === "on"}></i>{/if}
           {@render stepRing(s)}
@@ -533,18 +534,18 @@
       </nav>
       <div class="acts">
         {#if onsing && track.notes.includes("vocals")}
-          <Button icon="mic" onclick={onsing} title="Canta encima: pistas sin la voz, la letra y tu nota contra la original">Cantar</Button>
+          <Button icon="mic" onclick={onsing} title={t("Canta encima: pistas sin la voz, la letra y tu nota contra la original")}>{t("Cantar")}</Button>
         {/if}
         {#if missing}
-          <Button variant="primary" icon="sparkle" onclick={() => act("todo", quality())} title="Pistas, letra palabra a palabra y notas de cada instrumento. Lo hecho no se repite.">Hacer todo</Button>
+          <Button variant="primary" icon="sparkle" onclick={() => act("todo", quality())} title={t("Pistas, letra palabra a palabra y notas de cada instrumento. Lo hecho no se repite.")}>{t("Hacer todo")}</Button>
         {/if}
-        <Menu items={moreItems} align="end" label="Más">
-          {#snippet trigger({ toggle })}<IconButton icon="more" label="Más" onclick={toggle} />{/snippet}
+        <Menu items={moreItems} align="end" label={t("Más")}>
+          {#snippet trigger({ toggle })}<IconButton icon="more" label={t("Más")} onclick={toggle} />{/snippet}
         </Menu>
       </div>
     </header>
 
-    <section class="deck" aria-label="Transporte">
+    <section class="deck" aria-label={t("Transporte")}>
       <PlayButton {playing} size={44} disabled={loading || !tracks.length} onclick={toggle} />
       <div class="strip">
         <MasterStrip big duration={total} {time} {sections} chords={namedChords} tonality={shownHarmony?.key} energy={waves[key]} {loop} onloop={(l) => (loop = l)} onseek={seek} />
@@ -552,41 +553,41 @@
       <div class="side">
         <span class="clock num">{fmtClock(time)}<small>/{fmtClock(total)}</small></span>
         <div class="tools">
-          <IconButton icon="loop" label={loop ? `Bucle ${fmtClock(loop.a)}–${fmtClock(loop.b)}: quitar` : "Repetir la sección"} kbd="L" size="sm" active={!!loop} onclick={toggleLoop} />
-          <Popover side="bottom" align="end" width={250} label="Metrónomo">
+          <IconButton icon="loop" label={loop ? t("Bucle {a}–{b}: quitar", { a: fmtClock(loop.a), b: fmtClock(loop.b) }) : t("Repetir la sección")} kbd="L" size="sm" active={!!loop} onclick={toggleLoop} />
+          <Popover side="bottom" align="end" width={250} label={t("Metrónomo")}>
             {#snippet trigger({ toggle })}
-              <IconButton icon="metronome" label="Metrónomo" kbd="M" size="sm" active={metro.on} onclick={toggle} />
+              <IconButton icon="metronome" label={t("Metrónomo")} kbd="M" size="sm" active={metro.on} onclick={toggle} />
             {/snippet}
             <div class="pane">
-              <Toggle bind:checked={metro.on}>Metrónomo</Toggle>
+              <Toggle bind:checked={metro.on}>{t("Metrónomo")}</Toggle>
               {#if beatData}
                 <span class="bpm num">{Math.round(beatData.bpm * metro.factor)}<small>BPM</small></span>
-                <Slider bind:value={metro.volume} max={1.5} label="Volumen del metrónomo" />
-                <Tabs size="sm" options={[{ value: "0.5", label: "×½" }, { value: "1", label: "×1" }, { value: "2", label: "×2" }]} value={String(metro.factor)} onchange={(v) => (metro.factor = +v)} label="Velocidad" />
+                <Slider bind:value={metro.volume} max={1.5} label={t("Volumen del metrónomo")} />
+                <Tabs size="sm" options={[{ value: "0.5", label: "×½" }, { value: "1", label: "×1" }, { value: "2", label: "×2" }]} value={String(metro.factor)} onchange={(v) => (metro.factor = +v)} label={t("Velocidad")} />
                 {#if downbeats.length}
-                  <small class="note">{beatData.meter ?? 4} pulsos por compás · acento en el 1</small>
+                  <small class="note">{beatData.meter ?? 4} {t("pulsos por compás · acento en el 1")}</small>
                 {:else}
                   <div class="row">
-                    <Tabs size="sm" options={[{ value: "3", label: "3/4" }, { value: "4", label: "4/4" }]} value={String(metro.meter)} onchange={(v) => ((metro.meter = +v), (metro.shift %= +v))} label="Compás" />
-                    <Button size="sm" variant="ghost" title="Mueve el clic fuerte un pulso para que caiga en el 1" onclick={() => (metro.shift = (metro.shift + 1) % metro.meter)}>Mover acento</Button>
+                    <Tabs size="sm" options={[{ value: "3", label: "3/4" }, { value: "4", label: "4/4" }]} value={String(metro.meter)} onchange={(v) => ((metro.meter = +v), (metro.shift %= +v))} label={t("Compás")} />
+                    <Button size="sm" variant="ghost" title={t("Mueve el clic fuerte un pulso para que caiga en el 1")} onclick={() => (metro.shift = (metro.shift + 1) % metro.meter)}>{t("Mover acento")}</Button>
                   </div>
                 {/if}
               {:else if working(beatsJob)}
                 {@render jobLine(beatsJob!)}
               {:else}
-                <small class="note">Al encenderlo se sacan los pulsos (CPU, unos segundos).</small>
+                <small class="note">{t("Al encenderlo se sacan los pulsos (CPU, unos segundos).")}</small>
               {/if}
             </div>
           </Popover>
-          {#if stemlab}<IconButton icon="sliders" label="Mezclador compacto" kbd="V" size="sm" active={settings.showMini} onclick={() => (settings.showMini = !settings.showMini)} />{/if}
-          <Popover side="bottom" align="end" width={200} label="Volumen general">
-            {#snippet trigger({ toggle })}<IconButton icon="volume" label="Volumen general" size="sm" onclick={toggle} />{/snippet}
-            <div class="pane"><Slider bind:value={settings.masterVolume} max={1.5} label="Volumen general" /></div>
+          {#if stemlab}<IconButton icon="sliders" label={t("Mezclador compacto")} kbd="V" size="sm" active={settings.showMini} onclick={() => (settings.showMini = !settings.showMini)} />{/if}
+          <Popover side="bottom" align="end" width={200} label={t("Volumen general")}>
+            {#snippet trigger({ toggle })}<IconButton icon="volume" label={t("Volumen general")} size="sm" onclick={toggle} />{/snippet}
+            <div class="pane"><Slider bind:value={settings.masterVolume} max={1.5} label={t("Volumen general")} /></div>
           </Popover>
-          <Popover side="bottom" align="end" width={290} label="Atajos">
-            {#snippet trigger({ toggle })}<IconButton icon="keyboard" label="Atajos" size="sm" onclick={toggle} />{/snippet}
+          <Popover side="bottom" align="end" width={290} label={t("Atajos")}>
+            {#snippet trigger({ toggle })}<IconButton icon="keyboard" label={t("Atajos")} size="sm" onclick={toggle} />{/snippet}
             <dl class="keys">
-              {#each KEYS as [k, what] (k)}<dt><Kbd keys={k} /></dt><dd>{what}</dd>{/each}
+              {#each KEYS as [k, what] (k)}<dt><Kbd keys={t(k)} /></dt><dd>{t(what)}</dd>{/each}
             </dl>
           </Popover>
         </div>
@@ -594,7 +595,7 @@
     </section>
     {#if settings.showMini && stemlab && tab !== "mix" && !loading}<div class="mini"><MiniMixer {stems} bind:volume bind:muted bind:solo /></div>{/if}
 
-    <Tabs variant="underline" options={TABS.map((t, i) => ({ ...t, title: `${t.label} (${i + 1})`, count: t.value === "edits" && track.edits ? track.edits : undefined }))} bind:value={tab} label="Vistas de la canción" />
+    <Tabs variant="underline" options={TABS.map((x, i) => ({ ...x, label: t(x.label), title: `${t(x.label)} (${i + 1})`, count: x.value === "edits" && track.edits ? track.edits : undefined }))} bind:value={tab} label={t("Vistas de la canción")} />
 
     <div class="body" class:fill={tab !== "edits"}>
       {#if tab === "letra"}
@@ -603,17 +604,17 @@
         {/if}
       {:else if tab === "mix"}
         {#if loadError}
-          <EmptyState icon="alert" title="No se pudo cargar el audio">{loadError}</EmptyState>
+          <EmptyState icon="alert" title={t("No se pudo cargar el audio")}>{loadError}</EmptyState>
         {:else if !tracks.length}
           {@const j = working(stage(["audio", "import"]))}
-          <EmptyState icon="audio" title="Sin audio">
-            {isStemOnly ? "Importa el fichero desde «Añadir»." : "Se baja de YouTube: primer resultado con ese título y duración."}
+          <EmptyState icon="audio" title={t("Sin audio")}>
+            {isStemOnly ? t("Importa el fichero desde «Añadir».") : t("Se baja de YouTube: primer resultado con ese título y duración.")}
             {#snippet actions()}
-              {#if j}{@render jobLine(j)}{:else if !isStemOnly}<Button variant="primary" icon="download" onclick={() => act("audio")}>Descargar audio</Button>{/if}
+              {#if j}{@render jobLine(j)}{:else if !isStemOnly}<Button variant="primary" icon="download" onclick={() => act("audio")}>{t("Descargar audio")}</Button>{/if}
             {/snippet}
           </EmptyState>
         {:else if loading}
-          <div class="center"><ProgressRing value={null} size={28} label="Cargando audio" /></div>
+          <div class="center"><ProgressRing value={null} size={28} label={t("Cargando audio")} /></div>
         {:else}
           <div class="mixwrap" class:with-roll={rollShown}>
             {#if !stemlab}
@@ -621,11 +622,11 @@
               <div class="cta" class:warn={track.stems === "partial"}>
                 <span class="cta-ico"><Icon name={track.stems === "partial" ? "alert" : "stems"} size={18} /></span>
                 <div class="cta-txt">
-                  <strong>{track.stems === "partial" ? "Separación a medias" : "Separa en 6 pistas"}</strong>
+                  <strong>{track.stems === "partial" ? t("Separación a medias") : t("Separa en 6 pistas")}</strong>
                   <div class="badges">{#each ["vocals", "drums", "bass", "guitar", "piano", "other"] as s (s)}<StemBadge stem={s} dot />{/each}</div>
                 </div>
                 {#if j}{@render jobLine(j)}{:else}
-                  <Button variant="primary" icon="stems" title="BS-RoFormer (voz) + BS-Roformer-SW, en GPU. {track.vocals === 'letras' ? 'Su voz sustituirá a la rápida de Letras.' : ''}" onclick={() => act("separate")}>{track.stems === "partial" ? "Rehacer" : "Separar"}</Button>
+                  <Button variant="primary" icon="stems" title={t("BS-RoFormer (voz) + BS-Roformer-SW, en GPU. {rest}", { rest: track.vocals === "letras" ? t("Su voz sustituirá a la rápida de Letras.") : "" })} onclick={() => act("separate")}>{track.stems === "partial" ? t("Rehacer") : t("Separar")}</Button>
                 {/if}
               </div>
             {/if}
@@ -637,22 +638,22 @@
                 <div class="lane" class:off style:--c={stemColor(st.name)}>
                   <div class="lane-head">
                     <StemBadge stem={st.name} muted={!audible(st.name)} />
-                    <small class="num">{meta ? (st.present ? `${meta.level} dB` : "en silencio") : ""}</small>
-                    <span class="msw"><MuteSolo bind:muted={muted[st.name]} bind:solo={solo[st.name]} label={STEM_INFO[st.name]?.label} /></span>
-                    <div class="vol"><Slider bind:value={volume[st.name]} max={1.5} label="Volumen {STEM_INFO[st.name]?.label ?? st.name}" color={stemColor(st.name)} /></div>
+                    <small class="num">{meta ? (st.present ? `${meta.level} dB` : t("en silencio")) : ""}</small>
+                    <span class="msw"><MuteSolo bind:muted={muted[st.name]} bind:solo={solo[st.name]} label={STEM_INFO[st.name] ? t(STEM_INFO[st.name].label) : undefined} /></span>
+                    <div class="vol"><Slider bind:value={volume[st.name]} max={1.5} label={t("Volumen {stem}", { stem: t(STEM_INFO[st.name]?.label ?? st.name) })} color={stemColor(st.name)} /></div>
                     <div class="lane-acts">
                       {#if meta?.roll}
-                        <IconButton icon="roll" label="Piano roll" kbd="R" size="sm" active={!!roll[st.name]} onclick={() => (roll[st.name] = !roll[st.name])} />
+                        <IconButton icon="roll" label={t("Piano roll")} kbd="R" size="sm" active={!!roll[st.name]} onclick={() => (roll[st.name] = !roll[st.name])} />
                       {/if}
                       {#if meta && PITCHED.includes(st.name) && st.present}
                         {#if working(nj)}
                           <span class="lane-job" title={jobText(nj!)}><ProgressRing value={nj!.pct != null && nj!.status === "running" ? nj!.pct / 100 : null} size={18} /></span>
                         {:else if nj?.status === "error"}
-                          <IconButton icon="retry" label="Reintentar notas: {nj.error}" size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
+                          <IconButton icon="retry" label={t("Reintentar notas: {e}", { e: engineErr(nj.error) })} size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
                         {:else if !meta.score}
-                          <IconButton icon="notes" label={st.name === "vocals" ? "Sacar notas y letra" : "Sacar notas"} size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
+                          <IconButton icon="notes" label={st.name === "vocals" ? t("Sacar notas y letra") : t("Sacar notas")} size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
                         {:else if (meta as { model?: string }).model !== "muscriptor"}
-                          <IconButton icon="sparkle" label="Notas precisas (MuScriptor, GPU)" size="sm" onclick={() => act("notes", [st.name, "precise"])} />
+                          <IconButton icon="sparkle" label={t("Notas precisas (MuScriptor, GPU)")} size="sm" onclick={() => act("notes", [st.name, "precise"])} />
                         {/if}
                       {/if}
                     </div>
@@ -675,35 +676,35 @@
       {:else if tab === "score"}
         {#if !stemlab || !scored.length}
           {@const j = working(stage(["notes", "separate"]))}
-          <EmptyState icon="score" title="Sin partitura">
-            {stemlab ? "Se sacan las notas de cada instrumento." : "Se separan las pistas y se sacan sus notas, todo seguido."}
+          <EmptyState icon="score" title={t("Sin partitura")}>
+            {stemlab ? t("Se sacan las notas de cada instrumento.") : t("Se separan las pistas y se sacan sus notas, todo seguido.")}
             {#snippet actions()}
-              {#if j}{@render jobLine(j)}{:else}<Button variant="primary" icon="notes" onclick={() => act("notes-all", quality())}>Sacar todas las notas</Button>{/if}
+              {#if j}{@render jobLine(j)}{:else}<Button variant="primary" icon="notes" onclick={() => act("notes-all", quality())}>{t("Sacar todas las notas")}</Button>{/if}
             {/snippet}
           </EmptyState>
         {:else}
           <div class="picker">
             {#each scored as st (st.name)}
-              <Chip color={stemColor(st.name)} active={!scoreHidden[st.name]} title={scoreHidden[st.name] ? "Mostrar" : "Ocultar"} onclick={() => (scoreHidden[st.name] = !scoreHidden[st.name])}>{STEM_INFO[st.name].label}</Chip>
+              <Chip color={stemColor(st.name)} active={!scoreHidden[st.name]} title={scoreHidden[st.name] ? t("Mostrar") : t("Ocultar")} onclick={() => (scoreHidden[st.name] = !scoreHidden[st.name])}>{t(STEM_INFO[st.name].label)}</Chip>
             {/each}
             {#each pitched.filter((s) => !s.score) as st (st.name)}
               {@const nj = working(notesJob(st.name))}
               {#if nj}
-                <Chip color={stemColor(st.name)} title={jobText(nj)}>{STEM_INFO[st.name].label} · {Math.round(nj.pct ?? 0)}%</Chip>
+                <Chip color={stemColor(st.name)} title={jobText(nj)}>{t(STEM_INFO[st.name].label)} · {Math.round(nj.pct ?? 0)}%</Chip>
               {:else}
-                <Chip icon="plus" title="Sacar sus notas" onclick={() => act("notes", [st.name, ...quality()])}>{STEM_INFO[st.name].label}</Chip>
+                <Chip icon="plus" title={t("Sacar sus notas")} onclick={() => act("notes", [st.name, ...quality()])}>{t(STEM_INFO[st.name].label)}</Chip>
               {/if}
             {/each}
             <span class="spacer"></span>
-            <Tabs size="sm" label="Cómo se sacan las notas a partir de ahora" bind:value={settings.notes}
-              options={[{ value: "fast", label: "Rápidas", title: "basic-pitch: CPU, segundos" }, { value: "precise", label: "Precisas", title: "MuScriptor: GPU, minutos por pista, mucho más preciso" }]} />
+            <Tabs size="sm" label={t("Cómo se sacan las notas a partir de ahora")} bind:value={settings.notes}
+              options={[{ value: "fast", label: t("Rápidas"), title: t("basic-pitch: CPU, segundos") }, { value: "precise", label: t("Precisas"), title: t("MuScriptor: GPU, minutos por pista, mucho más preciso") }]} />
           </div>
           {#if !scoreShown.length}
-            <EmptyState icon="hidden" title="Todo oculto">Enciende algún instrumento arriba.</EmptyState>
+            <EmptyState icon="hidden" title={t("Todo oculto")}>{t("Enciende algún instrumento arriba.")}</EmptyState>
           {:else if scoreError}
-            <EmptyState icon="alert" title="No se pudo montar">{scoreError}</EmptyState>
+            <EmptyState icon="alert" title={t("No se pudo montar")}>{engineErr(scoreError)}</EmptyState>
           {:else if !scorePath}
-            <div class="center"><ProgressRing value={null} size={28} label="Montando la partitura" /></div>
+            <div class="center"><ProgressRing value={null} size={28} label={t("Montando la partitura")} /></div>
           {:else}
             {#key `${scorePath}:${scoreKey}`}
               <!-- OpenSheetMusicDisplay pesa ~1 MB: solo se carga al abrir la partitura -->
@@ -715,8 +716,8 @@
         {/if}
       {:else if tab === "chords"}
         {#if detail}
-          <ChordsTab {detail} harmony={shownHarmony} model={src === "mix" && !!modelHarmony} sources={noted.map((s) => STEM_INFO[s.name].label)} {time} {duration} {sections} bind:notation
-            {src} onsrc={(s) => (chordSrc = s)} instruments={pitched.map((s) => ({ name: s.name, label: STEM_INFO[s.name].label, notes: !!s.roll, job: working(notesJob(s.name)) ? jobText(notesJob(s.name)!) : "" }))}
+          <ChordsTab {detail} harmony={shownHarmony} model={src === "mix" && !!modelHarmony} sources={noted.map((s) => t(STEM_INFO[s.name].label))} {time} {duration} {sections} bind:notation
+            {src} onsrc={(s) => (chordSrc = s)} instruments={pitched.map((s) => ({ name: s.name, label: t(STEM_INFO[s.name].label), notes: !!s.roll, job: working(notesJob(s.name)) ? jobText(notesJob(s.name)!) : "" }))}
             onstemnotes={(s) => act("notes", [s, ...quality()])} onseek={seek} oncheck={() => act("sync", ["lineas"])} onopen={(k) => onopen(k)} busy={chordsBusy || notesBusy} />
         {/if}
       {:else if tab === "edits"}

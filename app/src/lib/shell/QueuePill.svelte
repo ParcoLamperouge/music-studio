@@ -1,6 +1,6 @@
 <script lang="ts">
   import { actionLabel, cancel, cancelAll, clearFinished, finished, retry, top, type Job, type Res } from "../engine";
-  import { engineLabel, t } from "../i18n.svelte";
+  import { engineErr, engineLabel, t } from "../i18n.svelte";
   import { jobText, store } from "../store.svelte";
   import Icon, { type IconName } from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
@@ -100,9 +100,9 @@
           {#each failed.slice(0, 20) as j (j.id)}
             <div class="job">
               <span class="x" aria-hidden="true">×</span>
-              <button type="button" class="main" onclick={() => go(j.key)} title={j.error}>
+              <button type="button" class="main" onclick={() => go(j.key)} title={engineErr(j.error)}>
                 <span class="t">{titleOf(j)}</span>
-                <span class="s err">{t(actionLabel(j))} · {j.error}</span>
+                <span class="s err">{t(actionLabel(j))} · {engineErr(j.error)}</span>
               </button>
               <IconButton icon="retry" label={t("Reintentar")} size="sm" onclick={() => retry([j.id])} />
             </div>

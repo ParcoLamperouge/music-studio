@@ -17,6 +17,7 @@
 <script lang="ts">
   import { open as pickFiles } from "@tauri-apps/plugin-dialog";
   import { enqueue, fmtClock, importSources, run } from "./engine";
+  import { t } from "./i18n.svelte";
   import Button from "./ui/Button.svelte";
   import Dialog from "./ui/Dialog.svelte";
   import Field from "./ui/Field.svelte";
@@ -98,29 +99,29 @@
 
   const chooseFiles = () =>
     guard(async () => {
-      const files = await pickFiles({ multiple: true, filters: [{ name: "Audio o vídeo", extensions: MEDIA }] });
+      const files = await pickFiles({ multiple: true, filters: [{ name: t("Audio o vídeo"), extensions: MEDIA }] });
       if (files?.length) (await importSources(files, thenOf(after)), done());
     });
   const toggle = (u: string) => (picked = picked.includes(u) ? picked.filter((x) => x !== u) : [...picked, u]);
 </script>
 
-<Dialog bind:open title="Añadir canciones" width={680}>
+<Dialog bind:open title={t("Añadir canciones")} width={680}>
   <div class="add">
     <Tabs
       bind:value={mode}
-      label="Cómo añadir"
+      label={t("Cómo añadir")}
       options={[
-        { value: "link", label: "Enlace o YouTube", icon: "link" },
-        { value: "name", label: "Por nombre", icon: "lyrics" },
-        { value: "file", label: "Ficheros", icon: "upload" },
+        { value: "link", label: t("Enlace o YouTube"), icon: "link" },
+        { value: "name", label: t("Por nombre"), icon: "lyrics" },
+        { value: "file", label: t("Ficheros"), icon: "upload" },
       ]}
     />
 
     {#if mode === "link"}
       <form class="row" onsubmit={submitLink}>
-        <Search bind:ref={first} bind:value={query} size="lg" placeholder="Pega un enlace o busca en YouTube" />
+        <Search bind:ref={first} bind:value={query} size="lg" placeholder={t("Pega un enlace o busca en YouTube")} />
         <Button size="lg" variant={url ? "primary" : "secondary"} type="submit" disabled={!query.trim() || searching || busy}>
-          {url ? "Importar" : searching ? "Buscando…" : "Buscar"}
+          {url ? t("Importar") : searching ? t("Buscando…") : t("Buscar")}
         </Button>
       </form>
       {#if searching}
@@ -141,36 +142,36 @@
           {/each}
         </div>
       {:else}
-        <p class="tip"><Icon name="link" size={14} /> YouTube, SoundCloud, Bandcamp… o escribe artista y canción.</p>
+        <p class="tip"><Icon name="link" size={14} /> {t("YouTube, SoundCloud, Bandcamp… o escribe artista y canción.")}</p>
       {/if}
     {:else if mode === "name"}
       <form class="two" onsubmit={(e) => (e.preventDefault(), addByName())}>
-        <Field label="Artista" bind:ref={first} bind:value={artist} placeholder="Stela Cole" />
-        <Field label="Canción" bind:value={title} placeholder="Stereoqueen" />
+        <Field label={t("Artista")} bind:ref={first} bind:value={artist} placeholder="Stela Cole" />
+        <Field label={t("Canción")} bind:value={title} placeholder="Stereoqueen" />
         <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
       </form>
-      <p class="tip"><Icon name="lyrics" size={14} /> La letra de LRCLIB, Genius…; el audio, de YouTube.</p>
+      <p class="tip"><Icon name="lyrics" size={14} /> {t("La letra de LRCLIB, Genius…; el audio, de YouTube.")}</p>
     {:else}
       <div class="drop">
         <Icon name="upload" size={28} />
-        <strong>Arrastra audio o vídeo a la ventana</strong>
-        <Button icon="folder" onclick={chooseFiles} disabled={busy}>Elegir ficheros</Button>
-        <small>Artista y título, de las etiquetas o de «Artista - Título.mp3».</small>
+        <strong>{t("Arrastra audio o vídeo a la ventana")}</strong>
+        <Button icon="folder" onclick={chooseFiles} disabled={busy}>{t("Elegir ficheros")}</Button>
+        <small>{t("Artista y título, de las etiquetas o de «Artista - Título.mp3».")}</small>
       </div>
     {/if}
     {#if error}<p class="err" role="alert"><Icon name="alert" size={14} /> {error}</p>{/if}
   </div>
 
   {#snippet footer()}
-    <span class="after">Después</span>
-    <Toggle bind:checked={after.letra} disabled={after.notes}>Letra</Toggle>
-    <Toggle bind:checked={after.separate} disabled={after.notes}>Pistas</Toggle>
-    <Toggle bind:checked={after.notes} title="Pistas, letra y notas de cada instrumento">Todo</Toggle>
+    <span class="after">{t("Después")}</span>
+    <Toggle bind:checked={after.letra} disabled={after.notes}>{t("Letra")}</Toggle>
+    <Toggle bind:checked={after.separate} disabled={after.notes}>{t("Pistas")}</Toggle>
+    <Toggle bind:checked={after.notes} title={t("Pistas, letra y notas de cada instrumento")}>{t("Todo")}</Toggle>
     <span class="grow"></span>
     {#if mode === "link" && results.length}
-      <Button variant="primary" disabled={!picked.length || busy} onclick={importPicked}>Importar {picked.length || ""}</Button>
+      <Button variant="primary" disabled={!picked.length || busy} onclick={importPicked}>{t("Importar {n}", { n: picked.length || "" })}</Button>
     {:else if mode === "name"}
-      <Button variant="primary" disabled={!artist.trim() || !title.trim() || busy} onclick={addByName}>Añadir</Button>
+      <Button variant="primary" disabled={!artist.trim() || !title.trim() || busy} onclick={addByName}>{t("Añadir")}</Button>
     {/if}
   {/snippet}
 </Dialog>

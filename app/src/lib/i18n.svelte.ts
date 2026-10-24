@@ -37,3 +37,48 @@ export function engineLabel(s: string): string {
     return t(m[1] ? "Notas precisas · {stem}" : "Notas · {stem}", { stem: t(STEM_INFO[m[2]]?.label ?? m[2]) });
   return s;
 }
+
+/** Mensajes de error del motor y de Rust: exactos al diccionario y, si no, estas plantillas (capturas → {param}). */
+const ERR_TEMPLATES: [RegExp, string, string[]][] = [
+  [/^canción desconocida: (.+)$/, "canción desconocida: {k}", ["k"]],
+  [/^MuScriptor necesita permiso: (.+)$/, "MuScriptor necesita permiso: {rest}", ["rest"]],
+  [/^el servidor dice (\d+): (.+)$/, "el servidor dice {code}: {msg}", ["code", "msg"]],
+  [/^no llego al servidor \((.+?)\): (.+)$/, "no llego al servidor ({url}): {e}", ["url", "e"]],
+  [/^ruta rara del servidor: (.+)$/, "ruta rara del servidor: {p}", ["p"]],
+  [/^al servidor le falta (.+)$/, "al servidor le falta {r}", ["r"]],
+  [/^(.+) ha llegado roto$/, "{r} ha llegado roto", ["r"]],
+  [/^acción desconocida: (.+)$/, "acción desconocida: {a}", ["a"]],
+  [/^orden desconocida: (.+)$/, "orden desconocida: {c}", ["c"]],
+  [/^clave no válida: (.+)$/, "clave no válida: {k}", ["k"]],
+  [/^subcomando desconocido: (.+)$/, "subcomando desconocido: {s}", ["s"]],
+  [/^ffmpeg no pudo leer (.+?): (.+)$/, "ffmpeg no pudo leer {name}: {e}", ["name", "e"]],
+  [/^(\w+) no tiene notas: sácalas desde el mezclador$/, "{stem} no tiene notas: sácalas desde el mezclador", ["stem"]],
+  [/^no se pudo lanzar el motor: (.+)$/, "no se pudo lanzar el motor: {e}", ["e"]],
+  [/^falta el entorno del motor \((.+?)\): (.+)$/, "falta el entorno del motor ({p}): {r}", ["p", "r"]],
+  [/^(\w+) terminó sin respuesta: (.+)$/, "{cmd} terminó sin respuesta: {e}", ["cmd", "e"]],
+  [/^el motor se cerró: (.+)$/, "el motor se cerró: {e}", ["e"]],
+  [/^(\w+) salió con (.+): (.+)$/, "{cmd} salió con {st}: {e}", ["cmd", "st", "e"]],
+  [/^orden no permitida: (.+)$/, "orden no permitida: {c}", ["c"]],
+  [/^fuera de las carpetas de datos: (.+)$/, "fuera de las carpetas de datos: {p}", ["p"]],
+  [/^ffmpeg no pudo estirar (.+)$/, "ffmpeg no pudo estirar {p}", ["p"]],
+  [/^no se importa ese tipo de fichero: \.(.+)$/, "no se importa ese tipo de fichero: .{ext}", ["ext"]],
+  [/^velocidad fuera de rango: (.+)$/, "velocidad fuera de rango: {s}", ["s"]],
+  [/^falta Claude Code \(claude en el PATH\): (.+)$/, "falta Claude Code (claude en el PATH): {e}", ["e"]],
+  [
+    /^el audio dura (\d+) s y tu canción (\d+) s: es otra versión\. Usa «Sincronizar con IA»$/,
+    "el audio dura {a} s y tu canción {b} s: es otra versión. Usa «Sincronizar con IA»",
+    ["a", "b"],
+  ],
+];
+
+/** Traduce un mensaje de error del motor o de Rust; si no se reconoce, se muestra tal cual (puede venir de yt-dlp, ffmpeg…). */
+export function engineErr(s: string): string {
+  if (!s) return s;
+  const d = DICTS[settings.lang];
+  if (d?.[s]) return d[s];
+  for (const [re, key, names] of ERR_TEMPLATES) {
+    const m = s.match(re);
+    if (m) return t(key, Object.fromEntries(names.map((n, i) => [n, m[i + 1]])));
+  }
+  return s;
+}

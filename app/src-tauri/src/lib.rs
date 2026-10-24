@@ -1160,6 +1160,26 @@ grados; qué sensación da y por qué, en breve) y ## Fallos (en una sesión: no
 ritmo irregular; en una canción: notas que chocan y lo que la transcripción o el detector de acordes probablemente hizo mal). \
 Sin tablas.";
 
+/// Idioma de la interfaz (settings.json, «lang»): el análisis con Claude se escribe en él.
+fn ui_lang() -> String {
+    let f = PathBuf::from(&paths().data).join("settings.json");
+    std::fs::read_to_string(&f)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v["lang"].as_str().map(String::from))
+        .unwrap_or_else(|| "es".into())
+}
+
+/// El prompt de Claude con la orden de escribir en el idioma de la interfaz (en español, tal cual).
+fn coach_prompt() -> String {
+    let directive = match ui_lang().as_str() {
+        "en" => " Write the whole commentary in English.",
+        "zh" => " 全部点评请用简体中文撰写。",
+        _ => "",
+    };
+    format!("{COACH}{directive}")
+}
+
 /// Claude (Opus 5.5, esfuerzo medio) analiza una sesión del teclado o unas pistas de una canción con Claude Code (`claude -p`: la suscripción, sin API key) y lo deja al lado
 /// como `<sesión>.analisis.md`.
 #[tauri::command]
@@ -1172,7 +1192,7 @@ async fn analyze_session(path: String) -> Result<String, String> {
         let data = std::fs::read(&toon).map_err(|e| e.to_string())?;
         // sin herramientas ni ajustes del usuario (hooks, plugins): solo el texto
         let mut child = Command::new("claude")
-            .args(["-p", "--model", "claude-opus-5-5", "--effort", "medium", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--system-prompt", COACH])
+            .args(["-p", "--model", "claude-opus-5-5", "--effort", "medium", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--system-prompt", &coach_prompt()])
             .arg("Analiza esto (TOON por la entrada estándar).")
             .current_dir(toon.parent().ok_or("sin carpeta")?)
             .stdin(Stdio::piped())

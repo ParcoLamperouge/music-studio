@@ -1,6 +1,7 @@
 <script lang="ts">
   import { openPath } from "@tauri-apps/plugin-opener";
   import { enqueue, hasDirector, listDir, paths, readJson, removeFile, type Detail, type Track } from "./engine";
+  import { engineErr, engineLabel, t } from "./i18n.svelte";
   import { jobOf, jobText, store } from "./store.svelte";
   import Button from "./ui/Button.svelte";
   import Icon from "./ui/Icon.svelte";
@@ -41,7 +42,7 @@
   const go = (q: string) => (location.href = `/edit.html?${q}`);
   const create = () => go(`song=${encodeURIComponent(track.key)}&mode=${encodeURIComponent(mode)}`);
   async function del(p: Project) {
-    if (!confirm(`¿Borrar el edit «${p.name}»?`)) return;
+    if (!confirm(t("¿Borrar el edit «{name}»?", { name: p.name }))) return;
     await removeFile(`${dir()}/${p.id}.json`);
     await load();
   }
@@ -50,8 +51,8 @@
   const clip = (p: Project) => `${Math.round((p.end - p.start) / (p.rate || 1))} s`;
   const audioJob = $derived(jobOf(track.key, ["audio", "import"]));
   const modes = $derived([
-    { value: "auto", label: "Automático", title: "Reglas locales: plantilla según bpm y energía" },
-    ...(ai ? [{ value: "ai", label: "IA", icon: "sparkle" as const, title: "Claude dirige plantilla, colores y cortes" }] : []),
+    { value: "auto", label: t("Automático"), title: t("Reglas locales: plantilla según bpm y energía") },
+    ...(ai ? [{ value: "ai", label: t("IA"), icon: "sparkle" as const, title: t("Claude dirige plantilla, colores y cortes") }] : []),
     ...presets.map((p) => ({ value: p.id, label: p.name })),
   ]);
 </script>
@@ -64,11 +65,11 @@
         {#if audioJob && audioJob.status !== "error"}
           <span class="job"><ProgressRing value={null} size={14} />{jobText(audioJob)}</span>
         {:else}
-          <Button variant="primary" size="sm" icon="download" title="Un edit necesita el audio" onclick={() => enqueue("audio", [track.key])}>Descargar audio</Button>
+          <Button variant="primary" size="sm" icon="download" title={t("Un edit necesita el audio")} onclick={() => enqueue("audio", [track.key])}>{t("Descargar audio")}</Button>
         {/if}
       {:else}
-        <Tabs size="sm" options={modes} bind:value={mode} label="Cómo se monta" />
-        <Button variant="primary" size="sm" icon="plus" disabled={!detail?.doc} title={detail?.doc ? "Vídeo vertical con la letra, al ritmo" : "Primero la letra"} onclick={create}>Nuevo edit</Button>
+        <Tabs size="sm" options={modes} bind:value={mode} label={t("Cómo se monta")} />
+        <Button variant="primary" size="sm" icon="plus" disabled={!detail?.doc} title={detail?.doc ? t("Vídeo vertical con la letra, al ritmo") : t("Primero la letra")} onclick={create}>{t("Nuevo edit")}</Button>
       {/if}
     </div>
     {#each projects as p, i (p.id)}
@@ -78,22 +79,22 @@
           <strong>{p.name}</strong>
           <small class="num">{clip(p)} · {fmtDate(p.updated)}</small>
         </button>
-        <span class="del"><IconButton icon="trash" label="Borrar" size="sm" onclick={() => del(p)} /></span>
+        <span class="del"><IconButton icon="trash" label={t("Borrar")} size="sm" onclick={() => del(p)} /></span>
       </article>
     {/each}
   </div>
-  {#if loaded && !projects.length}<p class="none">Ninguno todavía.</p>{/if}
+  {#if loaded && !projects.length}<p class="none">{t("Ninguno todavía.")}</p>{/if}
 
   {#if renders.length}
     <section class="renders">
-      <div class="rhead"><Icon name="download" size={14} /><span>Exportados</span><IconButton icon="folder" label="Carpeta de vídeos" size="sm" onclick={() => openPath(`${paths.edits}/renders`)} /></div>
+      <div class="rhead"><Icon name="download" size={14} /><span>{t("Exportados")}</span><IconButton icon="folder" label={t("Carpeta de vídeos")} size="sm" onclick={() => openPath(`${paths.edits}/renders`)} /></div>
       {#each renders as j (j.id)}
         <div class="render">
-          <span class="rt">{j.title}</span>
+          <span class="rt">{engineLabel(j.title)}</span>
           {#if j.status === "done"}
-            <Button size="sm" variant="ghost" icon="edits" onclick={() => openPath(j.result?.path)}>Abrir MP4</Button>
+            <Button size="sm" variant="ghost" icon="edits" onclick={() => openPath(j.result?.path)}>{t("Abrir MP4")}</Button>
           {:else if j.status === "error"}
-            <span class="err" title={j.error}><Icon name="alert" size={14} />{j.error}</span>
+            <span class="err" title={engineErr(j.error)}><Icon name="alert" size={14} />{engineErr(j.error)}</span>
           {:else}
             <span class="job"><ProgressRing value={j.pct != null && j.status === "running" ? j.pct / 100 : null} size={14} />{jobText(j)}</span>
           {/if}

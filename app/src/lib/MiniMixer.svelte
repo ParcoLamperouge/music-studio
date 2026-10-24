@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Stem } from "./engine";
+  import { t } from "./i18n.svelte";
   import MuteSolo from "./ui/MuteSolo.svelte";
   import Slider from "./ui/Slider.svelte";
   import StemBadge from "./ui/StemBadge.svelte";
@@ -18,7 +19,7 @@
   {#each stems as st (st.name)}
     <div class="ch" class:absent={!st.present}>
       <StemBadge stem={st.name} muted={muted[st.name]} />
-      <Slider bind:value={volume[st.name]} max={1.5} label="Volumen" color={stemColor(st.name)} />
+      <Slider bind:value={volume[st.name]} max={1.5} label={t("Volumen")} color={stemColor(st.name)} />
       <MuteSolo bind:muted={muted[st.name]} bind:solo={solo[st.name]} />
     </div>
   {/each}

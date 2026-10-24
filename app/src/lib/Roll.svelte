@@ -127,6 +127,7 @@
   import { loadNotation } from "./ChordsTab.svelte";
   import { readBytes } from "./engine";
   import { noteName, type Key } from "./harmony";
+  import { t } from "./i18n.svelte";
   import type { Snippet } from "svelte";
   import { setWindowFullscreen } from "./fullscreen";
   import type { Player } from "./player";
@@ -174,18 +175,18 @@
 
   // notas de cada pista (cacheadas por ruta)
   $effect(() => {
-    for (const t of tracks) {
-      if (t.notes || notes[t.path]) continue;
-      readBytes(t.path).then((buf) => {
+    for (const tr of tracks) {
+      if (tr.notes || notes[tr.path]) continue;
+      readBytes(tr.path).then((buf) => {
         const data = JSON.parse(new TextDecoder().decode(buf));
-        notes = { ...notes, [t.path]: Array.isArray(data) ? data : data.notes }; // o una sesión del teclado
+        notes = { ...notes, [tr.path]: Array.isArray(data) ? data : data.notes }; // o una sesión del teclado
       });
     }
   });
 
   // teclado: de la nota más grave a la más aguda de todas las pistas, en octavas completas
   const range = $derived.by(() => {
-    const all = [...Object.values(notes), ...tracks.map((t) => t.notes ?? [])].flat();
+    const all = [...Object.values(notes), ...tracks.map((tr) => tr.notes ?? [])].flat();
     if (!all.length) return { lo: 48, hi: 83 };
     let lo = Math.min(...all.map((n) => n[2]));
     let hi = Math.max(...all.map((n) => n[2]));
@@ -219,7 +220,7 @@
     let lastT = -1;
     const draw = () => {
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const t = player.time();
+      const tr = player.time();
       const KEYS_H = keysHeight(keys);
       const rollH = HEIGHT - KEYS_H;
       const st = style();
@@ -245,29 +246,29 @@
           if (track.hidden) continue;
           const color = fxColor(st, ti);
           for (const [start, end, pitch, vel] of track.notes ?? notes[track.path] ?? []) {
-            if (end < t || start > t + windowSec) continue;
+            if (end < tr || start > tr + windowSec) continue;
             const k = keys.get(pitch);
             if (!k) continue;
-            const bottom = Math.min(rollH * (1 - (start - t) / windowSec), rollH);
-            const top = rollH * (1 - (end - t) / windowSec);
-            const on = start <= t && t < end;
+            const bottom = Math.min(rollH * (1 - (start - tr) / windowSec), rollH);
+            const top = rollH * (1 - (end - tr) / windowSec);
+            const on = start <= tr && tr < end;
             if (on) (active.set(pitch, color), sounding.set(pitch, { ...k, color }));
             drawBar(l, st, k.x, k.w, top, bottom - top, on ? 1 : 0.7 + vel * 0.3, on, color);
             drawBarLabel(l, k, bottom, bottom - Math.max(top, 0), name(pitch));
           }
         }
-        effects.compose(g, st, width, rollH, sounding, t !== lastT);
-        lastT = t;
+        effects.compose(g, st, width, rollH, sounding, tr !== lastT);
+        lastT = tr;
       } else for (const track of tracks) {
         if (track.hidden) continue;
         // ponytail: recorre todas las notas cada frame; con decenas de miles, búsqueda binaria por inicio
         for (const [start, end, pitch, vel] of track.notes ?? notes[track.path] ?? []) {
-          if (end < t || start > t + windowSec) continue;
+          if (end < tr || start > tr + windowSec) continue;
           const k = keys.get(pitch);
           if (!k) continue;
-          const bottom = rollH * (1 - (start - t) / windowSec);
-          const top = rollH * (1 - (end - t) / windowSec);
-          const on = start <= t && t < end;
+          const bottom = rollH * (1 - (start - tr) / windowSec);
+          const top = rollH * (1 - (end - tr) / windowSec);
+          const on = start <= tr && tr < end;
           if (on) active.set(pitch, track.color);
           g.globalAlpha = on ? 1 : 0.55 + vel * 0.45;
           g.shadowColor = track.color;
@@ -285,8 +286,8 @@
       // acordes: cada cambio cae con las notas, y el que suena va arriba a la izquierda
       g.font = "600 13px 'JetBrains Mono Variable', monospace";
       for (const c of chords) {
-        if (c.t < t || c.t > t + windowSec) continue;
-        const y = rollH * (1 - (c.t - t) / windowSec);
+        if (c.t < tr || c.t > tr + windowSec) continue;
+        const y = rollH * (1 - (c.t - tr) / windowSec);
         g.fillStyle = "#f29d3840";
         g.fillRect(0, y, width, 1);
         const deg = c.deg ? ` ${c.deg}` : "";
@@ -308,8 +309,8 @@
           g.fillText(deg, x + nw, y - 8);
         }
       }
-      const cur = chords.find((c) => c.t <= t && t < c.end);
-      const nxt = chords.find((c) => c.t > t);
+      const cur = chords.find((c) => c.t <= tr && tr < c.end);
+      const nxt = chords.find((c) => c.t > tr);
       if (cur || keyLabel) {
         g.fillStyle = "#15110ed9";
         g.beginPath();
@@ -357,55 +358,55 @@
     {#if tools}
       <div class="legend">
         {@render tools()}
-        {#each tracks as t, i (t.stem)}<i class="hand" style:background={fx ? fxColor(style(), i) : t.color} title={t.name}></i>{/each}
+        {#each tracks as tr, i (tr.stem)}<i class="hand" style:background={fx ? fxColor(style(), i) : tr.color} title={tr.name}></i>{/each}
       </div>
     {:else}
     <div class="legend">
       <strong>{title}</strong>
-      {#each tracks as t (t.stem)}
-        <button class="chip" class:off={t.hidden} onclick={() => ontoggle(t.stem)} title={t.hidden ? "Mostrar" : "Ocultar"}>
-          <i style:background={fx ? fxColor(style(), tracks.indexOf(t)) : t.color}></i>{t.name}
+      {#each tracks as tr (tr.stem)}
+        <button class="chip" class:off={tr.hidden} onclick={() => ontoggle(tr.stem)} title={tr.hidden ? t("Mostrar") : t("Ocultar")}>
+          <i style:background={fx ? fxColor(style(), tracks.indexOf(tr)) : tr.color}></i>{tr.name}
         </button>
       {/each}
-      {#if !tracks.length}<small>Ninguna pista con notas suena ahora (revisa M/S).</small>{/if}
+      {#if !tracks.length}<small>{t("Ninguna pista con notas suena ahora (revisa M/S).")}</small>{/if}
     </div>
     {/if}
     <div class="tools">
       {#if fx}
         <div class="style-wrap">
-          <button class="ghost sm" class:on={styleOpen} onclick={() => (styleOpen = !styleOpen)} title="Color, brillo y chispas">Estilo</button>
+          <button class="ghost sm" class:on={styleOpen} onclick={() => (styleOpen = !styleOpen)} title={t("Color, brillo y chispas")}>{t("Estilo")}</button>
           {#if styleOpen}
             {@const st = style()}
             <div class="pop style-pop">
               <div class="presets">
                 {#each Object.entries(ROLL_PRESETS) as [label, p] (label)}
                   <button class="chip" class:on={st.color === p.color && st.color2 === p.color2 && st.sparkles === p.sparkles} onclick={() => setStyle(p)}>
-                    <i style:background={p.color}></i><i style:background={p.color2}></i>{label}
+                    <i style:background={p.color}></i><i style:background={p.color2}></i>{t(label)}
                   </button>
                 {/each}
               </div>
-              <label>Mano derecha <input type="color" value={st.color} oninput={(e) => setStyle({ color: e.currentTarget.value })} /></label>
-              <label>Mano izquierda <input type="color" value={st.color2} oninput={(e) => setStyle({ color2: e.currentTarget.value })} /></label>
-              <label>Brillo <input type="range" min="0" max="1" step="0.05" value={st.glow} oninput={(e) => setStyle({ glow: +e.currentTarget.value })} /></label>
-              <label title="Cuánto se desvanecen las notas al entrar por arriba">Desvanecido <input type="range" min="0" max="0.9" step="0.05" value={st.fade} oninput={(e) => setStyle({ fade: +e.currentTarget.value })} /></label>
-              <label title="Las esquinas de las notas">Redondez <input type="range" min="0" max="1" step="0.05" value={st.round} oninput={(e) => setStyle({ round: +e.currentTarget.value })} /></label>
-              <label>Estela
+              <label>{t("Mano derecha")} <input type="color" value={st.color} oninput={(e) => setStyle({ color: e.currentTarget.value })} /></label>
+              <label>{t("Mano izquierda")} <input type="color" value={st.color2} oninput={(e) => setStyle({ color2: e.currentTarget.value })} /></label>
+              <label>{t("Brillo")} <input type="range" min="0" max="1" step="0.05" value={st.glow} oninput={(e) => setStyle({ glow: +e.currentTarget.value })} /></label>
+              <label title={t("Cuánto se desvanecen las notas al entrar por arriba")}>{t("Desvanecido")} <input type="range" min="0" max="0.9" step="0.05" value={st.fade} oninput={(e) => setStyle({ fade: +e.currentTarget.value })} /></label>
+              <label title={t("Las esquinas de las notas")}>{t("Redondez")} <input type="range" min="0" max="1" step="0.05" value={st.round} oninput={(e) => setStyle({ round: +e.currentTarget.value })} /></label>
+              <label>{t("Estela")}
                 <select value={st.sparkles} onchange={(e) => setStyle({ sparkles: e.currentTarget.value as RollStyle["sparkles"] })}>
-                  <option value="polvo">Polvo brillante</option>
-                  <option value="estrellas">Destellos</option>
-                  <option value="corazones">Corazones</option>
-                  <option value="no">Ninguna</option>
+                  <option value="polvo">{t("Polvo brillante")}</option>
+                  <option value="estrellas">{t("Destellos")}</option>
+                  <option value="corazones">{t("Corazones")}</option>
+                  <option value="no">{t("Ninguna")}</option>
                 </select>
               </label>
             </div>
           {/if}
         </div>
       {/if}
-      <label title="Velocidad a la que caen las notas: cuántos segundos se ven antes de sonar">
-        Caída
+      <label title={t("Velocidad a la que caen las notas: cuántos segundos se ven antes de sonar")}>
+        {t("Caída")}
         <input type="range" min="1" max="6" step="0.5" value={7 - windowSec} oninput={(e) => (windowSec = 7 - +e.currentTarget.value)} />
       </label>
-      <button class="ghost sm" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}>
+      <button class="ghost sm" onclick={() => setFullscreen(!fullscreen)} title={fullscreen ? t("Salir de pantalla completa (Esc)") : t("Pantalla completa")}>
         {fullscreen ? "✕" : "⛶"}
       </button>
     </div>

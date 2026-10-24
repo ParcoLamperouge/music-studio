@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fmtClock } from "../engine";
   import type { Key } from "../harmony";
+  import { t } from "../i18n.svelte";
   import { chordFn, type Section } from "./music";
 
   // La canción entera en una tira: secciones, acordes (color por función) y energía, con el cursor de reproducción.
@@ -24,7 +25,7 @@
   let el: HTMLDivElement;
   let width = $state(0);
   let hover = $state<number | null>(null);
-  const pct = (t: number) => `${(Math.max(0, Math.min(t, duration)) / (duration || 1)) * 100}%`;
+  const pct = (tr: number) => `${(Math.max(0, Math.min(tr, duration)) / (duration || 1)) * 100}%`;
   const span = (a: number, b: number) => `${(Math.max(0, b - a) / (duration || 1)) * 100}%`;
   const at = (e: PointerEvent) => {
     const r = el.getBoundingClientRect();
@@ -76,7 +77,7 @@
   bind:clientWidth={width}
   role="slider"
   tabindex="0"
-  aria-label="Posición en la canción"
+  aria-label={t("Posición en la canción")}
   aria-valuemin={0}
   aria-valuemax={Math.round(duration)}
   aria-valuenow={Math.round(time)}
@@ -90,8 +91,8 @@
   {#if sections.length}
     <div class="row secs">
       {#each sections as s (s.t)}
-        <span class="sec {s.kind}" style:left={pct(s.t)} style:width={span(s.t, s.end)} title="{s.label} · {fmtClock(s.t)}">
-          {#if !compact && ((s.end - s.t) / (duration || 1)) * width > 56}<em>{s.label}</em>{/if}
+        <span class="sec {s.kind}" style:left={pct(s.t)} style:width={span(s.t, s.end)} title="{t(s.label)} · {fmtClock(s.t)}">
+          {#if !compact && ((s.end - s.t) / (duration || 1)) * width > 56}<em>{t(s.label)}</em>{/if}
         </span>
       {/each}
     </div>

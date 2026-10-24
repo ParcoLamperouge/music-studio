@@ -14,6 +14,7 @@
 <script lang="ts">
   import type { Detail } from "./engine";
   import { keyName, leadSheet, named, relative, scaleNotes, type Harmony } from "./harmony";
+  import { t } from "./i18n.svelte";
   import ProgressionSearch from "./ProgressionSearch.svelte";
   import Button from "./ui/Button.svelte";
   import ChordChip from "./ui/ChordChip.svelte";
@@ -87,8 +88,8 @@
 </script>
 
 {#if !harmony}
-  <EmptyState icon="chords" title={busy ? "Sacando los acordes" : "Sin acordes"}>
-    Salen del audio en unos segundos, sin separar.
+  <EmptyState icon="chords" title={busy ? t("Sacando los acordes") : t("Sin acordes")}>
+    {t("Salen del audio en unos segundos, sin separar.")}
     {#snippet actions()}
       {#if busy}<span class="job"><ProgressRing value={null} size={16} />{busy}</span>{/if}
     {/snippet}
@@ -96,23 +97,23 @@
 {:else}
   {@const k = harmony.key}
   <div class="bar-tools">
-    <Tabs size="sm" label="De dónde salen los acordes" value={src} onchange={onsrc}
-      options={[{ value: "mix", label: "Canción" }, ...instruments.filter((x) => x.notes).map((x) => ({ value: x.name, label: x.label }))]} />
+    <Tabs size="sm" label={t("De dónde salen los acordes")} value={src} onchange={onsrc}
+      options={[{ value: "mix", label: t("Canción") }, ...instruments.filter((x) => x.notes).map((x) => ({ value: x.name, label: t(x.label) }))]} />
     {#each instruments.filter((x) => !x.notes) as x (x.name)}
-      {#if x.job}<Chip title={x.job}>{x.label} …</Chip>{:else}<Chip icon="plus" title="Sacar sus notas para ver sus acordes" onclick={() => onstemnotes(x.name)}>{x.label}</Chip>{/if}
+      {#if x.job}<Chip title={x.job}>{t(x.label)} …</Chip>{:else}<Chip icon="plus" title={t("Sacar sus notas para ver sus acordes")} onclick={() => onstemnotes(x.name)}>{t(x.label)}</Chip>{/if}
     {/each}
     <span class="spacer"></span>
-    <Tabs size="sm" label="Vista" bind:value={layout} options={[{ value: "bars", icon: "grid", title: "Compases" }, { value: "lyrics", icon: "lyrics", title: "Con la letra" }]} />
-    <Tabs size="sm" label="Nombres" value={notation.latin ? "latin" : "en"} onchange={(v) => (notation.latin = v === "latin")} options={[{ value: "latin", label: "Do" }, { value: "en", label: "C" }]} />
-    <Toggle bind:checked={notation.degrees} title="Grados (I, IV, V7…)">Grados</Toggle>
-    <Toggle bind:checked={notation.simple} title="Sin séptimas ni bajos">Simple</Toggle>
+    <Tabs size="sm" label={t("Vista")} bind:value={layout} options={[{ value: "bars", icon: "grid", title: t("Compases") }, { value: "lyrics", icon: "lyrics", title: t("Con la letra") }]} />
+    <Tabs size="sm" label={t("Nombres")} value={notation.latin ? "latin" : "en"} onchange={(v) => (notation.latin = v === "latin")} options={[{ value: "latin", label: "Do" }, { value: "en", label: "C" }]} />
+    <Toggle bind:checked={notation.degrees} title={t("Grados (I, IV, V7…)")}>{t("Grados")}</Toggle>
+    <Toggle bind:checked={notation.simple} title={t("Sin séptimas ni bajos")}>{t("Simple")}</Toggle>
   </div>
 
   {#if detail.doc && !detail.doc.audio_checked && detail.doc.lines.some((l) => l.t != null) && layout === "lyrics"}
     <div class="warn">
       <Icon name="alert" size={14} />
-      <span>Si el audio es otra versión, la letra no cuadra con los acordes.</span>
-      <Button size="sm" variant="ghost" onclick={oncheck}>Comprobar</Button>
+      <span>{t("Si el audio es otra versión, la letra no cuadra con los acordes.")}</span>
+      <Button size="sm" variant="ghost" onclick={oncheck}>{t("Comprobar")}</Button>
     </div>
   {/if}
 
@@ -121,7 +122,7 @@
       {#if layout === "bars"}
         {#each blocks as b, i (i)}
           <section class="block">
-            {#if b.label}<h3>{b.label}</h3>{/if}
+            {#if b.label}<h3>{t(b.label)}</h3>{/if}
             <div class="grid">
               {#each b.bars as bar (bar.t)}
                 {@const on = bar.t <= time && time < bar.end}
@@ -142,7 +143,7 @@
         {#each rows as r, i (i)}
           {#if r.kind === "bars"}
             <div class="row">
-              {#if r.label}<h3>{r.label}</h3>{/if}
+              {#if r.label}<h3>{t(r.label)}</h3>{/if}
               {#each r.chords as c (c.t)}
                 <ChordChip chord={c} tonality={k} name={c.name} showDegree={notation.degrees} active={now?.t === c.t} onclick={() => onseek(c.t)} />
               {/each}
@@ -167,12 +168,12 @@
 
     <aside class="side">
       <div class="keybox">
-        <span class="label">Tonalidad{src !== "mix" ? ` · ${srcLabel}` : ""}</span>
+        <span class="label">{src !== "mix" ? t("Tonalidad · {src}", { src: t(srcLabel) }) : t("Tonalidad")}</span>
         <strong>{keyName(k, notation.latin)}</strong>
         <div class="scale">
           {#each scaleNotes(k, notation.latin) as n, i (i)}<span class:tonic={i === 0}>{n}</span>{/each}
         </div>
-        <span class="label">Relativa {keyName(relative(k), notation.latin)}</span>
+        <span class="label">{t("Relativa {k}", { k: keyName(relative(k), notation.latin) })}</span>
       </div>
 
       <div class="vocab">
@@ -181,16 +182,16 @@
         {/each}
       </div>
 
-      <ul class="legend" aria-label="Colores">
+      <ul class="legend" aria-label={t("Colores")}>
         {#each Object.entries(FN_LABEL) as [fn, label] (fn)}
-          <li class:dim={!usedFns.has(fn as Fn)}><i class="sw {fn}" style:--c="var(--fn-{fn})"></i>{label}</li>
+          <li class:dim={!usedFns.has(fn as Fn)}><i class="sw {fn}" style:--c="var(--fn-{fn})"></i>{t(label)}</li>
         {/each}
-        <li class="shapes"><i class="sw" style:--c="var(--text-2)"></i>mayor <i class="sw hollow" style:--c="var(--text-2)"></i>menor</li>
+        <li class="shapes"><i class="sw" style:--c="var(--text-2)"></i>{t("mayor")} <i class="sw hollow" style:--c="var(--text-2)"></i>{t("menor")}</li>
       </ul>
 
-      <p class="src" title={model ? "lv-chordia (Jiang et al., ISMIR 2019; ~170 acordes con inversiones)" : ""}>
+      <p class="src" title={model ? t("lv-chordia (Jiang et al., ISMIR 2019; ~170 acordes con inversiones)") : ""}>
         <Icon name={model ? "audio" : "notes"} size={12} />
-        {src !== "mix" ? `De las notas de ${srcLabel.toLowerCase()}` : model ? "Del audio · revísalo de oído" : `Provisionales, de ${sources.join(", ").toLowerCase()}`}
+        {src !== "mix" ? t("De las notas de {src}", { src: t(srcLabel).toLowerCase() }) : model ? t("Del audio · revísalo de oído") : t("Provisionales, de {srcs}", { srcs: sources.map((s) => t(s).toLowerCase()).join(", ") })}
       </p>
       {#if busy}<span class="job"><ProgressRing value={null} size={14} />{busy}</span>{/if}
 

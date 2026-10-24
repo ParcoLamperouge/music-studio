@@ -4,6 +4,7 @@
   import { untrack, type Snippet } from "svelte";
   import { readBytes, STEM_INFO, writeBytes, type Song, type Stem } from "./engine";
   import { setWindowFullscreen } from "./fullscreen";
+  import { t } from "./i18n.svelte";
   import type { Player } from "./player";
   import Button from "./ui/Button.svelte";
   import IconButton from "./ui/IconButton.svelte";
@@ -33,7 +34,7 @@
   let fullscreen = $state(false);
   let exporting = $state(false);
 
-  const labels = $derived(stems.map((s) => STEM_INFO[s.name].label).join(" + "));
+  const labels = $derived(stems.map((s) => t(STEM_INFO[s.name].label)).join(" + "));
   const total = $derived(stems.reduce((n, s) => n + (s.notes ?? 0), 0));
   // nombre del pentagrama (lo pone el motor) -> color del instrumento
   const colorOf = $derived(new Map(stems.map((s) => [STEM_INFO[s.name].label, STEM_INFO[s.name].color])));
@@ -183,7 +184,7 @@
       await writeBytes(out, new Uint8Array(pdf.output("arraybuffer")));
       await openPath(out);
     } catch (e) {
-      error = `No se pudo exportar: ${e}`;
+      error = t("No se pudo exportar: {e}", { e: String(e) });
     } finally {
       div.remove();
       exporting = false;
@@ -198,22 +199,22 @@
     <div class="title">
       {#each stems as s (s.name)}<StemBadge stem={s.name} dot />{/each}
       <strong>{title ?? labels}</strong>
-      {#if !title}<small class="num">{total} notas · {bpm} BPM</small>{/if}
+      {#if !title}<small class="num">{t("{n} notas · {bpm} BPM", { n: total, bpm })}</small>{/if}
     </div>
     <div class="tools">
-      <Toggle bind:checked={follow} title="Desplazar la partitura con la reproducción">Seguir</Toggle>
+      <Toggle bind:checked={follow} title={t("Desplazar la partitura con la reproducción")}>{t("Seguir")}</Toggle>
       <span class="sep"></span>
-      <IconButton icon="minus" label="Alejar" size="sm" onclick={() => setZoom(zoom - 0.1)} />
+      <IconButton icon="minus" label={t("Alejar")} size="sm" onclick={() => setZoom(zoom - 0.1)} />
       <span class="zoom num">{Math.round(zoom * 100)}%</span>
-      <IconButton icon="plus" label="Acercar" size="sm" onclick={() => setZoom(zoom + 0.1)} />
+      <IconButton icon="plus" label={t("Acercar")} size="sm" onclick={() => setZoom(zoom + 0.1)} />
       <span class="sep"></span>
-      <Button size="sm" variant="ghost" icon="download" onclick={exportPdf} disabled={!ready || exporting}>{exporting ? "Exportando…" : "PDF"}</Button>
-      <IconButton icon="folder" label="Carpeta (MIDI, MusicXML, PDF)" size="sm" onclick={() => openPath(`${song.dir}/scores`)} />
-      <IconButton icon={fullscreen ? "close" : "expand"} label={fullscreen ? "Salir (Esc)" : "Pantalla completa"} size="sm" onclick={() => setFullscreen(!fullscreen)} />
+      <Button size="sm" variant="ghost" icon="download" onclick={exportPdf} disabled={!ready || exporting}>{exporting ? t("Exportando…") : "PDF"}</Button>
+      <IconButton icon="folder" label={t("Carpeta (MIDI, MusicXML, PDF)")} size="sm" onclick={() => openPath(`${song.dir}/scores`)} />
+      <IconButton icon={fullscreen ? "close" : "expand"} label={fullscreen ? t("Salir (Esc)") : t("Pantalla completa")} size="sm" onclick={() => setFullscreen(!fullscreen)} />
     </div>
   </header>
   {#if error}<p class="error">{error}</p>{/if}
-  {#if !ready && !error}<div class="loading"><ProgressRing value={null} size={24} label="Dibujando partitura" /></div>{/if}
+  {#if !ready && !error}<div class="loading"><ProgressRing value={null} size={24} label={t("Dibujando partitura")} /></div>{/if}
   <!-- nunca display:none mientras dibuja: OSMD mide el ancho del contenedor y con 0 no pinta nada -->
   <div class="paper" bind:this={paper}>
     <div bind:this={container}></div>

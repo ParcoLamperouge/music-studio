@@ -1,6 +1,7 @@
 <script lang="ts">
   import Editor from "./Editor.svelte";
   import { enqueue, lyricsPath, playerSeek, run, SOURCE_LABEL, spotifyClock, writeJson, type Detail, type Lyrics } from "./engine";
+  import { engineErr, t } from "./i18n.svelte";
   import { jobOf, jobText, store } from "./store.svelte";
   import Button from "./ui/Button.svelte";
   import Chip from "./ui/Chip.svelte";
@@ -20,7 +21,7 @@
     time: number; // tiempo del audio
     playing: boolean;
     editing: boolean;
-    onseek: (t: number) => void;
+    onseek: (tr: number) => void;
     ontoggle: () => void;
     onrenamed: (key: string) => void;
   } = $props();
@@ -90,14 +91,14 @@
     try {
       await enqueue(action, [key], args);
     } catch (e) {
-      error = String(e);
+      error = engineErr(String(e));
     }
   }
   async function restore() {
     try {
       await run("restore", [key]);
     } catch (e) {
-      error = String(e);
+      error = engineErr(String(e));
     }
   }
   async function assign(e: Event) {
@@ -107,29 +108,29 @@
       await enqueue("letra", [r.key]);
       onrenamed(r.key);
     } catch (err) {
-      error = String(err);
+      error = engineErr(String(err));
     }
   }
 
   const syncLabel = $derived.by(() => {
     if (!doc) return "";
-    if (doc.instrumental) return "Instrumental";
+    if (doc.instrumental) return t("Instrumental");
     const words = doc.lines.some((l) => l.words?.length);
-    if (doc.synced_by === "ia") return doc.ai_mode === "lineas" ? "IA rápida" : "IA palabra a palabra";
-    if (words) return "Palabra a palabra";
-    return doc.lines.some((l) => l.t != null) ? (doc.edited ? "A mano, por líneas" : "Por líneas") : "Sin tiempos";
+    if (doc.synced_by === "ia") return doc.ai_mode === "lineas" ? t("IA rápida") : t("IA palabra a palabra");
+    if (words) return t("Palabra a palabra");
+    return doc.lines.some((l) => l.t != null) ? (doc.edited ? t("A mano, por líneas") : t("Por líneas")) : t("Sin tiempos");
   });
   const doubts = $derived(doc ? doc.lines.filter((l) => l.words?.some((w) => w.p != null && w.p < 0.5)).length : 0);
   const canFast = $derived(!!doc?.lines.some((l) => l.t != null && l.text));
   const syncItems = $derived<MenuItem[]>([
-    { label: "Dentro de cada línea", icon: "lyrics", disabled: !!active || !canFast, title: "Respeta el inicio de cada línea y coloca las palabras con el audio. Instantáneo.", run: () => act("sync", ["lineas"]) },
-    { label: "Desde el audio", icon: "sparkle", disabled: !!active, title: "Whisper escucha y alinea tu texto: para una sincronización liada.", run: () => act("sync", ["ia"]) },
+    { label: t("Dentro de cada línea"), icon: "lyrics", disabled: !!active || !canFast, title: t("Respeta el inicio de cada línea y coloca las palabras con el audio. Instantáneo."), run: () => act("sync", ["lineas"]) },
+    { label: t("Desde el audio"), icon: "sparkle", disabled: !!active, title: t("Whisper escucha y alinea tu texto: para una sincronización liada."), run: () => act("sync", ["ia"]) },
     ...(doc && !doc.audio_checked && timed.length
-      ? [{ label: "Comprobar la versión del audio", icon: "audio" as const, disabled: !!active, title: "Si el audio es otra versión (videoclip con intro…), lo pone a la par", run: () => act("sync", ["lineas"]) }]
+      ? [{ label: t("Comprobar la versión del audio"), icon: "audio" as const, disabled: !!active, title: t("Si el audio es otra versión (videoclip con intro…), lo pone a la par"), run: () => act("sync", ["lineas"]) }]
       : []),
     "-",
-    { label: "Buscar otra vez", icon: "search", disabled: !!active, run: () => confirm("Buscar la letra otra vez en internet. La actual va al historial.") && act("letra", ["force"]) },
-    { label: `Volver a la anterior${detail.history > 1 ? ` (${detail.history})` : ""}`, icon: "undo", disabled: !!active || !detail.history, run: restore },
+    { label: t("Buscar otra vez"), icon: "search", disabled: !!active, run: () => confirm(t("Buscar la letra otra vez en internet. La actual va al historial.")) && act("letra", ["force"]) },
+    { label: detail.history > 1 ? t("Volver a la anterior ({n})", { n: detail.history }) : t("Volver a la anterior"), icon: "undo", disabled: !!active || !detail.history, run: restore },
   ]);
   function toggled(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -140,75 +141,75 @@
 </script>
 
 {#if stemOnly}
-  <EmptyState icon="lyrics" title="¿Qué canción es?">
-    Con artista y título se busca la letra y se sincroniza con la voz ya separada.
+  <EmptyState icon="lyrics" title={t("¿Qué canción es?")}>
+    {t("Con artista y título se busca la letra y se sincroniza con la voz ya separada.")}
     {#snippet actions()}
       <form class="assign" onsubmit={assign}>
-        <Field label="Artista" bind:value={artist} />
-        <Field label="Canción" bind:value={title} />
-        <Button variant="primary" type="submit" icon="search" disabled={!artist.trim() || !title.trim()}>Buscar letra</Button>
+        <Field label={t("Artista")} bind:value={artist} />
+        <Field label={t("Canción")} bind:value={title} />
+        <Button variant="primary" type="submit" icon="search" disabled={!artist.trim() || !title.trim()}>{t("Buscar letra")}</Button>
       </form>
       {#if error}<p class="err">{error}</p>{/if}
     {/snippet}
   </EmptyState>
 {:else if !doc || !lines.some((l) => l.text)}
-  <EmptyState icon="lyrics" title={doc?.instrumental ? "Instrumental" : "Sin letra"}>
-    Se busca en internet (o la transcribe Whisper) y se sincroniza palabra a palabra.
+  <EmptyState icon="lyrics" title={doc?.instrumental ? t("Instrumental") : t("Sin letra")}>
+    {t("Se busca en internet (o la transcribe Whisper) y se sincroniza palabra a palabra.")}
     {#snippet actions()}
       {#if active}
         <span class="job"><ProgressRing value={active.pct != null ? active.pct / 100 : null} size={16} />{jobText(active)}</span>
       {:else}
-        <Button variant="primary" icon={job?.status === "error" ? "retry" : "search"} onclick={() => act("letra", doc ? ["force"] : [])}>{job?.status === "error" ? "Reintentar" : "Buscar y sincronizar"}</Button>
-        {#if job?.status === "error"}<p class="err">{job.error}</p>{/if}
+        <Button variant="primary" icon={job?.status === "error" ? "retry" : "search"} onclick={() => act("letra", doc ? ["force"] : [])}>{job?.status === "error" ? t("Reintentar") : t("Buscar y sincronizar")}</Button>
+        {#if job?.status === "error"}<p class="err">{engineErr(job.error)}</p>{/if}
       {/if}
     {/snippet}
   </EmptyState>
 {:else}
   <div class="lyrics">
     <div class="tools">
-      <Chip icon={doc.synced_by === "ia" ? "sparkle" : "lyrics"} title="{SOURCE_LABEL[doc.source] ?? doc.source}{doc.times_from ? ` · tiempos de ${SOURCE_LABEL[doc.times_from] ?? doc.times_from}` : ''}">{syncLabel}</Chip>
-      {#if doubts && !doc.edited}<Chip icon="alert" title="Líneas con palabras dudosas: revísalas en el editor" onclick={() => (editing = true)} count={doubts}>Dudas</Chip>{/if}
-      {#if followSpotify}<Chip icon="broadcast" title="La letra sigue a Spotify">Spotify</Chip>{/if}
+      <Chip icon={doc.synced_by === "ia" ? "sparkle" : "lyrics"} title={doc.times_from ? t("{src} · tiempos de {ts}", { src: t(SOURCE_LABEL[doc.source] ?? doc.source), ts: t(SOURCE_LABEL[doc.times_from] ?? doc.times_from) }) : t(SOURCE_LABEL[doc.source] ?? doc.source)}>{syncLabel}</Chip>
+      {#if doubts && !doc.edited}<Chip icon="alert" title={t("Líneas con palabras dudosas: revísalas en el editor")} onclick={() => (editing = true)} count={doubts}>{t("Dudas")}</Chip>{/if}
+      {#if followSpotify}<Chip icon="broadcast" title={t("La letra sigue a Spotify")}>Spotify</Chip>{/if}
       {#if active}<span class="job"><ProgressRing value={active.pct != null && active.status === "running" ? active.pct / 100 : null} size={16} />{jobText(active)}</span>{/if}
-      {#if job?.status === "error"}<span class="err" title={job.error}><Icon name="alert" size={14} /> Falló</span>{/if}
+      {#if job?.status === "error"}<span class="err" title={engineErr(job.error)}><Icon name="alert" size={14} /> {t("Falló")}</span>{/if}
       {#if error}<span class="err" title={error}><Icon name="alert" size={14} /> {error}</span>{/if}
       <span class="spacer"></span>
-      <Menu items={syncItems} align="end" label="Sincronizar">
-        {#snippet trigger({ toggle, open })}<Button size="sm" variant="ghost" icon="sparkle" active={open} onclick={toggle}>Sincronizar</Button>{/snippet}
+      <Menu items={syncItems} align="end" label={t("Sincronizar")}>
+        {#snippet trigger({ toggle, open })}<Button size="sm" variant="ghost" icon="sparkle" active={open} onclick={toggle}>{t("Sincronizar")}</Button>{/snippet}
       </Menu>
-      <Popover align="end" width={260} label="Desfase">
-        {#snippet trigger({ toggle, open })}<IconButton icon="wait" label="Desfase" size="sm" active={open || !!off || !!doc.word_offset} onclick={toggle} />{/snippet}
+      <Popover align="end" width={260} label={t("Desfase")}>
+        {#snippet trigger({ toggle, open })}<IconButton icon="wait" label={t("Desfase")} size="sm" active={open || !!off || !!doc.word_offset} onclick={toggle} />{/snippet}
         <div class="pane">
           {#each [["offset", "Todo", 0.1], ["word_offset", "Palabras", 0.05]] as const as [field, label, step] (field)}
             <div class="nudge">
-              <span>{label}</span>
+              <span>{t(label)}</span>
               <IconButton icon="minus" label="−{step} s" size="sm" onclick={() => nudge(field, -step)} />
               <b class="num">{fmtOff(doc[field] ?? 0)}</b>
               <IconButton icon="plus" label="+{step} s" size="sm" onclick={() => nudge(field, step)} />
             </div>
           {/each}
-          <small>También en la partitura y los edits.</small>
+          <small>{t("También en la partitura y los edits.")}</small>
         </div>
       </Popover>
-      <Popover align="end" width={280} label="Ficha de la letra">
-        {#snippet trigger({ toggle, open })}<IconButton icon="info" label="Ficha" size="sm" active={open} onclick={toggle} />{/snippet}
+      <Popover align="end" width={280} label={t("Ficha de la letra")}>
+        {#snippet trigger({ toggle, open })}<IconButton icon="info" label={t("Ficha")} size="sm" active={open} onclick={toggle} />{/snippet}
         <div class="pane">
           <dl>
-            <dt>Texto</dt><dd>{SOURCE_LABEL[doc.source] ?? doc.source}{doc.edited ? " · corregida" : ""}</dd>
-            {#if doc.times_from}<dt>Tiempos</dt><dd>{SOURCE_LABEL[doc.times_from] ?? doc.times_from}</dd>{/if}
-            <dt>Voz</dt><dd>{detail.vocals === "stemlab" ? "StemLab" : detail.vocals === "letras" ? "Letras (rápida)" : "—"}</dd>
-            <dt>Líneas</dt><dd class="num">{lines.filter((l) => l.text).length}</dd>
-            <dt>Audio</dt><dd>{doc.audio_checked ? `misma versión${doc.audio_shift ? ` (${doc.audio_shift > 0 ? "−" : "+"}${Math.abs(doc.audio_shift).toFixed(1)} s)` : ""}` : "sin comprobar"}</dd>
+            <dt>{t("Texto")}</dt><dd>{doc.edited ? t("{src} · corregida", { src: t(SOURCE_LABEL[doc.source] ?? doc.source) }) : t(SOURCE_LABEL[doc.source] ?? doc.source)}</dd>
+            {#if doc.times_from}<dt>{t("Tiempos")}</dt><dd>{t(SOURCE_LABEL[doc.times_from] ?? doc.times_from)}</dd>{/if}
+            <dt>{t("Voz")}</dt><dd>{detail.vocals === "stemlab" ? "StemLab" : detail.vocals === "letras" ? t("Letras (rápida)") : "—"}</dd>
+            <dt>{t("Líneas")}</dt><dd class="num">{lines.filter((l) => l.text).length}</dd>
+            <dt>{t("Audio")}</dt><dd>{doc.audio_checked ? (doc.audio_shift ? t("misma versión ({d} s)", { d: `${doc.audio_shift > 0 ? "−" : "+"}${Math.abs(doc.audio_shift).toFixed(1)}` }) : t("misma versión")) : t("sin comprobar")}</dd>
           </dl>
           <!-- el cambio de cada interruptor sube hasta aquí -->
           <div class="toggles" role="group" onchange={toggled}>
-            <span data-field="hidden"><Toggle checked={!!doc.hidden} title="No sale en el escritorio">Oculta en el escritorio</Toggle></span>
-            <span data-field="instrumental"><Toggle checked={!!doc.instrumental}>Instrumental</Toggle></span>
+            <span data-field="hidden"><Toggle checked={!!doc.hidden} title={t("No sale en el escritorio")}>{t("Oculta en el escritorio")}</Toggle></span>
+            <span data-field="instrumental"><Toggle checked={!!doc.instrumental}>{t("Instrumental")}</Toggle></span>
           </div>
-          <Textarea label="Nota" rows={2} value={doc.note ?? ""} onchange={(e) => patch({ note: e.currentTarget.value.trim() || undefined })} />
+          <Textarea label={t("Nota")} rows={2} value={doc.note ?? ""} onchange={(e) => patch({ note: e.currentTarget.value.trim() || undefined })} />
         </div>
       </Popover>
-      <Button size="sm" variant="secondary" icon="edit" kbd="E" onclick={() => (editing = true)}>Editar</Button>
+      <Button size="sm" variant="secondary" icon="edit" kbd="E" onclick={() => (editing = true)}>{t("Editar")}</Button>
     </div>
 
     <div class="karaoke" bind:this={scroller} onwheel={() => (userScroll = Date.now())} class:idle={!playing && !followSpotify && time === 0}>
@@ -245,7 +246,7 @@
         onai={async (d) => (await save(d), act("sync", ["ia"]))}
         onfast={async (d) => (await save(d), act("sync", ["lineas"]))}
         onrestore={restore}
-        onseek={(t) => seekTo(t + off)}
+        onseek={(tr) => seekTo(tr + off)}
         onclose={() => (editing = false)}
       />
     {/key}

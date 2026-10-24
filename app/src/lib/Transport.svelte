@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { fmtClock } from "./engine";
+  import { t } from "./i18n.svelte";
   import IconButton from "./ui/IconButton.svelte";
   import PlayButton from "./ui/PlayButton.svelte";
   import Slider from "./ui/Slider.svelte";
@@ -13,7 +14,7 @@
     volume?: number; // volumen general 0..1.5
     disabled?: boolean;
     ontoggle: () => void;
-    onseek: (t: number) => void;
+    onseek: (tr: number) => void;
     children?: Snippet;
   } = $props();
 
@@ -33,10 +34,10 @@
   <IconButton icon="chevron-left" label="−5 s" kbd="←" size="sm" {disabled} onclick={() => onseek(Math.max(0, time - 5))} />
   <IconButton icon="chevron-right" label="+5 s" kbd="→" size="sm" {disabled} onclick={() => onseek(Math.min(duration, time + 5))} />
   <span class="clock num">{fmtClock(time)}<span>/{fmtClock(duration)}</span></span>
-  <div class="scrub"><Slider value={time} max={duration || 1} label="Posición" color="var(--text)" {disabled} oninput={onseek} /></div>
+  <div class="scrub"><Slider value={time} max={duration || 1} label={t("Posición")} color="var(--text)" {disabled} oninput={onseek} /></div>
   <div class="master" onwheel={wheel}>
-    <IconButton icon={volume ? "volume" : "close"} label={volume ? "Silenciar todo" : "Activar sonido"} size="sm" onclick={toggleMute} />
-    <Slider bind:value={volume} max={1.5} label="Volumen general" />
+    <IconButton icon={volume ? "volume" : "close"} label={volume ? t("Silenciar todo") : t("Activar sonido")} size="sm" onclick={toggleMute} />
+    <Slider bind:value={volume} max={1.5} label={t("Volumen general")} />
   </div>
   {@render children?.()}
 </div>

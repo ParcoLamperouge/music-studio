@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enqueue, gpuName, paths, prefetchNow, readBytes, run, settingsPath, writeBytes, writeJson } from "./engine";
-  import { LANGS, t } from "./i18n.svelte";
+  import { engineErr, LANGS, t } from "./i18n.svelte";
   import { settings } from "./settings.svelte";
   import { refresh, store } from "./store.svelte";
   import Button from "./ui/Button.svelte";
@@ -55,7 +55,7 @@
       const n = Object.keys(await remoteSongs()).length;
       remoteMsg = t(n === 1 ? "Conectado · {n} canción allí" : "Conectado · {n} canciones allí", { n });
     } catch (e) {
-      remoteMsg = `${e}`;
+      remoteMsg = engineErr(String(e));
     }
   }
   async function syncAll() {
@@ -64,7 +64,7 @@
       await enqueue("remote", keys);
       remoteMsg = t("En la cola: {n} canciones", { n: keys.length });
     } catch (e) {
-      remoteMsg = `${e}`;
+      remoteMsg = engineErr(String(e));
     }
   }
   const failed = $derived(store.tracks.filter((t) => t.failed));
