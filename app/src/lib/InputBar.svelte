@@ -1,6 +1,7 @@
 <script lang="ts">
   import { loadNotation } from "./ChordsTab.svelte";
   import { noteName } from "./harmony";
+  import { t } from "./i18n.svelte";
   import { connect, input } from "./keys.svelte";
 
   /** De qué teclado salen las notas: el MIDI conectado (se elige y se reconecta solo) o el del ordenador. */
@@ -10,11 +11,11 @@
 <span class="dot" class:on={!!input.connected}></span>
 <select bind:value={input.port} onchange={() => connect(input.port)} disabled={!input.ports.length}>
   {#each input.ports as p (p)}<option value={p}>{p}</option>{/each}
-  {#if !input.ports.length}<option value="">Ningún teclado MIDI conectado</option>{/if}
+  {#if !input.ports.length}<option value="">{t("Ningún teclado MIDI conectado")}</option>{/if}
 </select>
-{#if input.port && !input.connected}<button class="ghost sm" onclick={() => connect(input.port)}>Conectar</button>{/if}
-<span class="pc muted" title="Teclado del ordenador: fila A S D F G H J K L Ñ = blancas, W E T Y U O P = negras, Z/X = octava, Espacio = pedal">
-  ⌨ A–Ñ · Z/X octava ({noteName(0, { tonic: 0, minor: false }, latin)}{input.octave / 12 - 1}) · Espacio pedal
+{#if input.port && !input.connected}<button class="ghost sm" onclick={() => connect(input.port)}>{t("Conectar")}</button>{/if}
+<span class="pc muted" title={t("Teclado del ordenador: fila A S D F G H J K L Ñ = blancas, W E T Y U O P = negras, Z/X = octava, Espacio = pedal")}>
+  ⌨ {t("A–Ñ")} · {t("Z/X octava")} ({noteName(0, { tonic: 0, minor: false }, latin)}{input.octave / 12 - 1}) · {t("Espacio pedal")}
 </span>
 
 <style>

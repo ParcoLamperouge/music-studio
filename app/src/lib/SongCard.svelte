@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Track } from "./engine";
+  import { engineLabel, t } from "./i18n.svelte";
   import { ledOf, ledTitle, STAGES } from "./Leds.svelte";
   import { waves, wantPeaks } from "./peaks.svelte";
   import { live } from "./store.svelte";
@@ -37,35 +38,35 @@
 </script>
 
 <article class="song" class:picked class:current class:playing bind:this={el}>
-  <button type="button" class="hit" aria-label={picking ? `Seleccionar ${track.title}` : `Abrir ${track.title}`} {onclick}></button>
+  <button type="button" class="hit" aria-label={picking ? t("Seleccionar {title}", { title: track.title }) : t("Abrir {title}", { title: track.title })} {onclick}></button>
   <div class="art">
     <WaveThumb peaks={waves[track.key]} height={56} color={current ? "var(--text)" : undefined} />
     {#if track.audio || track.stems}
-      <button type="button" class="play" aria-label={playing ? `Pausar ${track.title}` : `Reproducir ${track.title}`} onclick={onplay}>
+      <button type="button" class="play" aria-label={playing ? t("Pausar {title}", { title: track.title }) : t("Reproducir {title}", { title: track.title })} onclick={onplay}>
         <Icon name={playing ? "pause" : "play"} size={16} />
       </button>
     {/if}
     {#if job}
-      <span class="ring" title={job.waiting || job.label}>
-        <ProgressRing value={job.status === "running" && job.pct != null ? job.pct / 100 : job.status === "running" ? null : 0} size={22} label={job.label} />
+      <span class="ring" title={engineLabel(job.waiting || job.label)}>
+        <ProgressRing value={job.status === "running" && job.pct != null ? job.pct / 100 : job.status === "running" ? null : 0} size={22} label={engineLabel(job.label)} />
       </span>
     {:else if playing}
-      <span class="now" title="Sonando"><Icon name="volume" size={14} label="Sonando" /></span>
+      <span class="now" title={t("Sonando")}><Icon name="volume" size={14} label={t("Sonando")} /></span>
     {/if}
   </div>
-  <input type="checkbox" class="pick" checked={picked} onclick={ontoggle} aria-label="Seleccionar {track.title}" />
+  <input type="checkbox" class="pick" checked={picked} onclick={ontoggle} aria-label={t("Seleccionar {title}", { title: track.title })} />
   <div class="meta">
     <span class="t">{track.title || track.key}</span>
-    <span class="a">{track.artist || "Sin artista"}</span>
+    <span class="a">{track.artist || t("Sin artista")}</span>
   </div>
-  <ul class="status" aria-label="Qué tiene hecho">
+  <ul class="status" aria-label={t("Qué tiene hecho")}>
     {#each STAGES as [stage, label] (stage)}
       {@const led = ledOf(track, stage)}
-      <li class={led} title="{label}: {ledTitle(track, stage, led)}">
-        <Icon name={ICON[stage]} size={14} label="{label}: {ledTitle(track, stage, led)}" />
+      <li class={led} title="{t(label)}: {ledTitle(track, stage, led)}">
+        <Icon name={ICON[stage]} size={14} label="{t(label)}: {ledTitle(track, stage, led)}" />
       </li>
     {/each}
-    {#if track.failed}<li class="bad" title="La descarga automática falló"><Icon name="alert" size={14} label="Falló" /></li>{/if}
+    {#if track.failed}<li class="bad" title={t("La descarga automática falló")}><Icon name="alert" size={14} label={t("Falló")} /></li>{/if}
   </ul>
 </article>
 

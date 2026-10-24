@@ -1,4 +1,5 @@
 import { catalog, finished, listJobs, nowPlaying, onChanged, onJobs, onPlayer, type Job, type Playing, type Track } from "./engine";
+import { engineLabel, t } from "./i18n.svelte";
 
 /** Estado compartido: catálogo y cola, al día con los eventos de Rust. */
 export const store = $state({
@@ -61,11 +62,11 @@ export const stageBusy = (key: string, stage: Stage) => live(key).some((j) => ST
 /** Texto corto del estado de un trabajo, para botones y filas. */
 export function jobText(j: Job) {
   if (j.status === "error") return j.error;
-  if (j.waiting) return j.waiting;
-  if (j.status === "running") return `${j.label}${j.pct != null ? ` · ${Math.round(j.pct)} %` : ""}`;
-  if (j.status === "planning") return "Preparando…";
+  if (j.waiting) return engineLabel(j.waiting);
+  if (j.status === "running") return `${engineLabel(j.label)}${j.pct != null ? ` · ${Math.round(j.pct)} %` : ""}`;
+  if (j.status === "planning") return t("Preparando…");
   const next = j.steps[j.cur];
-  if (j.status === "ready" && next?.res === "gpu") return "Esperando la GPU";
-  if (j.status === "queued" && j.after.length) return "Esperando a lo anterior";
-  return "En cola";
+  if (j.status === "ready" && next?.res === "gpu") return t("Esperando la GPU");
+  if (j.status === "queued" && j.after.length) return t("Esperando a lo anterior");
+  return t("En cola");
 }

@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+  import { t } from "../i18n.svelte";
   import { store } from "../store.svelte";
   import Dialog from "../ui/Dialog.svelte";
   import Icon from "../ui/Icon.svelte";
@@ -32,8 +33,8 @@
     const tracks = needle
       ? store.tracks.filter((t) => fold(`${t.artist} ${t.title}`).includes(needle)).slice(0, 40)
       : [...store.tracks].sort((a, b) => b.modified - a.modified).slice(0, 6);
-    const songs: Command[] = tracks.map((t) => ({
-      id: `song:${t.key}`, label: t.title || t.key, hint: t.artist, icon: "audio", group: needle ? "Canciones" : "Recientes", run: () => onsong(t.key),
+    const songs: Command[] = tracks.map((tr) => ({
+      id: `song:${tr.key}`, label: tr.title || tr.key, hint: tr.artist, icon: "audio", group: needle ? t("Canciones") : t("Recientes"), run: () => onsong(tr.key),
     }));
     return [...cmds, ...songs];
   });
@@ -63,8 +64,8 @@
 
 <Dialog bind:open width={620}>
   <div class="pal">
-    <Search bind:ref={input} bind:value={q} size="lg" placeholder="Buscar canción, vista o acción…" onkeydown={key} aria-controls="pal-list" />
-    <div class="list" id="pal-list" role="listbox" aria-label="Resultados" bind:this={list}>
+    <Search bind:ref={input} bind:value={q} size="lg" placeholder={t("Buscar canción, vista o acción…")} onkeydown={key} aria-controls="pal-list" />
+    <div class="list" id="pal-list" role="listbox" aria-label={t("Resultados")} bind:this={list}>
       {#each results as c, i (c.id)}
         {#if i === 0 || results[i - 1].group !== c.group}<h3>{c.group}</h3>{/if}
         <button
@@ -83,10 +84,10 @@
           {#if c.kbd}<kbd>{c.kbd}</kbd>{/if}
         </button>
       {:else}
-        <p class="none">Nada con «{q}».</p>
+        <p class="none">{t("Nada con «{q}».", { q })}</p>
       {/each}
     </div>
-    <footer><span><kbd>↑</kbd><kbd>↓</kbd> moverse</span><span><kbd>Intro</kbd> abrir</span><span><kbd>Esc</kbd> cerrar</span></footer>
+    <footer><span><kbd>↑</kbd><kbd>↓</kbd> {t("moverse")}</span><span><kbd>Intro</kbd> {t("abrir")}</span><span><kbd>Esc</kbd> {t("cerrar")}</span></footer>
   </div>
 </Dialog>
 

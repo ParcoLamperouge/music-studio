@@ -1,5 +1,6 @@
 <script lang="ts">
   import { actionLabel, cancel, cancelAll, clearFinished, finished, retry, top, type Job, type Res } from "../engine";
+  import { engineLabel, t } from "../i18n.svelte";
   import { jobText, store } from "../store.svelte";
   import Icon, { type IconName } from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
@@ -27,25 +28,25 @@
   let showDone = $state(false);
 
   const LANE: Record<Res, [IconName, string]> = { gpu: ["gpu", "GPU"], cpu: ["gpu", "CPU"], net: ["cloud", "Red"], render: ["edits", "Render"] };
-  const ago = (t: number) => {
-    const s = Math.round(Date.now() / 1000 - t);
-    return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
+  const ago = (t2: number) => {
+    const s = Math.round(Date.now() / 1000 - t2);
+    return s < 60 ? t("{n} s", { n: s }) : s < 3600 ? t("{n} min", { n: Math.round(s / 60) }) : t("{n} h", { n: Math.round(s / 3600) });
   };
   const go = (key: string) => ((open = false), onopen(key));
 </script>
 
 {#if running.length || pending.length || failed.length || open}
   <div class="dock" class:raised>
-    <Popover bind:open side="top" align="end" width={400} label="Cola de trabajo">
+    <Popover bind:open side="top" align="end" width={400} label={t("Cola de trabajo")}>
       {#snippet trigger({ toggle })}
         <button type="button" class="pill" class:alert={!running.length && !pending.length && failed.length} onclick={toggle} aria-expanded={open}>
           {#if running.length || pending.length}
-            <ProgressRing value={ring} size={20} label="Progreso" />
-            <span class="what">{lead ? `${lead.waiting || lead.label} · ${titleOf(lead)}` : "En espera"}</span>
+            <ProgressRing value={ring} size={20} label={t("Progreso")} />
+            <span class="what">{lead ? `${engineLabel(lead.waiting || lead.label)} · ${titleOf(lead)}` : t("En espera")}</span>
             <b class="num">{running.length + pending.length}</b>
           {:else}
             <Icon name="alert" size={16} />
-            <span class="what">{failed.length} {failed.length === 1 ? "falló" : "fallaron"}</span>
+            <span class="what">{failed.length} {failed.length === 1 ? t("falló") : t("fallaron")}</span>
           {/if}
           <kbd>Q</kbd>
         </button>
@@ -53,11 +54,11 @@
 
       <div class="q">
         <header>
-          <strong>Cola</strong>
-          <span class="gpu" title="La GPU hace una cosa a la vez; CPU y red, en paralelo"><Icon name="gpu" size={13} />{gpu || "GPU"}</span>
+          <strong>{t("Cola")}</strong>
+          <span class="gpu" title={t("La GPU hace una cosa a la vez; CPU y red, en paralelo")}><Icon name="gpu" size={13} />{gpu || "GPU"}</span>
           <span class="grow"></span>
           {#if running.length || pending.length}
-            <Button size="sm" variant="ghost" onclick={() => confirm("¿Cancelar todo lo pendiente y lo que está en marcha?") && cancelAll()}>Cancelar todo</Button>
+            <Button size="sm" variant="ghost" onclick={() => confirm(t("¿Cancelar todo lo pendiente y lo que está en marcha?")) && cancelAll()}>{t("Cancelar todo")}</Button>
           {/if}
         </header>
 
@@ -65,18 +66,18 @@
           {@const [icon, lane] = LANE[j.steps[j.cur]?.res ?? "cpu"]}
           <div class="job run">
             <ProgressRing value={j.pct != null ? j.pct / 100 : null} size={28} stroke={2.5}>
-              <Icon name={icon} size={12} label={lane} />
+              <Icon name={icon} size={12} label={t(lane)} />
             </ProgressRing>
             <button type="button" class="main" onclick={() => go(j.key)}>
               <span class="t">{titleOf(j)}</span>
-              <span class="s">{j.waiting || j.label}{j.pct != null ? ` · ${Math.round(j.pct)} %` : ""}</span>
+              <span class="s">{engineLabel(j.waiting || j.label)}{j.pct != null ? ` · ${Math.round(j.pct)} %` : ""}</span>
             </button>
-            <IconButton icon="close" label="Cancelar" size="sm" onclick={() => cancel([j.id])} />
+            <IconButton icon="close" label={t("Cancelar")} size="sm" onclick={() => cancel([j.id])} />
           </div>
         {/each}
 
         {#if pending.length}
-          <h3>En espera <span class="num">{pending.length}</span></h3>
+          <h3>{t("En espera")} <span class="num">{pending.length}</span></h3>
           {#each pending.slice(0, 40) as j (j.id)}
             <div class="job">
               <span class="steps" aria-hidden="true">
@@ -84,26 +85,26 @@
               </span>
               <button type="button" class="main" onclick={() => go(j.key)}>
                 <span class="t">{titleOf(j)}</span>
-                <span class="s">{actionLabel(j)} · {jobText(j)}</span>
+                <span class="s">{t(actionLabel(j))} · {jobText(j)}</span>
               </button>
-              <IconButton icon="top" label="Pasar al principio" size="sm" onclick={() => top([j.id])} />
-              <IconButton icon="close" label="Quitar" size="sm" onclick={() => cancel([j.id])} />
+              <IconButton icon="top" label={t("Pasar al principio")} size="sm" onclick={() => top([j.id])} />
+              <IconButton icon="close" label={t("Quitar")} size="sm" onclick={() => cancel([j.id])} />
             </div>
           {/each}
         {/if}
 
         {#if failed.length}
-          <h3 class="bad"><Icon name="alert" size={13} /> Fallaron <span class="num">{failed.length}</span>
-            <span class="grow"></span><Button size="sm" variant="ghost" icon="retry" onclick={() => retry(failed.map((j) => j.id))}>Reintentar</Button>
+          <h3 class="bad"><Icon name="alert" size={13} /> {t("Fallaron")} <span class="num">{failed.length}</span>
+            <span class="grow"></span><Button size="sm" variant="ghost" icon="retry" onclick={() => retry(failed.map((j) => j.id))}>{t("Reintentar")}</Button>
           </h3>
           {#each failed.slice(0, 20) as j (j.id)}
             <div class="job">
               <span class="x" aria-hidden="true">×</span>
               <button type="button" class="main" onclick={() => go(j.key)} title={j.error}>
                 <span class="t">{titleOf(j)}</span>
-                <span class="s err">{actionLabel(j)} · {j.error}</span>
+                <span class="s err">{t(actionLabel(j))} · {j.error}</span>
               </button>
-              <IconButton icon="retry" label="Reintentar" size="sm" onclick={() => retry([j.id])} />
+              <IconButton icon="retry" label={t("Reintentar")} size="sm" onclick={() => retry([j.id])} />
             </div>
           {/each}
         {/if}
@@ -111,9 +112,9 @@
         {#if ok.length}
           <h3>
             <button type="button" class="fold" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>
-              <Icon name={showDone ? "chevron-down" : "chevron-right"} size={12} /> Terminados <span class="num">{ok.length}</span>
+              <Icon name={showDone ? "chevron-down" : "chevron-right"} size={12} /> {t("Terminados")} <span class="num">{ok.length}</span>
             </button>
-            <span class="grow"></span><Button size="sm" variant="ghost" onclick={clearFinished}>Limpiar</Button>
+            <span class="grow"></span><Button size="sm" variant="ghost" onclick={clearFinished}>{t("Limpiar")}</Button>
           </h3>
           {#if showDone}
             {#each ok.slice(0, 40) as j (j.id)}
@@ -121,7 +122,7 @@
                 <Icon name="check" size={14} />
                 <button type="button" class="main" onclick={() => go(j.key)}>
                   <span class="t">{titleOf(j)}</span>
-                  <span class="s">{actionLabel(j)} · {j.status === "canceled" ? "cancelado" : "hecho"} hace {ago(j.finished)}</span>
+                  <span class="s">{t(actionLabel(j))} · {t(j.status === "canceled" ? "cancelado hace {ago}" : "hecho hace {ago}", { ago: ago(j.finished) })}</span>
                 </button>
               </div>
             {/each}
@@ -129,7 +130,7 @@
         {/if}
 
         {#if !running.length && !pending.length && !failed.length && !ok.length}
-          <p class="none">Nada en la cola.</p>
+          <p class="none">{t("Nada en la cola.")}</p>
         {/if}
       </div>
     </Popover>

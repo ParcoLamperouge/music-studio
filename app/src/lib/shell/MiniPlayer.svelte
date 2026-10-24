@@ -4,6 +4,7 @@
   import { deck, deckSeek, deckToggle } from "../deck.svelte";
   import { fmtClock, playerSeek, playerToggle, songDetail, spotifyClock, type Detail } from "../engine";
   import { keyFromChords, named, type Key } from "../harmony";
+  import { t } from "../i18n.svelte";
   import { waves, wantPeaks } from "../peaks.svelte";
   import { settings } from "../settings.svelte";
   import { store } from "../store.svelte";
@@ -68,13 +69,13 @@
   const next = () => at >= 0 && at + 1 < order.length && onplay(order[at + 1]);
 </script>
 
-<footer class="mini" aria-label="Reproductor">
-  {#if dk}<IconButton icon="prev" label="Anterior" size="sm" onclick={prev} />{/if}
-  <button type="button" class="play" onclick={toggle} aria-label={playing ? "Pausa" : "Reproducir"}>
+<footer class="mini" aria-label={t("Reproductor")}>
+  {#if dk}<IconButton icon="prev" label={t("Anterior")} size="sm" onclick={prev} />{/if}
+  <button type="button" class="play" onclick={toggle} aria-label={playing ? t("Pausa") : t("Reproducir")}>
     <Icon name={playing ? "pause" : "play"} size={16} />
   </button>
-  {#if dk}<IconButton icon="next" label="Siguiente" size="sm" disabled={at < 0 || at + 1 >= order.length} onclick={next} />{/if}
-  <button type="button" class="who" onclick={() => key && onopen(key)} disabled={!key} title="Abrir la canción">
+  {#if dk}<IconButton icon="next" label={t("Siguiente")} size="sm" disabled={at < 0 || at + 1 >= order.length} onclick={next} />{/if}
+  <button type="button" class="who" onclick={() => key && onopen(key)} disabled={!key} title={t("Abrir la canción")}>
     <span class="t">{title}</span>
     <span class="a">
       {#if spotify}<Icon name="broadcast" size={12} label="Spotify" />{/if}
@@ -87,10 +88,10 @@
   <span class="clock num">{fmtClock(time)} <span>/ {fmtClock(duration)}</span></span>
   {#if dk}
     <div class="vol">
-      <IconButton icon="volume" label={settings.masterVolume ? "Silenciar" : "Activar sonido"} size="sm" onclick={() => (settings.masterVolume = settings.masterVolume ? 0 : 1)} />
-      <Slider bind:value={settings.masterVolume} min={0} max={1.5} label="Volumen" />
+      <IconButton icon="volume" label={settings.masterVolume ? t("Silenciar") : t("Activar sonido")} size="sm" onclick={() => (settings.masterVolume = settings.masterVolume ? 0 : 1)} />
+      <Slider bind:value={settings.masterVolume} min={0} max={1.5} label={t("Volumen")} />
     </div>
-    <IconButton icon="close" label="Cerrar la canción" size="sm" onclick={onclose} />
+    <IconButton icon="close" label={t("Cerrar la canción")} size="sm" onclick={onclose} />
   {/if}
 </footer>
 

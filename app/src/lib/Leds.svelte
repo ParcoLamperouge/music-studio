@@ -1,39 +1,48 @@
 <script lang="ts" module>
   import type { Track } from "./engine";
+  import { t } from "./i18n.svelte";
   import { stageBusy, type Stage } from "./store.svelte";
 
   export type Led = "on" | "half" | "busy" | "bad" | "off";
   export const STAGES: [Stage, string][] = [["audio", "Audio"], ["letra", "Letra"], ["pistas", "Pistas"], ["notas", "Notas"], ["edits", "Edits"]];
 
   /** Estado de cada etapa: hecha, a medias, trabajando, rota o sin hacer. */
-  export function ledOf(t: Track, stage: Stage): Led {
-    if (stageBusy(t.key, stage)) return "busy";
+  export function ledOf(tr: Track, stage: Stage): Led {
+    if (stageBusy(tr.key, stage)) return "busy";
     switch (stage) {
       case "audio":
-        return t.audio ? "on" : "off";
+        return tr.audio ? "on" : "off";
       case "letra":
-        if (!t.lyrics) return "off";
-        if (t.lyrics.status === "words" || t.lyrics.status === "instrumental") return t.lyrics.doubts && !t.lyrics.edited ? "half" : "on";
-        return t.lyrics.status === "empty" ? "off" : "half";
+        if (!tr.lyrics) return "off";
+        if (tr.lyrics.status === "words" || tr.lyrics.status === "instrumental") return tr.lyrics.doubts && !tr.lyrics.edited ? "half" : "on";
+        return tr.lyrics.status === "empty" ? "off" : "half";
       case "pistas":
-        return t.stems === "complete" ? "on" : t.stems ? "bad" : "off";
+        return tr.stems === "complete" ? "on" : tr.stems ? "bad" : "off";
       case "notas":
-        return !t.notes.length ? "off" : t.notes.length >= t.present.filter((s) => s !== "drums").length ? "on" : "half";
+        return !tr.notes.length ? "off" : tr.notes.length >= tr.present.filter((s) => s !== "drums").length ? "on" : "half";
       case "edits":
-        return t.edits ? "on" : "off";
+        return tr.edits ? "on" : "off";
     }
   }
 
-  export function ledTitle(t: Track, stage: Stage, led: Led) {
-    if (led === "busy") return "trabajando";
-    if (stage === "letra" && t.lyrics) {
-      const s = t.lyrics.status;
-      return s === "words" ? (t.lyrics.doubts && !t.lyrics.edited ? `palabra a palabra · ${t.lyrics.doubts} dudas` : "palabra a palabra") : s === "lines" ? "solo por líneas" : s === "plain" ? "sin tiempos" : s;
+  export function ledTitle(tr: Track, stage: Stage, led: Led) {
+    if (led === "busy") return t("trabajando");
+    if (stage === "letra" && tr.lyrics) {
+      const s = tr.lyrics.status;
+      return s === "words"
+        ? tr.lyrics.doubts && !tr.lyrics.edited
+          ? t("palabra a palabra · {n} dudas", { n: tr.lyrics.doubts })
+          : t("palabra a palabra")
+        : s === "lines"
+          ? t("solo por líneas")
+          : s === "plain"
+            ? t("sin tiempos")
+            : s;
     }
-    if (stage === "pistas" && t.stems && t.stems !== "complete") return "separación a medias";
-    if (stage === "notas" && t.notes.length) return t.notes.length + " instrumentos";
-    if (stage === "edits" && t.edits) return t.edits + (t.edits > 1 ? " edits" : " edit");
-    return led === "on" ? "hecho" : "sin hacer";
+    if (stage === "pistas" && tr.stems && tr.stems !== "complete") return t("separación a medias");
+    if (stage === "notas" && tr.notes.length) return t("{n} instrumentos", { n: tr.notes.length });
+    if (stage === "edits" && tr.edits) return t(tr.edits > 1 ? "{n} edits" : "{n} edit", { n: tr.edits });
+    return led === "on" ? t("hecho") : t("sin hacer");
   }
 </script>
 
@@ -44,7 +53,7 @@
 <span class="leds {size}">
   {#each STAGES as [stage, label] (stage)}
     {@const led = ledOf(track, stage)}
-    <i class={led} title="{label}: {ledTitle(track, stage, led)}"></i>
+    <i class={led} title="{t(label)}: {ledTitle(track, stage, led)}"></i>
   {/each}
 </span>
 
