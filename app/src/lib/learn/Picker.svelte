@@ -13,6 +13,7 @@
   import type { Exercise, Hands } from "../exercises";
   import { EX_LEVELS, EXERCISES } from "../exercises";
   import { keyName } from "../harmony";
+  import { t } from "../i18n.svelte";
   import { OBRA_LEVELS, OBRAS, type Obra } from "../obras";
   import { waves, wantPeaks } from "../peaks.svelte";
   import type { Piece } from "../piece";
@@ -56,7 +57,7 @@
 
   let query = $state("");
   const has = (s: string) => fold(s).includes(fold(query.trim()));
-  const songs = $derived(store.tracks.filter((t) => t.stems && t.notes.length && has(`${t.title} ${t.artist}`)).sort((a, b) => a.title.localeCompare(b.title)));
+  const songs = $derived(store.tracks.filter((tr) => tr.stems && tr.notes.length && has(`${tr.title} ${tr.artist}`)).sort((a, b) => a.title.localeCompare(b.title)));
   const piecesShown = $derived(pieces.list.filter((p) => has(p.title)));
   const exShown = $derived(EXERCISES.filter((e) => has(`${e.title} ${e.concept}`)));
   const obrasShown = $derived(OBRAS.filter((x) => has(`${x.title} ${x.composer}`)));
@@ -64,7 +65,7 @@
   // lo que sale de cada canción y pieza (de sus zonas), para el anillo de la tarjeta
   let acc = $state<Record<string, number | null>>({});
   $effect(() => {
-    const ids = [...songs.map((t) => t.key), ...piecesShown.map((p) => p.id)].filter((id) => !(id in acc));
+    const ids = [...songs.map((tr) => tr.key), ...piecesShown.map((p) => p.id)].filter((id) => !(id in acc));
     for (const id of ids) {
       acc[id] = null;
       void readJson(`${paths.data}/aprender/zonas/${id.replace(/[/:]/g, "_")}.json`, {}).then((b) => (acc[id] = overall(b)));
@@ -81,15 +82,15 @@
   }
 
   const TABS = $derived([
-    { value: "canciones" as Tab, label: "Canciones", count: songs.length },
-    { value: "piezas" as Tab, label: "Mis piezas", count: pieces.list.length },
-    { value: "ejercicios" as Tab, label: "Ejercicios" },
-    { value: "obras" as Tab, label: "Obras" },
+    { value: "canciones" as Tab, label: t("Canciones"), count: songs.length },
+    { value: "piezas" as Tab, label: t("Mis piezas"), count: pieces.list.length },
+    { value: "ejercicios" as Tab, label: t("Ejercicios") },
+    { value: "obras" as Tab, label: t("Obras") },
   ]);
-  const KEYS = $derived(Array.from({ length: 12 }, (_, t) => ({ label: keyName({ tonic: t, minor: exMinor }, latin), icon: (t === exKey ? "check" : undefined) as "check" | undefined, run: () => (exKey = t) })));
+  const KEYS = $derived(Array.from({ length: 12 }, (_, tKey) => ({ label: keyName({ tonic: tKey, minor: exMinor }, latin), icon: (tKey === exKey ? "check" : undefined) as "check" | undefined, run: () => (exKey = tKey) })));
 
-  function observe(el: HTMLElement, t: Track) {
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && (wantPeaks(t.key, t.audio || !!t.stems), io.disconnect()), { rootMargin: "200px" });
+  function observe(el: HTMLElement, tr: Track) {
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && (wantPeaks(tr.key, tr.audio || !!tr.stems), io.disconnect()), { rootMargin: "200px" });
     io.observe(el);
     return { destroy: () => io.disconnect() };
   }
@@ -97,30 +98,30 @@
 
 {#snippet ring(a: number | null | undefined)}
   {#if a != null}
-    <span class="ring" title="Te sale el {Math.round(a * 100)} %"><ProgressRing value={a} size={30} stroke={3} color={accColor(a)}><span class="num">{Math.round(a * 100)}</span></ProgressRing></span>
+    <span class="ring" title={t("Te sale el {n} %", { n: Math.round(a * 100) })}><ProgressRing value={a} size={30} stroke={3} color={accColor(a)}><span class="num">{Math.round(a * 100)}</span></ProgressRing></span>
   {/if}
 {/snippet}
 
 {#snippet level(lv: number, max: number, label: string)}
-  <span class="ring" title="Nivel {lv}: {label}"><ProgressRing value={lv / max} size={30} stroke={3} color="var(--text-2)"><span class="num">{lv}</span></ProgressRing></span>
+  <span class="ring" title={t("Nivel {lv}: {label}", { lv, label })}><ProgressRing value={lv / max} size={30} stroke={3} color="var(--text-2)"><span class="num">{lv}</span></ProgressRing></span>
 {/snippet}
 
 <section class="picker">
   <header class="head">
-    <h1>Aprender</h1>
-    <Tabs options={TABS} bind:value={tab} variant="underline" label="Qué tocar" />
+    <h1>{t("Aprender")}</h1>
+    <Tabs options={TABS} bind:value={tab} variant="underline" label={t("Qué tocar")} />
     <span class="fill"></span>
-    {#if resume}<Button icon="play" onclick={resume.go} title="Volver a lo que estabas tocando">{resume.title}</Button>{/if}
-    <div class="find"><Search bind:value={query} placeholder="Buscar" size="sm" /></div>
+    {#if resume}<Button icon="play" onclick={resume.go} title={t("Volver a lo que estabas tocando")}>{resume.title}</Button>{/if}
+    <div class="find"><Search bind:value={query} placeholder={t("Buscar")} size="sm" /></div>
   </header>
 
   {#if tab === "ejercicios"}
     <div class="filters">
-      <Menu items={KEYS} label="Tonalidad">
+      <Menu items={KEYS} label={t("Tonalidad")}>
         {#snippet trigger({ toggle })}<Button size="sm" icon="chevron-down" onclick={toggle}>{keyName({ tonic: exKey, minor: exMinor }, latin)}</Button>{/snippet}
       </Menu>
-      <Tabs size="sm" bind:value={() => (exMinor ? "m" : "M"), (v) => (exMinor = v === "m")} options={[{ value: "M", label: "mayor" }, { value: "m", label: "menor" }]} label="Modo" />
-      <Tabs size="sm" bind:value={exHands} options={[{ value: "lh", label: "Izq." }, { value: "both", label: "Juntas" }, { value: "rh", label: "Der." }]} label="Mano" />
+      <Tabs size="sm" bind:value={() => (exMinor ? "m" : "M"), (v) => (exMinor = v === "m")} options={[{ value: "M", label: t("mayor") }, { value: "m", label: t("menor") }]} label={t("Modo")} />
+      <Tabs size="sm" bind:value={exHands} options={[{ value: "lh", label: t("Izq.") }, { value: "both", label: t("Juntas") }, { value: "rh", label: t("Der.") }]} label={t("Mano")} />
     </div>
   {/if}
 
@@ -128,33 +129,33 @@
     {#if tab === "canciones"}
       {#if songs.length}
         <div class="grid">
-          {#each songs as t (t.key)}
-            <article class="tcard" class:on={current === t.key} use:observe={t}>
-              <button type="button" class="hit" aria-label="Tocar {t.title}" onclick={() => onsong(t.key)}></button>
-              <div class="art"><WaveThumb peaks={waves[t.key]} height={52} />{@render ring(acc[t.key])}</div>
-              <div class="meta"><span class="t">{t.title}</span><span class="a">{t.artist}</span></div>
+          {#each songs as tr (tr.key)}
+            <article class="tcard" class:on={current === tr.key} use:observe={tr}>
+              <button type="button" class="hit" aria-label={t("Tocar {title}", { title: tr.title })} onclick={() => onsong(tr.key)}></button>
+              <div class="art"><WaveThumb peaks={waves[tr.key]} height={52} />{@render ring(acc[tr.key])}</div>
+              <div class="meta"><span class="t">{tr.title}</span><span class="a">{tr.artist}</span></div>
             </article>
           {/each}
         </div>
       {:else}
-        <EmptyState icon="stems" title={query ? "Nada con ese nombre" : "Ninguna canción lista"}>
-          Hacen falta las pistas separadas y sus notas.
-          {#snippet actions()}<Button icon="library" onclick={onlibrary}>Ir a la Biblioteca</Button>{/snippet}
+        <EmptyState icon="stems" title={query ? t("Nada con ese nombre") : t("Ninguna canción lista")}>
+          {t("Hacen falta las pistas separadas y sus notas.")}
+          {#snippet actions()}<Button icon="library" onclick={onlibrary}>{t("Ir a la Biblioteca")}</Button>{/snippet}
         </EmptyState>
       {/if}
     {:else if tab === "piezas"}
       <div class="grid">
         <article class="tcard add">
-          <button type="button" class="hit" aria-label="Pieza nueva" onclick={onnew}></button>
-          <span class="big"><Icon name="plus" size={22} /></span><span class="t">Nueva</span><span class="a">tocando o con el ratón</span>
+          <button type="button" class="hit" aria-label={t("Pieza nueva")} onclick={onnew}></button>
+          <span class="big"><Icon name="plus" size={22} /></span><span class="t">{t("Nueva")}</span><span class="a">{t("tocando o con el ratón")}</span>
         </article>
         <article class="tcard add">
-          <button type="button" class="hit" aria-label="Importar MIDI o MusicXML" onclick={onimport}></button>
-          <span class="big"><Icon name="upload" size={22} /></span><span class="t">Importar</span><span class="a">MIDI · MusicXML</span>
+          <button type="button" class="hit" aria-label={t("Importar MIDI o MusicXML")} onclick={onimport}></button>
+          <span class="big"><Icon name="upload" size={22} /></span><span class="t">{t("Importar")}</span><span class="a">MIDI · MusicXML</span>
         </article>
         {#each piecesShown as pc (pc.id)}
           <article class="tcard" class:on={current === pc.id}>
-            <button type="button" class="hit" aria-label="Tocar {pc.title}" onclick={() => onpiece(pc)}></button>
+            <button type="button" class="hit" aria-label={t("Tocar {title}", { title: pc.title })} onclick={() => onpiece(pc)}></button>
             <div class="art">
               <svg class="mini" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
                 {#each thumb(pc) as n, i (i)}<rect x={n.x} y={n.y} width={n.w} height={n.h} fill={n.c} />{/each}
@@ -162,14 +163,14 @@
               {@render ring(acc[pc.id])}
             </div>
             <div class="meta row">
-              <div class="col"><span class="t">{pc.title}</span><span class="a num">{pc.notes.length} notas · {pc.bpm} bpm</span></div>
+              <div class="col"><span class="t">{pc.title}</span><span class="a num">{t("{n} notas", { n: pc.notes.length })} · {pc.bpm} bpm</span></div>
               <span class="over">
-                <Menu align="end" label="Pieza" items={[
-                  { label: "Editar", icon: "edit", run: () => onedit(pc) },
+                <Menu align="end" label={t("Pieza")} items={[
+                  { label: t("Editar"), icon: "edit", run: () => onedit(pc) },
                   "-",
-                  { label: "Borrar…", icon: "trash", danger: true, run: () => ondelete(pc) },
+                  { label: t("Borrar…"), icon: "trash", danger: true, run: () => ondelete(pc) },
                 ]}>
-                  {#snippet trigger({ toggle })}<IconButton icon="more" label="Más" size="sm" onclick={toggle} />{/snippet}
+                  {#snippet trigger({ toggle })}<IconButton icon="more" label={t("Más")} size="sm" onclick={toggle} />{/snippet}
                 </Menu>
               </span>
             </div>
@@ -184,10 +185,10 @@
           <div class="grid small">
             {#each list as ex (ex.id)}
               <article class="tcard tile" class:on={current === ex.id}>
-                <button type="button" class="hit" aria-label="Tocar {ex.title}" onclick={() => onexercise(ex)}></button>
+                <button type="button" class="hit" aria-label={t("Tocar {title}", { title: ex.title })} onclick={() => onexercise(ex)}></button>
                 {@render level(ex.level, 4, label)}
                 <div class="col"><span class="t">{ex.title}</span><span class="a">{ex.concept}</span></div>
-                {#if !ex.oneHand}<span class="two" title="Dos manos">2</span>{/if}
+                {#if !ex.oneHand}<span class="two" title={t("Dos manos")}>2</span>{/if}
               </article>
             {/each}
           </div>
@@ -201,7 +202,7 @@
           <div class="grid small">
             {#each list as x (x.id)}
               <article class="tcard tile" class:on={current === `obra-${x.id}`}>
-                <button type="button" class="hit" aria-label="Tocar {x.title}" onclick={() => onobra(x)}></button>
+                <button type="button" class="hit" aria-label={t("Tocar {title}", { title: x.title })} onclick={() => onobra(x)}></button>
                 {@render level(x.level, 6, label)}
                 <div class="col"><span class="t">{x.title}</span><span class="a">{x.composer}</span></div>
               </article>
@@ -209,7 +210,7 @@
           </div>
         {/if}
       {/each}
-      <p class="credit">Del <a href="https://www.mutopiaproject.org" target="_blank" rel="noreferrer">Mutopia Project</a>: dominio público o Creative Commons.</p>
+      <p class="credit">{t("Del")} <a href="https://www.mutopiaproject.org" target="_blank" rel="noreferrer">Mutopia Project</a>{t(": dominio público o Creative Commons.")}</p>
     {/if}
   </div>
 </section>

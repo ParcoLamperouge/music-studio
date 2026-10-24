@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Zone } from "../zones";
+  import { t } from "../i18n.svelte";
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
@@ -29,30 +30,30 @@
   let confirm = $state(false);
 </script>
 
-<div class="res" role="dialog" aria-label="Resultados">
+<div class="res" role="dialog" aria-label={t("Resultados")}>
   <header>
-    <h2>Resultados</h2>
-    <IconButton icon="close" label="Cerrar" onclick={onclose} />
+    <h2>{t("Resultados")}</h2>
+    <IconButton icon="close" label={t("Cerrar")} onclick={onclose} />
   </header>
 
   <div class="top">
     <div class="ring">
-      <ProgressRing value={shown} size={132} stroke={10} color={accColor(shown)} label="Acierto">
+      <ProgressRing value={shown} size={132} stroke={10} color={accColor(shown)} label={t("Acierto")}>
         <strong class="num">{Math.round(shown * 100)}<small>%</small></strong>
       </ProgressRing>
       {#if lesson}
-        <span class="stars" aria-label="{lesson.stars} de 3 estrellas">
+        <span class="stars" aria-label={t("{n} de 3 estrellas", { n: lesson.stars })}>
           {#each [0, 1, 2] as i (i)}<span class:on={i < lesson.stars}><Icon name="star" size={18} /></span>{/each}
         </span>
-        <small class="goal" class:ok={shown >= lesson.goal}><Icon name={shown >= lesson.goal ? "check" : "target"} size={12} /> objetivo {Math.round(lesson.goal * 100)} %</small>
+        <small class="goal" class:ok={shown >= lesson.goal}><Icon name={shown >= lesson.goal ? "check" : "target"} size={12} /> {t("objetivo {n} %", { n: Math.round(lesson.goal * 100) })}</small>
       {/if}
     </div>
     <div class="facts">
-      <div class="fact"><span class="big num">{stats.hits}<small>/{stats.due}</small></span><span>notas</span></div>
-      <div class="fact"><span class="big num" style:color={stats.wrong ? TIMING.miss.color : undefined}>{TIMING.miss.mark} {stats.wrong}</span><span>de más</span></div>
+      <div class="fact"><span class="big num">{stats.hits}<small>/{stats.due}</small></span><span>{t("notas")}</span></div>
+      <div class="fact"><span class="big num" style:color={stats.wrong ? TIMING.miss.color : undefined}>{TIMING.miss.mark} {stats.wrong}</span><span>{t("de más")}</span></div>
       {#if stats.force != null}
-        <div class="fact" title="Fuerza: de media, cuánto más fuerte (+) o flojo (−) que lo que pide (de 127)">
-          <span class="big num">{stats.force > 0 ? "+" : ""}{stats.force}</span><span>fuerza{stats.offForce ? ` · ${stats.offForce} fuera` : ""}</span>
+        <div class="fact" title={t("Fuerza: de media, cuánto más fuerte (+) o flojo (−) que lo que pide (de 127)")}>
+          <span class="big num">{stats.force > 0 ? "+" : ""}{stats.force}</span><span>{t("fuerza")}{stats.offForce ? ` · ${t("{n} fuera", { n: stats.offForce })}` : ""}</span>
         </div>
       {/if}
     </div>
@@ -64,24 +65,24 @@
       <ZoneBar {bars} {barTime} {duration} time={0} />
       <div class="zones">
         {#each zones as z (z.from)}
-          <Button size="sm" icon="loop" onclick={() => onzone(z)} title="{z.tries} notas tocadas ahí">
-            c. {z.from + 1}{z.to > z.from ? `–${z.to + 1}` : ""}
+          <Button size="sm" icon="loop" onclick={() => onzone(z)} title={t("{n} notas tocadas ahí", { n: z.tries })}>
+            {t("c. {n}", { n: z.from + 1 + (z.to > z.from ? `–${z.to + 1}` : "") })}
             <span class="dot" style:background={accColor(z.acc)}></span><span class="num">{Math.round(z.acc * 100)} %</span>
           </Button>
         {:else}
-          <small class="faint">Sin zonas difíciles por ahora.</small>
+          <small class="faint">{t("Sin zonas difíciles por ahora.")}</small>
         {/each}
         <span class="fill"></span>
         <Button size="sm" variant={confirm ? "danger" : "ghost"} icon="trash" onclick={() => (confirm ? ((confirm = false), onreset()) : (confirm = true))}
-          title="Borra lo apuntado en este nivel, melodía y manos (lo demás se queda)">{confirm ? "¿Seguro?" : "Reiniciar zonas"}</Button>
+          title={t("Borra lo apuntado en este nivel, melodía y manos (lo demás se queda)")}>{confirm ? t("¿Seguro?") : t("Reiniciar zonas")}</Button>
       </div>
     </section>
   {/if}
 
   <footer>
-    {#if lesson}<Button icon="course" onclick={lesson.onback}>Volver a la lección</Button>{/if}
+    {#if lesson}<Button icon="course" onclick={lesson.onback}>{t("Volver a la lección")}</Button>{/if}
     <span class="fill"></span>
-    <Button variant="primary" icon="retry" onclick={onretry}>Otra vez</Button>
+    <Button variant="primary" icon="retry" onclick={onretry}>{t("Otra vez")}</Button>
   </footer>
 </div>
 

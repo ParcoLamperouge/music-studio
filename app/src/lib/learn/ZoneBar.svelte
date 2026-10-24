@@ -6,6 +6,7 @@
 
 <script lang="ts">
   import { fmtClock } from "../engine";
+  import { t } from "../i18n.svelte";
 
   // Mapa de calor de los compases (cómo sale cada uno), con el bucle A–B y el cursor. Pulsar o arrastrar salta ahí.
   let { bars, barTime, duration, time, loopA = null, loopB = null, loop = false, onseek }: {
@@ -20,7 +21,7 @@
   } = $props();
 
   let el: HTMLDivElement;
-  const pct = (t: number) => `${(Math.max(0, Math.min(t, duration)) / (duration || 1)) * 100}%`;
+  const pct = (tr: number) => `${(Math.max(0, Math.min(tr, duration)) / (duration || 1)) * 100}%`;
   const at = (e: PointerEvent) => {
     const r = el.getBoundingClientRect();
     return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * duration;
@@ -35,7 +36,7 @@
   bind:this={el}
   role={onseek ? "slider" : "img"}
   tabindex={onseek ? 0 : undefined}
-  aria-label="Cómo sale cada compás"
+  aria-label={t("Cómo sale cada compás")}
   aria-valuenow={onseek ? Math.round(time) : undefined}
   aria-valuetext={onseek ? fmtClock(time) : undefined}
   onpointerdown={(e) => onseek && (el.setPointerCapture(e.pointerId), onseek(at(e)))}
@@ -47,7 +48,7 @@
       style:left={pct(c.t)}
       style:width={pct(c.end - c.t)}
       style:background={accColor(c.a)}
-      title="c. {i + 1}{c.a == null ? '' : ` · ${Math.round(c.a * 100)} %`}"
+      title={c.a == null ? t("c. {n}", { n: i + 1 }) : t("c. {n} · {p} %", { n: i + 1, p: Math.round(c.a * 100) })}
     ></i>
   {/each}
   {#if loopA != null}

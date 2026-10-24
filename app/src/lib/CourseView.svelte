@@ -3,6 +3,7 @@
   import { LESSONS, practiceSteps, STAGES, stars, type Area, type Lesson, type Practice } from "./course";
   import EarQuiz from "./EarQuiz.svelte";
   import { EXERCISES } from "./exercises";
+  import { t } from "./i18n.svelte";
   import KeyDiagram from "./KeyDiagram.svelte";
   import { OBRAS } from "./obras";
   import { bestOf, courseDone, lessonDone, lessonStars, loadProgress, markOpened, nextLesson, progress, record, streak } from "./progress.svelte";
@@ -62,40 +63,40 @@
   }
 
   /** Texto con **negritas**, sin HTML. */
-  const parts = (t: string) => t.split("**").map((s, i) => ({ s, b: i % 2 === 1 }));
+  const parts = (tr: string) => tr.split("**").map((s, i) => ({ s, b: i % 2 === 1 }));
 
   function describe(p: Practice): [IconName, string] {
     if (p.kind === "ejercicio") return ["learn", `${EXERCISES.find((e) => e.id === p.id)?.title ?? p.id}${p.key ? ` · ${p.key}` : ""}`];
     if (p.kind === "cancion") return ["notes", SONGS.find((s) => s.id === p.id)?.title ?? p.id];
     if (p.kind === "obra") {
       const o = OBRAS.find((x) => x.id === p.id);
-      return ["score", o ? `${o.composer}: ${o.title}` : "Obra"];
+      return ["score", o ? `${o.composer}: ${o.title}` : t("Obra")];
     }
-    return ["ear", "Prueba de oído"];
+    return ["ear", t("Prueba de oído")];
   }
-  const hands = (p: Practice) => ("hands" in p && p.hands ? { rh: "derecha", lh: "izquierda", both: "dos manos" }[p.hands] : "");
+  const hands = (p: Practice) => ("hands" in p && p.hands ? { rh: t("derecha"), lh: t("izquierda"), both: t("dos manos") }[p.hands] : "");
   const ringColor = (best: number | undefined, goal: number) => (best == null ? "var(--line-hi)" : best >= goal ? "var(--ok)" : "var(--warn)");
 </script>
 
 {#snippet starRow(n: number, size = 12)}
-  <span class="stars" aria-label="{n} de 3 estrellas">{#each [0, 1, 2] as i (i)}<span class:on={i < n}><Icon name="star" {size} /></span>{/each}</span>
+  <span class="stars" aria-label={t("{n} de 3 estrellas")}>{#each [0, 1, 2] as i (i)}<span class:on={i < n}><Icon name="star" {size} /></span>{/each}</span>
 {/snippet}
 
 <section class="course" bind:this={main}>
   {#if !lesson}
     <header class="hero">
       <div class="big">
-        <ProgressRing value={pct} size={88} stroke={7} label="Curso hecho"><strong class="num">{Math.round(pct * 100)}<small>%</small></strong></ProgressRing>
+        <ProgressRing value={pct} size={88} stroke={7} label={t("Curso hecho")}><strong class="num">{Math.round(pct * 100)}<small>%</small></strong></ProgressRing>
         <div class="who">
-          <h1>Curso</h1>
-          <span class="streak" title="Días seguidos practicando"><Icon name="flame" size={16} /> <b class="num">{days}</b> {days === 1 ? "día" : "días"} seguidos</span>
-          {#if next}<Button variant="primary" icon="play" onclick={() => open(next)} title="La siguiente recomendada">{next.title}</Button>{/if}
+          <h1>{t("Curso")}</h1>
+          <span class="streak" title={t("Días seguidos practicando")}><Icon name="flame" size={16} /> <b class="num">{days}</b> {days === 1 ? t("1 día seguido") : t("{n} días seguidos", { n: days })}</span>
+          {#if next}<Button variant="primary" icon="play" onclick={() => open(next)} title={t("La siguiente recomendada")}>{next.title}</Button>{/if}
         </div>
       </div>
-      <div class="cal" title="Días con práctica"><Heatmap days={progress.days} weeks={20} /></div>
+      <div class="cal" title={t("Días con práctica")}><Heatmap days={progress.days} weeks={20} /></div>
     </header>
 
-    <div class="order"><Tabs bind:value={view} variant="underline" options={[{ value: "ruta", label: "Ruta" }, { value: "temas", label: "Por temas" }]} label="Orden" /></div>
+    <div class="order"><Tabs bind:value={view} variant="underline" options={[{ value: "ruta", label: t("Ruta") }, { value: "temas", label: t("Por temas") }]} label={t("Orden")} /></div>
 
     <div class="map">
       {#each groups as g (g.label)}
@@ -118,17 +119,17 @@
           </ol>
         </section>
       {/each}
-      <p class="foot">Nada está bloqueado: abre las lecciones en el orden que quieras. Estrellas: 70 · 85 · 95 %.</p>
+      <p class="foot">{t("Nada está bloqueado: abre las lecciones en el orden que quieras. Estrellas: 70 · 85 · 95 %.")}</p>
     </div>
   {:else}
     {@const idx = LESSONS.indexOf(lesson)}
     <article class="lesson">
       <nav class="crumb">
-        <Button size="sm" variant="ghost" icon="back" onclick={() => open(null)}>Curso</Button>
-        <span class="eyebrow">Etapa {lesson.stage} · {STAGES[lesson.stage - 1]} · {lesson.area}</span>
+        <Button size="sm" variant="ghost" icon="back" onclick={() => open(null)}>{t("Curso")}</Button>
+        <span class="eyebrow">{t("Etapa {n}", { n: lesson.stage })} · {STAGES[lesson.stage - 1]} · {lesson.area}</span>
       </nav>
       <header class="lh">
-        <ProgressRing value={passed(lesson)} size={56} stroke={5} color={passed(lesson) >= 1 ? "var(--ok)" : "var(--accent)"} label="Lección">
+        <ProgressRing value={passed(lesson)} size={56} stroke={5} color={passed(lesson) >= 1 ? "var(--ok)" : "var(--accent)"} label={t("Lección")}>
           {@render starRow(lessonStars(lesson), 9)}
         </ProgressRing>
         <div>
@@ -139,10 +140,10 @@
       {#if lesson.requires?.length || lesson.related?.length}
         <div class="links">
           {#each lesson.requires ?? [] as r (r)}
-            <Chip icon={lessonDone(byId(r)) ? "check" : "back"} onclick={() => open(byId(r))} title="Conviene antes">{byId(r).title}</Chip>
+            <Chip icon={lessonDone(byId(r)) ? "check" : "back"} onclick={() => open(byId(r))} title={t("Conviene antes")}>{byId(r).title}</Chip>
           {/each}
           {#each lesson.related ?? [] as r (r)}
-            <Chip icon="link" onclick={() => open(byId(r))} title="Se complementa con">{byId(r).title}</Chip>
+            <Chip icon="link" onclick={() => open(byId(r))} title={t("Se complementa con")}>{byId(r).title}</Chip>
           {/each}
         </div>
       {/if}
@@ -163,7 +164,7 @@
             {@const [icon, what] = describe(step.p)}
             <li class="step practice" id="paso-{i}" class:passed={(best ?? 0) >= goal}>
               <span class="pin ring">
-                <ProgressRing value={best ?? 0} size={36} stroke={3.5} color={ringColor(best, goal)} label="Tu mejor">
+                <ProgressRing value={best ?? 0} size={36} stroke={3.5} color={ringColor(best, goal)} label={t("Tu mejor")}>
                   {#if (best ?? 0) >= goal}<Icon name="check" size={14} />{:else}<Icon name={icon} size={13} />{/if}
                 </ProgressRing>
               </span>
@@ -172,17 +173,17 @@
                   <strong>{step.title}</strong>
                   {@render starRow(stars(best))}
                   <span class="fill"></span>
-                  <small class="num" title="Tu mejor / objetivo">{best != null ? `${Math.round(best * 100)} %` : "–"} / {Math.round(goal * 100)} %</small>
+                  <small class="num" title={t("Tu mejor / objetivo")}>{best != null ? `${Math.round(best * 100)} %` : "–"} / {Math.round(goal * 100)} %</small>
                 </div>
                 <small class="desc"><Icon name={icon} size={12} /> {what}{hands(step.p) ? ` · ${hands(step.p)}` : ""}</small>
                 {#if step.p.kind === "oido"}
                   {#if quizOpen === i}
                     <EarQuiz quiz={step.p.quiz} onresult={(acc) => lesson && record(lesson.id, i, acc)} />
                   {:else}
-                    <div><Button variant={best == null ? "primary" : "secondary"} icon="ear" onclick={() => (quizOpen = i)}>Hacer la prueba</Button></div>
+                    <div><Button variant={best == null ? "primary" : "secondary"} icon="ear" onclick={() => (quizOpen = i)}>{t("Hacer la prueba")}</Button></div>
                   {/if}
                 {:else}
-                  <div><Button variant={best == null || best < goal ? "primary" : "secondary"} icon="play" onclick={() => lesson && onpractice(lesson.id, i)}>Practicar</Button></div>
+                  <div><Button variant={best == null || best < goal ? "primary" : "secondary"} icon="play" onclick={() => lesson && onpractice(lesson.id, i)}>{t("Practicar")}</Button></div>
                 {/if}
               </div>
             </li>

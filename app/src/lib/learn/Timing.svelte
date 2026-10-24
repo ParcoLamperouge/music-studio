@@ -1,5 +1,6 @@
 <script lang="ts">
   import { judge } from "../arrange";
+  import { t } from "../i18n.svelte";
   import { TIMING } from "../ui/music";
 
   // Cómo de a tiempo: `errs` en ms (− adelantada, + atrasada). live: las últimas como rayitas sobre el centro, con la
@@ -27,7 +28,7 @@
 
 {#if mode === "live"}
   <svg class="live" viewBox="{-R} -10 {2 * R} 20" preserveAspectRatio="none" style:height="{height ?? 20}px"
-    role="img" aria-label="Tiempo de las últimas notas: sesgo {fmt(mean)} ms, dispersión ±{Math.round(sd)} ms">
+    role="img" aria-label={t("Tiempo de las últimas notas: sesgo {b} ms, dispersión ±{d} ms", { b: fmt(mean), d: Math.round(sd) })}>
     {#if errs.length > 2}<rect x={clamp(mean - sd)} width={Math.min(2 * R, 2 * sd)} y="-7" height="14" class="band" />{/if}
     <line x1="0" x2="0" y1="-10" y2="10" class="mid" />
     {#each errs as ms, i (i)}
@@ -38,7 +39,7 @@
 {:else}
   <figure class="hist">
     <svg viewBox="{-R} 0 {2 * R} 60" preserveAspectRatio="none" style:height="{height ?? 96}px" role="img"
-      aria-label="Histograma de tiempo: sesgo {fmt(mean)} ms, dispersión ±{Math.round(sd)} ms">
+      aria-label={t("Histograma de tiempo: sesgo {b} ms, dispersión ±{d} ms", { b: fmt(mean), d: Math.round(sd) })}>
       {#if errs.length > 2}<rect x={clamp(mean - sd)} width={Math.min(2 * R, 2 * sd)} y="0" height="60" class="band" />{/if}
       {#each hist as b (b.x)}
         {#if b.c}<rect x={b.x + 1} width={BIN - 2} y={60 - 56 * b.h} height={56 * b.h} fill={color(b.x + BIN / 2)} rx="1.5" />{/if}
@@ -47,9 +48,9 @@
       {#if errs.length}<line x1={clamp(mean)} x2={clamp(mean)} y1="0" y2="60" class="mean" />{/if}
     </svg>
     <figcaption>
-      <span style:color={TIMING.early.color}>{TIMING.early.mark} antes</span>
-      <span class="num">{errs.length ? `${fmt(mean)} ms · ±${Math.round(sd)}` : "sin notas"}</span>
-      <span style:color={TIMING.late.color}>después {TIMING.late.mark}</span>
+      <span style:color={TIMING.early.color}>{TIMING.early.mark} {t("antes")}</span>
+      <span class="num">{errs.length ? `${fmt(mean)} ms · ±${Math.round(sd)}` : t("sin notas")}</span>
+      <span style:color={TIMING.late.color}>{t("después")} {TIMING.late.mark}</span>
     </figcaption>
   </figure>
 {/if}

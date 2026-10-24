@@ -5,6 +5,7 @@
   import { loadNotation } from "./ChordsTab.svelte";
   import { writeBytes } from "./engine";
   import { analyze, keyName, noteName } from "./harmony";
+  import { t } from "./i18n.svelte";
   import { input, pcKey, pcRelease, useInput } from "./keys.svelte";
   import { toMidi } from "./live";
   import { beatToSec, handOf, pieceArrangement, pieceBeats, pieceDuration, pieceEvents, pieceLength, pieceSeconds, secToBeat, type Piece, type PNote } from "./piece";
@@ -90,12 +91,12 @@
   $effect(() => {
     const pc = { ...current(), notes };
     JSON.stringify(meta);
-    const t = setTimeout(async () => {
+    const tr = setTimeout(async () => {
       await savePiece(pc);
       const tracks = [{ stem: "piano", notes: pieceSeconds(pc, "rh") }, { stem: "bass", notes: pieceSeconds(pc, "lh") }].filter((x) => x.notes.length);
       keyLabel = tracks.length && notes.length >= 6 ? keyName(analyze(tracks, pieceBeats(pc), pieceDuration(pc) + 1).key, latin) : "";
     }, 700);
-    return () => clearTimeout(t);
+    return () => clearTimeout(tr);
   });
 
   // ---------------------------------------------------------------- sonido
@@ -222,10 +223,10 @@
       o.stop(t0 + i * spb + 0.06);
     }
     recording = true;
-    message = "Cuenta… y a tocar";
+    message = t("Cuenta… y a tocar");
     setTimeout(() => {
       if (!recording) return;
-      message = "Grabando";
+      message = t("Grabando");
       player.seek(beatToSec(current(), playhead));
       player.play();
     }, (meta.meter * spb + 0.1) * 1000);
@@ -364,7 +365,7 @@
     }
     g.fillStyle = C.text3;
     g.font = "500 10px 'JetBrains Mono Variable', monospace";
-    g.fillText("Fuerza", 8, lt + VEL_H / 2 + 4);
+    g.fillText(t("Fuerza"), 8, lt + VEL_H / 2 + 4);
     // teclado a la izquierda
     for (let p = HI; p >= LO; p--) {
       const y = toY(p);
@@ -641,7 +642,7 @@
       await writeBytes(path, data);
       await revealItemInDir(path);
     } catch (e) {
-      message = `No se pudo exportar: ${e}`;
+      message = t("No se pudo exportar: {e}", { e: String(e) });
     }
   }
 
@@ -649,10 +650,10 @@
   async function toSession() {
     try {
       await pieceToSession(current(), latin);
-      message = "Guardada como sesión";
+      message = t("Guardada como sesión");
       goSessions = true;
     } catch (e) {
-      message = `No se pudo guardar como sesión: ${e}`;
+      message = t("No se pudo guardar como sesión: {e}", { e: String(e) });
     }
   }
 
@@ -662,12 +663,12 @@
   $effect(() => {
     if (!showScore) return;
     const pc = { ...current(), notes };
-    const t = setTimeout(async () => {
+    const tr = setTimeout(async () => {
       const path = `${pieceDir()}/${pc.id}.musicxml`;
       await writeBytes(path, new TextEncoder().encode(toMusicXML(pieceArrangement(pc, { tonic: 0, minor: false }), pc.title)));
       scorePath = `${path}?v=${Date.now()}`; // otra ruta: la partitura se vuelve a montar
     }, 1200);
-    return () => clearTimeout(t);
+    return () => clearTimeout(tr);
   });
   const scoreSong = $derived({ id: piece.id, title: meta.title, dir: pieceDir(), mix: "", bpm: meta.bpm, stems: [] });
 
@@ -686,74 +687,74 @@
 
 <section class="editor">
   <header class="head">
-    <IconButton icon="back" label="Volver (se guarda sola)" onclick={onclose} />
-    <Popover width={300} label="La pieza">
+    <IconButton icon="back" label={t("Volver (se guarda sola)")} onclick={onclose} />
+    <Popover width={300} label={t("La pieza")}>
       {#snippet trigger({ toggle })}
-        <button type="button" class="name" onclick={toggle} title="Título, tempo y compás">
-          <strong>{meta.title || "Sin título"}</strong>
+        <button type="button" class="name" onclick={toggle} title={t("Título, tempo y compás")}>
+          <strong>{meta.title || t("Sin título")}</strong>
           <span class="num">{meta.bpm} bpm · {meta.meter}/4{keyLabel ? ` · ${keyLabel}` : ""}</span>
         </button>
       {/snippet}
       <div class="opts-pop">
-        <Field label="Título" bind:value={meta.title} data-autofocus />
-        <span class="lbl">Tempo</span>
-        <Stepper bind:value={meta.bpm} min={30} max={260} label="Tempo" format={(v) => `${v} bpm`} />
-        <span class="lbl">Compás</span>
-        <Tabs size="sm" label="Compás" bind:value={() => String(meta.meter), (v) => (meta.meter = +v)} options={[2, 3, 4, 5, 6, 7].map((m) => ({ value: String(m), label: `${m}/4` }))} />
+        <Field label={t("Título")} bind:value={meta.title} data-autofocus />
+        <span class="lbl">{t("Tempo")}</span>
+        <Stepper bind:value={meta.bpm} min={30} max={260} label={t("Tempo")} format={(v) => `${v} bpm`} />
+        <span class="lbl">{t("Compás")}</span>
+        <Tabs size="sm" label={t("Compás")} bind:value={() => String(meta.meter), (v) => (meta.meter = +v)} options={[2, 3, 4, 5, 6, 7].map((m) => ({ value: String(m), label: `${m}/4` }))} />
       </div>
     </Popover>
     {#if message}<Chip>{#if recording}<span class="rec-dot"></span>{/if}{message}</Chip>{/if}
     {#if goSessions}
-      <Button size="sm" variant="ghost" icon="sessions" onclick={onsessions}>Ir a Sesiones</Button>
-      <IconButton icon="close" size="sm" label="Cerrar aviso" onclick={() => ((goSessions = false), (message = ""))} />
+      <Button size="sm" variant="ghost" icon="sessions" onclick={onsessions}>{t("Ir a Sesiones")}</Button>
+      <IconButton icon="close" size="sm" label={t("Cerrar aviso")} onclick={() => ((goSessions = false), (message = ""))} />
     {/if}
     <span class="fill"></span>
-    <span class="pos num" title="Compás.pulso del cursor · notas">{fmtPos(playhead)} · {notes.length}</span>
+    <span class="pos num" title={t("Compás.pulso del cursor · notas")}>{fmtPos(playhead)} · {notes.length}</span>
     <MidiStatus />
-    <Menu align="end" label="Exportar" items={[
-      { label: "Exportar a MIDI", icon: "download", run: () => exportAs("mid") },
-      { label: "Exportar a MusicXML", icon: "download", title: "MuseScore…", run: () => exportAs("musicxml") },
+    <Menu align="end" label={t("Exportar")} items={[
+      { label: t("Exportar a MIDI"), icon: "download", run: () => exportAs("mid") },
+      { label: t("Exportar a MusicXML"), icon: "download", title: "MuseScore…", run: () => exportAs("musicxml") },
       "-",
-      { label: "Pasar a Sesiones", icon: "sessions", title: "Piano roll, acordes y análisis de Claude", run: toSession },
+      { label: t("Pasar a Sesiones"), icon: "sessions", title: t("Piano roll, acordes y análisis de Claude"), run: toSession },
     ]}>
-      {#snippet trigger({ toggle })}<IconButton icon="more" label="Exportar" onclick={toggle} />{/snippet}
+      {#snippet trigger({ toggle })}<IconButton icon="more" label={t("Exportar")} onclick={toggle} />{/snippet}
     </Menu>
-    <Button variant="primary" icon="learn" onclick={() => onpractice(current())} disabled={!notes.length}>Practicar</Button>
+    <Button variant="primary" icon="learn" onclick={() => onpractice(current())} disabled={!notes.length}>{t("Practicar")}</Button>
   </header>
 
   <div class="tools">
     <PlayButton {playing} onclick={play} size={32} />
-    <Button variant={recording ? "danger" : "ghost"} icon="record" active={recording} onclick={record} title="Grabar en tiempo real: cuenta de un compás y metrónomo">{recording ? "Parar" : "Grabar"}</Button>
+    <Button variant={recording ? "danger" : "ghost"} icon="record" active={recording} onclick={record} title={t("Grabar en tiempo real: cuenta de un compás y metrónomo")}>{recording ? t("Parar") : t("Grabar")}</Button>
     <span class="sep"></span>
-    <Toggle bind:checked={stepInput} title="Sin grabar: cada nota que tocas se escribe en el cursor con lo que la mantienes, y el cursor avanza">Paso a paso</Toggle>
-    <Toggle bind:checked={metronome}>Metrónomo</Toggle>
-    <Toggle bind:checked={quantize} title="Al grabar, cuadrar a la cuadrícula">Cuadrar</Toggle>
+    <Toggle bind:checked={stepInput} title={t("Sin grabar: cada nota que tocas se escribe en el cursor con lo que la mantienes, y el cursor avanza")}>{t("Paso a paso")}</Toggle>
+    <Toggle bind:checked={metronome}>{t("Metrónomo")}</Toggle>
+    <Toggle bind:checked={quantize} title={t("Al grabar, cuadrar a la cuadrícula")}>{t("Cuadrar")}</Toggle>
     <span class="sep"></span>
-    <Tabs size="sm" label="Cuadrícula" bind:value={() => String(GRIDS.findIndex((g) => g[0] === grid)), (v) => (grid = GRIDS[+v][0])}
-      options={GRIDS.map(([, label, title], i) => ({ value: String(i), label, title }))} />
-    <div class="hands" title="Mano de las notas nuevas (Tab cambia la de las elegidas)">
-      <Chip active={handMode === "auto"} onclick={() => (handMode = "auto")}>Auto</Chip>
-      <Chip active={handMode === "lh"} color={COLORS.lh} onclick={() => (handMode = "lh")}>Izq.</Chip>
-      <Chip active={handMode === "rh"} color={COLORS.rh} onclick={() => (handMode = "rh")}>Der.</Chip>
+    <Tabs size="sm" label={t("Cuadrícula")} bind:value={() => String(GRIDS.findIndex((g) => g[0] === grid)), (v) => (grid = GRIDS[+v][0])}
+      options={GRIDS.map(([, label, title], i) => ({ value: String(i), label, title: t(title) }))} />
+    <div class="hands" title={t("Mano de las notas nuevas (Tab cambia la de las elegidas)")}>
+      <Chip active={handMode === "auto"} onclick={() => (handMode = "auto")}>{t("Auto")}</Chip>
+      <Chip active={handMode === "lh"} color={COLORS.lh} onclick={() => (handMode = "lh")}>{t("Izq.")}</Chip>
+      <Chip active={handMode === "rh"} color={COLORS.rh} onclick={() => (handMode = "rh")}>{t("Der.")}</Chip>
     </div>
-    <label class="vel" title={selected.size ? `Fuerza de las ${selected.size} notas elegidas (Alt+↑↓; o en el carril de abajo)` : "Fuerza de las notas nuevas"}>
-      <span>Fuerza{selected.size ? ` (${selected.size})` : ""}</span>
+    <label class="vel" title={selected.size ? t("Fuerza de las {n} notas elegidas (Alt+↑↓; o en el carril de abajo)", { n: selected.size }) : t("Fuerza de las notas nuevas")}>
+      <span>{t("Fuerza")}{selected.size ? ` (${selected.size})` : ""}</span>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span class="sl" onpointerdown={() => selected.size && remember()}>
-        <Slider value={velShown} min={0.05} max={1} step={0.01} label="Fuerza" oninput={setVel} />
+        <Slider value={velShown} min={0.05} max={1} step={0.01} label={t("Fuerza")} oninput={setVel} />
       </span>
       <span class="num">{Math.round(velShown * 127)}</span>
     </label>
     <span class="sep"></span>
-    <IconButton icon="undo" label="Deshacer" kbd="Ctrl+Z" size="sm" onclick={() => restore(undo, redo)} />
-    <IconButton icon="redo" label="Rehacer" kbd="Ctrl+Y" size="sm" onclick={() => restore(redo, undo)} />
-    <Button size="sm" variant="ghost" onclick={quantizeNotes} title="Cuadrar a la cuadrícula lo elegido, o todo (Ctrl+Q)">Cuadrar</Button>
+    <IconButton icon="undo" label={t("Deshacer")} kbd="Ctrl+Z" size="sm" onclick={() => restore(undo, redo)} />
+    <IconButton icon="redo" label={t("Rehacer")} kbd="Ctrl+Y" size="sm" onclick={() => restore(redo, undo)} />
+    <Button size="sm" variant="ghost" onclick={quantizeNotes} title={t("Cuadrar a la cuadrícula lo elegido, o todo (Ctrl+Q)")}>{t("Cuadrar")}</Button>
     <span class="fill"></span>
-    <IconButton icon="score" label="Partitura" active={showScore} onclick={() => (showScore = !showScore)} />
-    <Popover align="end" width={320} label="Atajos">
-      {#snippet trigger({ toggle })}<IconButton icon="help" label="Atajos" onclick={toggle} />{/snippet}
+    <IconButton icon="score" label={t("Partitura")} active={showScore} onclick={() => (showScore = !showScore)} />
+    <Popover align="end" width={320} label={t("Atajos")}>
+      {#snippet trigger({ toggle })}<IconButton icon="help" label={t("Atajos")} onclick={toggle} />{/snippet}
       <dl class="keys">
-        {#each KEYS as [k, what] (k)}<dt>{#if k.includes("+")}<Kbd keys={k} />{:else}<kbd>{k}</kbd>{/if}</dt><dd>{what}</dd>{/each}
+        {#each KEYS as [k, what] (k)}<dt>{#if k.includes("+")}<Kbd keys={k} />{:else}<kbd>{t(k)}</kbd>{/if}</dt><dd>{t(what)}</dd>{/each}
       </dl>
     </Popover>
   </div>
@@ -761,13 +762,13 @@
   <div class="stage" bind:clientWidth={width} bind:clientHeight={height}>
     <canvas bind:this={canvas} style:height="{height}px" onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onwheel={wheel} oncontextmenu={(e) => e.preventDefault()}></canvas>
     {#if !notes.length}
-      <p class="empty-hint">Toca en el piano (o A–Ñ en el teclado) y cada nota se escribe en el cursor · clic pone una nota</p>
+      <p class="empty-hint">{t("Toca en el piano (o A–Ñ en el teclado) y cada nota se escribe en el cursor · clic pone una nota")}</p>
     {/if}
   </div>
   {#if showScore && scorePath}
     <div class="score">
       {#key scorePath}
-        <Score song={scoreSong} stems={[]} path={scorePath.split("?")[0]} {player} controls={noControls} bind:follow={settings.scoreFollow} title={meta.title} beatAt={(t) => secToBeat(current(), t)} pdfName={safeName} />
+        <Score song={scoreSong} stems={[]} path={scorePath.split("?")[0]} {player} controls={noControls} bind:follow={settings.scoreFollow} title={meta.title} beatAt={(at) => secToBeat(current(), at)} pdfName={safeName} />
       {/key}
     </div>
   {/if}
