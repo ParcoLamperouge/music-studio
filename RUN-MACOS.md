@@ -37,6 +37,25 @@ fnm exec --using=v24.22.1 -- npm run tauri dev
 - Quit: close the window, or Ctrl+C in the terminal.
 - Only one instance can run at a time (file lock in the data folder).
 
+## Languages (English / 简体中文 / Español)
+
+This fork adds full interface language support. Open **Settings (Ajustes)** — the
+first row is **Idioma · Language · 语言** — pick Español, English or 简体中文;
+the whole UI switches live and the choice persists (settings.json). First run
+follows your system language.
+
+Translated: all menus and views, the work queue, engine progress labels and
+error messages, the edit-video editor, and the Claude analysis output language.
+Left in Spanish on purpose: the piano-course lesson content (Curso) and
+exercise/obra texts (a future content-translation pass), and the instrument
+names baked into MusicXML/PDF exports.
+
+Developer notes: keys are the Spanish source strings; dictionaries live in
+`app/src/lib/locales/{en,zh}.ts`; `src/lib/locales.test.ts` (in `npm test`)
+enforces en/zh key parity and `{param}` consistency. Engine/Rust strings are
+translated at display time by `engineLabel()`/`engineErr()` templates in
+`src/lib/i18n.svelte.ts`.
+
 ### Your data lives in
 
 - `~/.local/share/estudio` — main data (override with `ESTUDIO_DATA`)
