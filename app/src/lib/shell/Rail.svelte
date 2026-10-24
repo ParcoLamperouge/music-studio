@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../i18n.svelte";
   import Icon from "../ui/Icon.svelte";
   import IconButton from "../ui/IconButton.svelte";
   import { tooltip } from "../ui/tooltip";
@@ -8,9 +9,9 @@
   let { view, onnav, onsearch, onsettings }: { view: View; onnav: (v: View) => void; onsearch: () => void; onsettings: () => void } = $props();
 </script>
 
-<nav class="rail" aria-label="Secciones">
+<nav class="rail" aria-label={t("Secciones")}>
   <span class="mark" aria-hidden="true">E</span>
-  <IconButton icon="search" label="Buscar o ir a…" kbd="Ctrl+K" side="right" size="lg" onclick={onsearch} />
+  <IconButton icon="search" label={t("Buscar o ir a…")} kbd="Ctrl+K" side="right" size="lg" onclick={onsearch} />
   <span class="sep"></span>
   {#each RAIL as r, i (r.id)}
     <button
@@ -18,15 +19,15 @@
       class="nav-btn"
       class:current={view === r.id}
       aria-current={view === r.id ? "page" : undefined}
-      aria-label={r.label}
-      use:tooltip={{ text: r.label, kbd: `Alt+${i + 1}`, side: "right" }}
+      aria-label={t(r.label)}
+      use:tooltip={{ text: t(r.label), kbd: `Alt+${i + 1}`, side: "right" }}
       onclick={() => onnav(r.id)}
     >
       <Icon name={r.icon} size={20} />
     </button>
   {/each}
   <span class="grow"></span>
-  <IconButton icon="settings" label="Ajustes" side="right" size="lg" onclick={onsettings} />
+  <IconButton icon="settings" label={t("Ajustes")} side="right" size="lg" onclick={onsettings} />
 </nav>
 
 <style>

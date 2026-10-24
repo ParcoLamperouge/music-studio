@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enqueue, gpuName, paths, prefetchNow, readBytes, run, settingsPath, writeBytes, writeJson } from "./engine";
+  import { LANGS, t } from "./i18n.svelte";
   import { settings } from "./settings.svelte";
   import { refresh, store } from "./store.svelte";
   import Button from "./ui/Button.svelte";
@@ -31,16 +32,16 @@
   async function save() {
     await writeBytes(file(), new TextEncoder().encode(playlists.trim() + "\n"));
     saved = playlists;
-    msg = "Guardadas";
+    msg = t("Guardadas");
   }
   async function now() {
     if (playlists !== saved) await save();
     msg = "";
     try {
       await prefetchNow();
-      msg = "Prefetch en marcha, en segundo plano";
+      msg = t("Prefetch en marcha, en segundo plano");
     } catch (e) {
-      msg = `No arranca el timer: ${e}`;
+      msg = t("No arranca el timer: {e}", { e: String(e) });
     }
   }
   let remoteMsg = $state("");
@@ -49,10 +50,10 @@
     return (await run<{ songs: Record<string, unknown> }>("remote_list", [])).songs;
   }
   async function test() {
-    remoteMsg = "Probando…";
+    remoteMsg = t("Probando…");
     try {
       const n = Object.keys(await remoteSongs()).length;
-      remoteMsg = `Conectado · ${n} canci${n === 1 ? "ón" : "ones"} allí`;
+      remoteMsg = t(n === 1 ? "Conectado · {n} canción allí" : "Conectado · {n} canciones allí", { n });
     } catch (e) {
       remoteMsg = `${e}`;
     }
@@ -61,7 +62,7 @@
     try {
       const keys = [...new Set([...store.tracks.map((t) => t.key), ...Object.keys(await remoteSongs())])];
       await enqueue("remote", keys);
-      remoteMsg = `En la cola: ${keys.length} canciones`;
+      remoteMsg = t("En la cola: {n} canciones", { n: keys.length });
     } catch (e) {
       remoteMsg = `${e}`;
     }
@@ -73,26 +74,33 @@
   }
 </script>
 
-<Dialog bind:open title="Ajustes" width={600}>
+<Dialog bind:open title={t("Ajustes")} width={600}>
   <div class="sets">
     <section>
-      <h3>Reproducción</h3>
       <div class="row">
-        <span class="lbl">Volumen general</span>
-        <div class="ctl"><Slider bind:value={settings.masterVolume} label="Volumen general" /></div>
+        <span class="lbl">{t("Idioma")}</span>
+        <div class="ctl"><Tabs size="sm" label={t("Idioma")} bind:value={settings.lang} options={LANGS} /></div>
       </div>
-      <div class="row">
-        <span class="lbl">Velocidad del piano roll<small>ventana en segundos</small></span>
-        <div class="ctl"><Slider bind:value={settings.rollSpeed} min={1} max={6} step={0.5} label="Ventana del piano roll" /></div>
-      </div>
-      <Toggle bind:checked={settings.scoreFollow}>La partitura sigue la música</Toggle>
-      <Toggle bind:checked={settings.showMini}>Mezclador pequeño en la canción</Toggle>
     </section>
 
     <section>
-      <h3>Aprender</h3>
+      <h3>{t("Reproducción")}</h3>
       <div class="row">
-        <span class="lbl">Latencia teclado a oído<small>ms que se restan al juzgar el tiempo</small></span>
+        <span class="lbl">{t("Volumen general")}</span>
+        <div class="ctl"><Slider bind:value={settings.masterVolume} label={t("Volumen general")} /></div>
+      </div>
+      <div class="row">
+        <span class="lbl">{t("Velocidad del piano roll")}<small>{t("ventana en segundos")}</small></span>
+        <div class="ctl"><Slider bind:value={settings.rollSpeed} min={1} max={6} step={0.5} label={t("Ventana del piano roll")} /></div>
+      </div>
+      <Toggle bind:checked={settings.scoreFollow}>{t("La partitura sigue la música")}</Toggle>
+      <Toggle bind:checked={settings.showMini}>{t("Mezclador pequeño en la canción")}</Toggle>
+    </section>
+
+    <section>
+      <h3>{t("Aprender")}</h3>
+      <div class="row">
+        <span class="lbl">{t("Latencia teclado a oído")}<small>{t("ms que se restan al juzgar el tiempo")}</small></span>
         <div class="ctl narrow">
           <Field label="ms" type="number" min="0" max="300" step="5" value={String(settings.latencyMs)} oninput={(e) => (settings.latencyMs = Math.max(0, Math.round(+e.currentTarget.value || 0)))} />
         </div>
@@ -100,16 +108,17 @@
     </section>
 
     <section>
-      <h3>Análisis</h3>
-      <Toggle bind:checked={settings.spotify}>Sincronizar la letra de lo que suena en Spotify</Toggle>
+      <h3>{t("Análisis")}</h3>
+      <Toggle bind:checked={settings.spotify}>{t("Sincronizar la letra de lo que suena en Spotify")}</Toggle>
       <div class="row">
-        <span class="lbl">Notas por defecto</span>
-        <Tabs size="sm" label="Notas por defecto" bind:value={settings.notes} options={[{ value: "fast", label: "Rápidas", title: "basic-pitch · CPU, segundos por pista" }, { value: "precise", label: "Precisas", title: "MuScriptor · GPU, minutos por pista, mucho mejor en guitarra y piano" }]} />
+        <span class="lbl">{t("Notas por defecto")}</span>
+        <Tabs size="sm" label={t("Notas por defecto")} bind:value={settings.notes} options={[{ value: "fast", label: t("Rápidas"), title: t("basic-pitch · CPU, segundos por pista") }, { value: "precise", label: t("Precisas"), title: t("MuScriptor · GPU, minutos por pista, mucho mejor en guitarra y piano") }]} />
       </div>
       {#if settings.notes === "precise"}
         <p class="note">
-          MuScriptor pide aceptar su licencia (no comercial) en
-          <a href="https://huggingface.co/MuScriptor/muscriptor-medium" target="_blank" rel="noreferrer">Hugging Face</a> y, una vez:
+          {t("MuScriptor pide aceptar su licencia (no comercial) en")}
+          <a href="https://huggingface.co/MuScriptor/muscriptor-medium" target="_blank" rel="noreferrer">Hugging Face</a>
+          {t("y, una vez:")}
           <code>~/Projects/estudio/engine/.venv/bin/hf auth login</code>
         </p>
       {/if}
@@ -117,38 +126,38 @@
     </section>
 
     <section>
-      <h3>Servidor</h3>
-      <Field label="Dirección" type="url" placeholder="http://127.0.0.1:8765" spellcheck="false" bind:value={settings.remote} />
-      <Field label="Token" type="password" placeholder="si el servidor lo pide" bind:value={settings.remoteToken} />
+      <h3>{t("Servidor")}</h3>
+      <Field label={t("Dirección")} type="url" placeholder="http://127.0.0.1:8765" spellcheck="false" bind:value={settings.remote} />
+      <Field label={t("Token")} type="password" placeholder={t("si el servidor lo pide")} bind:value={settings.remoteToken} />
       <div class="acts">
-        <Button size="sm" icon="link" disabled={!settings.remote} onclick={test}>Probar</Button>
-        <Button size="sm" icon="cloud" disabled={!settings.remote} onclick={syncAll}>Sincronizar todo</Button>
+        <Button size="sm" icon="link" disabled={!settings.remote} onclick={test}>{t("Probar")}</Button>
+        <Button size="sm" icon="cloud" disabled={!settings.remote} onclick={syncAll}>{t("Sincronizar todo")}</Button>
         {#if remoteMsg}<span class="note">{remoteMsg}</span>{/if}
       </div>
-      <p class="note">Lo procesado se guarda allí y otro ordenador lo baja en vez de rehacerlo. <code>python3 server/server.py</code></p>
+      <p class="note">{t("Lo procesado se guarda allí y otro ordenador lo baja en vez de rehacerlo.")} <code>python3 server/server.py</code></p>
     </section>
 
     <section>
-      <h3>Playlists de Spotify</h3>
-      <Textarea label="Una URL pública por línea" rows={4} placeholder="https://open.spotify.com/playlist/…" bind:value={playlists} />
+      <h3>{t("Playlists de Spotify")}</h3>
+      <Textarea label={t("Una URL pública por línea")} rows={4} placeholder="https://open.spotify.com/playlist/…" bind:value={playlists} />
       <div class="acts">
-        <Button size="sm" disabled={playlists === saved} onclick={save}>Guardar</Button>
-        <Button size="sm" icon="retry" onclick={now}>Procesar ahora</Button>
+        <Button size="sm" disabled={playlists === saved} onclick={save}>{t("Guardar")}</Button>
+        <Button size="sm" icon="retry" onclick={now}>{t("Procesar ahora")}</Button>
         {#if msg}<span class="note">{msg}</span>{/if}
       </div>
-      <p class="note">Cada 6 h se sincronizan con IA en segundo plano.</p>
+      <p class="note">{t("Cada 6 h se sincronizan con IA en segundo plano.")}</p>
     </section>
 
     {#if failed.length}
       <section>
-        <h3>Fallaron en el prefetch · {failed.length}</h3>
-        {#each failed as t (t.key)}
+        <h3>{t("Fallaron en el prefetch · {n}", { n: failed.length })}</h3>
+        {#each failed as t2 (t2.key)}
           <div class="row">
-            <Button variant="ghost" size="sm" onclick={() => ((open = false), onopen(t.key))}>{t.title} · {t.artist}</Button>
-            <Button size="sm" icon="retry" onclick={() => retry([t.key])}>Reintentar</Button>
+            <Button variant="ghost" size="sm" onclick={() => ((open = false), onopen(t2.key))}>{t2.title} · {t2.artist}</Button>
+            <Button size="sm" icon="retry" onclick={() => retry([t2.key])}>{t("Reintentar")}</Button>
           </div>
         {/each}
-        <Button size="sm" icon="retry" onclick={() => retry(failed.map((t) => t.key))}>Reintentar todas</Button>
+        <Button size="sm" icon="retry" onclick={() => retry(failed.map((t2) => t2.key))}>{t("Reintentar todas")}</Button>
       </section>
     {/if}
   </div>

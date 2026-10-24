@@ -3,6 +3,9 @@ import { ROLL_DEFAULT } from "./rollfx";
 
 /** Ajustes generales (settings.json). Rust lee «spotify»; el resto es de la vista. Se guardan juntos y con retardo. */
 export const settings = $state({
+  // idioma de la interfaz; sin valor guardado, el del sistema (zh→zh, es→es, resto→en)
+  lang: ((n = (navigator?.language ?? "en").toLowerCase()) =>
+    n.startsWith("zh") ? "zh" : n.startsWith("es") ? "es" : "en")() as "es" | "en" | "zh",
   masterVolume: 1,
   showMini: false,
   rollSpeed: 2.5,

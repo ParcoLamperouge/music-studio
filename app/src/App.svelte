@@ -6,6 +6,7 @@
   import { deck, deckPause, deckPlay, deckToggle } from "./lib/deck.svelte";
   import EarView from "./lib/EarView.svelte";
   import { enqueue, gpuName, importSources, initPaths, run } from "./lib/engine";
+  import { t } from "./lib/i18n.svelte";
   import LearnView from "./lib/LearnView.svelte";
   import Library from "./lib/Library.svelte";
   import PlayView from "./lib/PlayView.svelte";
@@ -45,6 +46,11 @@
   $effect(() => {
     JSON.stringify(settings);
     untrack(saveSettings);
+  });
+
+  // el idioma de la interfaz, también en el <html> (lectores, tipografía del chino)
+  $effect(() => {
+    document.documentElement.lang = settings.lang;
   });
 
   onMount(() => {
@@ -105,9 +111,9 @@
     if (action.startsWith("delete-")) {
       const what = action.slice(7);
       const msg = {
-        audio: `Borrar el audio en caché de ${keys.length} canciones (se puede volver a sacar).`,
-        stems: `Borrar pistas y partituras de ${keys.length} canciones.`,
-        all: `Borrar ${keys.length} canciones enteras: letra, audio, pistas, partituras y edits. No se puede deshacer.`,
+        audio: t("Borrar el audio en caché de {n} canciones (se puede volver a sacar).", { n: keys.length }),
+        stems: t("Borrar pistas y partituras de {n} canciones.", { n: keys.length }),
+        all: t("Borrar {n} canciones enteras: letra, audio, pistas, partituras y edits. No se puede deshacer.", { n: keys.length }),
       }[what];
       if (!confirm(msg)) return;
       await Promise.all(keys.map((k) => run("delete", [k, what]).catch(() => {})));
@@ -126,11 +132,11 @@
   }
 
   const commands = $derived<Command[]>([
-    ...RAIL.map((r, i) => ({ id: `view:${r.id}`, label: r.label, icon: r.icon, kbd: `Alt+${i + 1}`, group: "Ir a", run: () => go(r.id) })),
-    { id: "add", label: "Añadir canciones", hint: "enlace, YouTube, nombre o ficheros", icon: "plus", kbd: "N", group: "Acciones", run: () => (adding = true) },
-    { id: "queue", label: "Cola de trabajo", icon: "queue", kbd: "Q", group: "Acciones", run: () => (queueOpen = true) },
-    ...(deck.key && view === "biblioteca" ? [{ id: "toggle", label: deck.playing ? "Pausar" : "Reproducir", hint: store.tracks.find((t) => t.key === deck.key)?.title, icon: (deck.playing ? "pause" : "play") as IconName, group: "Acciones", run: deckToggle }] : []),
-    { id: "settings", label: "Ajustes", hint: "Spotify, notas, servidor, playlists", icon: "settings", group: "Acciones", run: () => (settingsOpen = true) },
+    ...RAIL.map((r, i) => ({ id: `view:${r.id}`, label: t(r.label), icon: r.icon, kbd: `Alt+${i + 1}`, group: t("Ir a"), run: () => go(r.id) })),
+    { id: "add", label: t("Añadir canciones"), hint: t("enlace, YouTube, nombre o ficheros"), icon: "plus", kbd: "N", group: t("Acciones"), run: () => (adding = true) },
+    { id: "queue", label: t("Cola de trabajo"), icon: "queue", kbd: "Q", group: t("Acciones"), run: () => (queueOpen = true) },
+    ...(deck.key && view === "biblioteca" ? [{ id: "toggle", label: deck.playing ? t("Pausar") : t("Reproducir"), hint: store.tracks.find((tk) => tk.key === deck.key)?.title, icon: (deck.playing ? "pause" : "play") as IconName, group: t("Acciones"), run: deckToggle }] : []),
+    { id: "settings", label: t("Ajustes"), hint: t("Spotify, notas, servidor, playlists"), icon: "settings", group: t("Acciones"), run: () => (settingsOpen = true) },
   ]);
 
   function onkey(e: KeyboardEvent) {
@@ -157,12 +163,12 @@
 {#if fatal}
   <div class="fatal">
     <Icon name="alert" size={28} />
-    <h1>No arranca el motor</h1>
+    <h1>{t("No arranca el motor")}</h1>
     <pre>{fatal}</pre>
-    <p>Prepara el motor: <code>cd ~/Projects/estudio/engine &amp;&amp; uv sync</code> (o <code>./install.sh</code> en el repo).</p>
+    <p>{t("Prepara el motor:")} <code>cd ~/Projects/estudio/engine &amp;&amp; uv sync</code> {t("(o ./install.sh en el repo).")}</p>
   </div>
 {:else if !ready}
-  <div class="boot" aria-label="Cargando"><span class="mark">E</span></div>
+  <div class="boot" aria-label={t("Cargando")}><span class="mark">E</span></div>
 {:else}
   <div class="shell" class:with-player={showPlayer}>
     <Rail {view} onnav={go} onsearch={() => (paletteOpen = true)} onsettings={() => (settingsOpen = true)} />
@@ -172,7 +178,7 @@
         <!-- la canción abierta sigue montada (sonando) aunque no se vea -->
         <div class="page song" class:hidden={!songOpen}>
           <div class="crumb">
-            <Button size="sm" variant="ghost" icon="back" onclick={() => ((songShown = false), url())}>Biblioteca</Button>
+            <Button size="sm" variant="ghost" icon="back" onclick={() => ((songShown = false), url())}>{t("Biblioteca")}</Button>
           </div>
           {#key loaded}
             <SongView
@@ -218,7 +224,7 @@
   <SettingsPanel bind:open={settingsOpen} onopen={(k) => openSong(k)} />
   {#if dragging}
     <div class="drop" aria-hidden="true">
-      <div><Icon name="upload" size={32} /><strong>Suelta para importar</strong><span>audio o vídeo</span></div>
+      <div><Icon name="upload" size={32} /><strong>{t("Suelta para importar")}</strong><span>{t("audio o vídeo")}</span></div>
     </div>
   {/if}
 {/if}
