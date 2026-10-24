@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import { t } from "../i18n.svelte";
 
   // Reproducir / pausa: el botón redondo y macizo de cada transporte (uno por pantalla).
   let { playing, disabled = false, size = 36, onclick }: { playing: boolean; disabled?: boolean; size?: number; onclick: () => void } = $props();
@@ -11,8 +12,8 @@
   style:width="{size}px"
   style:height="{size}px"
   {disabled}
-  aria-label={playing ? "Pausa" : "Reproducir"}
-  title={playing ? "Pausa (Espacio)" : "Reproducir (Espacio)"}
+  aria-label={playing ? t("Pausa") : t("Reproducir")}
+  title={playing ? t("Pausa (Espacio)") : t("Reproducir (Espacio)")}
   {onclick}
 >
   <Icon name={playing ? "pause" : "play"} size={Math.round(size * 0.44)} />

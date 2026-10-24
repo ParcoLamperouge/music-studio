@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import Icon from "./Icon.svelte";
+  import { t } from "../i18n.svelte";
 
   // Respuesta grande de una prueba (oído): `state` right (era esta, ✓), wrong (la elegida y mal, ×), dim (las demás al
   // contestar). `kbd`: la tecla que la elige. Lo de dentro (texto, acordes) como hijo.
@@ -17,8 +18,8 @@
 <button type="button" class="ans {state}" {disabled} {title} {onclick}>
   {#if kbd}<kbd>{kbd}</kbd>{/if}
   <span class="body">{@render children()}</span>
-  {#if state === "right"}<span class="mark"><Icon name="check" size={16} label="Correcta" /></span>
-  {:else if state === "wrong"}<span class="mark"><Icon name="close" size={16} label="Incorrecta" /></span>{/if}
+  {#if state === "right"}<span class="mark"><Icon name="check" size={16} label={t("Correcta")} /></span>
+  {:else if state === "wrong"}<span class="mark"><Icon name="close" size={16} label={t("Incorrecta")} /></span>{/if}
 </button>
 
 <style>

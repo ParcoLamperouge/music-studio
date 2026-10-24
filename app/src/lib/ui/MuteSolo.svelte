@@ -1,11 +1,13 @@
 <script lang="ts">
+  import { t } from "../i18n.svelte";
+
   // Silenciar / solo de una pista: dos botoncitos M y S. Solo va en amarillo de aviso (se oye solo esa).
   let { muted = $bindable(false), solo = $bindable(false), label = "" }: { muted: boolean; solo: boolean; label?: string } = $props();
 </script>
 
 <span class="ms">
-  <button type="button" class:on={muted} aria-pressed={muted} aria-label="Silenciar {label}" title="Silenciar" onclick={() => (muted = !muted)}>M</button>
-  <button type="button" class="s" class:on={solo} aria-pressed={solo} aria-label="Solo {label}" title="Solo" onclick={() => (solo = !solo)}>S</button>
+  <button type="button" class:on={muted} aria-pressed={muted} aria-label={t("Silenciar {label}", { label })} title={t("Silenciar")} onclick={() => (muted = !muted)}>M</button>
+  <button type="button" class="s" class:on={solo} aria-pressed={solo} aria-label={t("Solo {label}", { label })} title={t("Solo")} onclick={() => (solo = !solo)}>S</button>
 </span>
 
 <style>

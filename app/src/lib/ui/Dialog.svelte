@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import IconButton from "./IconButton.svelte";
+  import { t } from "../i18n.svelte";
 
   // Modal (<dialog> nativo: foco atrapado, Esc, fondo). Se cierra también al pulsar fuera. `footer`: botones abajo.
   let {
@@ -30,7 +31,7 @@
       {#if title}
         <header>
           <h2>{title}</h2>
-          <IconButton icon="close" label="Cerrar" kbd="Esc" onclick={() => el?.close()} />
+          <IconButton icon="close" label={t("Cerrar")} kbd="Esc" onclick={() => el?.close()} />
         </header>
       {/if}
       <div class="body">{@render children()}</div>

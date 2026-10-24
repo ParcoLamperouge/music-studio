@@ -1,5 +1,6 @@
 import type { PlayerRef } from "@remotion/player";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { t } from "../../lib/i18n.svelte";
 import { FPS, songTime } from "../remotion/timing.ts";
 import type { Project, Song } from "./api.ts";
 
@@ -41,7 +42,7 @@ export function Timeline({ project, song, set, player }: { project: Project; son
   const frame = useFrame(player);
   const now = songTime(frame, project.start, project.rate);
   const dur = song.duration;
-  const t2x = (t: number) => (t / dur) * width;
+  const t2x = (tr: number) => (tr / dur) * width;
   const x2t = (x: number) => Math.max(0, Math.min(dur, (x / width) * dur));
 
   useLayoutEffect(() => {
@@ -66,8 +67,8 @@ export function Timeline({ project, song, set, player }: { project: Project; son
       const a = Math.floor((x / width) * n);
       const e = Math.min(n, Math.max(a + 1, Math.floor(((x + 1) / width) * n)));
       for (let i = a; i < e; i++) m = Math.max(m, song.peaks[i]);
-      const t = (x / width) * dur;
-      g.fillStyle = t >= project.start && t <= project.end ? accent : "rgba(255,255,255,.22)";
+      const tr = (x / width) * dur;
+      g.fillStyle = tr >= project.start && tr <= project.end ? accent : "rgba(255,255,255,.22)";
       const h = Math.max(1, m * m * (WAVE - 6)); // squared: mastered songs are loud everywhere
       g.fillRect(x, (WAVE - h) / 2, 1, h);
     }
@@ -90,13 +91,13 @@ export function Timeline({ project, song, set, player }: { project: Project; son
     g.fillRect(t2x(project.end) - 2, 0, 4, HEIGHT);
   }, [width, song, project.start, project.end]);
 
-  const snap = (t: number, kind: "start" | "end", free: boolean) => {
-    if (free) return t;
-    let best = t;
+  const snap = (tr: number, kind: "start" | "end", free: boolean) => {
+    if (free) return tr;
+    let best = tr;
     let dist = (8 / width) * dur;
     for (const l of song.lines) {
       const c = kind === "start" ? Math.max(0, l.t - 0.15) : l.end + 0.3;
-      if (Math.abs(c - t) < dist) [best, dist] = [c, Math.abs(c - t)];
+      if (Math.abs(c - tr) < dist) [best, dist] = [c, Math.abs(c - tr)];
     }
     return best;
   };
@@ -105,10 +106,10 @@ export function Timeline({ project, song, set, player }: { project: Project; son
 
   const down = (e: React.PointerEvent) => {
     const x = xOf(e);
-    const t = x2t(x);
+    const tr = x2t(x);
     const mode =
-      Math.abs(x - t2x(project.start)) < 8 ? "start" : Math.abs(x - t2x(project.end)) < 8 ? "end" : t > project.start && t < project.end ? "move" : "new";
-    drag.current = { mode, t0: t, start: project.start, end: project.end, moved: false };
+      Math.abs(x - t2x(project.start)) < 8 ? "start" : Math.abs(x - t2x(project.end)) < 8 ? "end" : tr > project.start && tr < project.end ? "move" : "new";
+    drag.current = { mode, t0: tr, start: project.start, end: project.end, moved: false };
     (e.target as Element).setPointerCapture(e.pointerId);
   };
   const move = (e: React.PointerEvent) => {
@@ -116,23 +117,23 @@ export function Timeline({ project, song, set, player }: { project: Project; son
     if (!d) {
       const x = xOf(e);
       const edge = Math.abs(x - t2x(project.start)) < 8 || Math.abs(x - t2x(project.end)) < 8;
-      const t = x2t(x);
-      canvas.current!.style.cursor = edge ? "ew-resize" : t > project.start && t < project.end ? "grab" : "crosshair";
+      const tr = x2t(x);
+      canvas.current!.style.cursor = edge ? "ew-resize" : tr > project.start && tr < project.end ? "grab" : "crosshair";
       return;
     }
-    const t = x2t(xOf(e));
-    if (!d.moved && Math.abs(t2x(t) - t2x(d.t0)) < 3) return;
+    const tr = x2t(xOf(e));
+    if (!d.moved && Math.abs(t2x(tr) - t2x(d.t0)) < 3) return;
     d.moved = true;
     let { start, end } = d;
-    if (d.mode === "start") start = Math.min(snap(t, "start", e.shiftKey), end - 1);
-    else if (d.mode === "end") end = Math.max(snap(t, "end", e.shiftKey), start + 1);
+    if (d.mode === "start") start = Math.min(snap(tr, "start", e.shiftKey), end - 1);
+    else if (d.mode === "end") end = Math.max(snap(tr, "end", e.shiftKey), start + 1);
     else if (d.mode === "move") {
-      const dt = Math.max(-start, Math.min(dur - end, t - d.t0));
+      const dt = Math.max(-start, Math.min(dur - end, tr - d.t0));
       start += dt;
       end += dt;
     } else {
-      start = snap(Math.min(d.t0, t), "start", e.shiftKey);
-      end = Math.max(start + 1, snap(Math.max(d.t0, t), "end", e.shiftKey));
+      start = snap(Math.min(d.t0, tr), "start", e.shiftKey);
+      end = Math.max(start + 1, snap(Math.max(d.t0, tr), "end", e.shiftKey));
     }
     set((p) => ({ ...p, start, end }), "range");
   };
@@ -140,16 +141,16 @@ export function Timeline({ project, song, set, player }: { project: Project; son
     const d = drag.current;
     drag.current = null;
     if (!d || d.moved) return;
-    const t = d.t0;
-    if (t >= project.start && t <= project.end) return seek(player, project, t);
+    const tr = d.t0;
+    if (tr >= project.start && tr <= project.end) return seek(player, project, tr);
     // click outside: move the clip there, same length
     const len = project.end - project.start;
-    const start = Math.min(snap(t, "start", e.shiftKey), dur - len);
+    const start = Math.min(snap(tr, "start", e.shiftKey), dur - len);
     set((p) => ({ ...p, start, end: start + len }));
   };
   const dbl = (e: React.MouseEvent) => {
-    const t = x2t(xOf(e));
-    const l = song.lines.find((l) => t >= l.t && t <= l.end);
+    const tr = x2t(xOf(e));
+    const l = song.lines.find((l) => tr >= l.t && tr <= l.end);
     if (!l) return;
     set((p) =>
       e.shiftKey ? { ...p, start: Math.min(p.start, l.t - 0.15), end: Math.max(p.end, l.end + 0.3) } : { ...p, start: Math.max(0, l.t - 0.15), end: l.end + 0.3 },
@@ -160,11 +161,11 @@ export function Timeline({ project, song, set, player }: { project: Project; son
     <div className="timeline">
       <div className="tl-head">
         <span>
-          Clip <b>{fmt(project.start)}</b> → <b>{fmt(project.end)}</b> · {((project.end - project.start) / project.rate).toFixed(1)} s de vídeo
+          {t("Clip")} <b>{fmt(project.start)}</b> → <b>{fmt(project.end)}</b> · {((project.end - project.start) / project.rate).toFixed(1)} {t("s de vídeo")}
         </span>
         <span className="muted">
-          {song.beats.length ? `${song.bpm} bpm · ${song.beats.length} pulsos` : "sin pulsos"} · arrastra los bordes o el clip · doble clic en un verso lo
-          selecciona (⇧ amplía) · ⇧ sin imán
+          {song.beats.length ? t("{bpm} bpm · {n} pulsos", { bpm: song.bpm ?? 0, n: song.beats.length }) : t("sin pulsos")}{" "}
+          {t("· arrastra los bordes o el clip · doble clic en un verso lo selecciona (⇧ amplía) · ⇧ sin imán")}
         </span>
         <span className="mono">{fmt(now)}</span>
       </div>

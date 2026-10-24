@@ -1,6 +1,7 @@
 <script lang="ts">
   import { keyName, noteName, type Key } from "../harmony";
   import { chordFn, FN_LABEL } from "./music";
+  import { t } from "../i18n.svelte";
 
   // Círculo de quintas: fuera los acordes mayores, dentro sus relativos menores. Con tonalidad, los suyos van en el color
   // de su función (flojo); los que suenan (`chords`, con su peso 0-1), más vivos; el de ahora, lleno y con borde.
@@ -42,7 +43,7 @@
         const home = !!tonality && tonality.tonic === s.root && tonality.minor === s.minor;
         const alpha = now ? 1 : w != null ? 0.35 + 0.55 * w : f && !f.borrowed ? 0.16 : 0;
         const name = noteName(s.root, tonality ?? k0, latin) + (s.minor ? "m" : "");
-        return { ...s, now, home, alpha, color: f ? f.color : "var(--text)", name, title: f ? `${name} · ${f.label} · ${FN_LABEL[f.fn]}` : name };
+        return { ...s, now, home, alpha, color: f ? f.color : "var(--text)", name, title: f ? `${name} · ${f.label} · ${t(FN_LABEL[f.fn])}` : name };
       });
     }).flat();
   });
@@ -50,7 +51,7 @@
   const kn = $derived(tonality ? keyName(tonality, latin).split(" ") : null);
 </script>
 
-<svg class="wheel" viewBox="-100 -100 200 200" width={size} height={size} role="img" aria-label={kn ? `Tonalidad: ${kn.join(" ")}` : "Tonalidad sin detectar"}>
+<svg class="wheel" viewBox="-100 -100 200 200" width={size} height={size} role="img" aria-label={kn ? t("Tonalidad: {k}", { k: kn.map((p) => t(p)).join(" ") }) : t("Tonalidad sin detectar")}>
   {#each segs as s (`${s.minor}${s.i}`)}
     {@const [x, y] = mid(s)}
     <g class:now={s.now}>
@@ -63,7 +64,7 @@
   <circle r={R[2] - 3} class="hub" />
   {#if kn}
     <text y="-2" class="key">{kn[0]}</text>
-    <text y="14" class="mode">{kn[1]}</text>
+    <text y="14" class="mode">{t(kn[1])}</text>
   {:else}
     <text y="4" class="mode">—</text>
   {/if}

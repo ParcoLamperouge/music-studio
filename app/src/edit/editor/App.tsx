@@ -1,6 +1,7 @@
 import { Player, type PlayerRef } from "@remotion/player";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, engineErr, engineLabel } from "../../lib/i18n.svelte";
 import { Edit } from "../remotion/Edit.tsx";
 import { durationOf, FPS, H, W } from "../remotion/timing.ts";
 import type { EditProps } from "../remotion/types.ts";
@@ -11,6 +12,15 @@ import { Lyrics } from "./Lyrics.tsx";
 import { Panels } from "./Panels.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { useHistory } from "./useHistory.ts";
+
+// El tsconfig del editor no carga los tipos de Svelte: declara las runas que usa settings.svelte.ts (llega vía i18n).
+declare global {
+  function $state<T>(initial: T): T;
+  function $state<T>(): T | undefined;
+  namespace $state {
+    function snapshot<T>(state: T): T;
+  }
+}
 
 /** Vuelta a la canción en Estudio, pestaña Edits. */
 const back = (key?: string) => (location.href = key ? `/?song=${encodeURIComponent(key)}&tab=edits` : "/");
@@ -102,7 +112,7 @@ export function App() {
             p = r.project;
             setNote(r.why);
           } catch (e) {
-            setError(`${(e as Error).message} — queda el edit automático`);
+            setError(t("{e} — queda el edit automático", { e: (e as Error).message }));
           }
         }
         if (my !== loading.current) return;
@@ -131,8 +141,8 @@ export function App() {
   // autosave
   useEffect(() => {
     if (!project) return;
-    const t = setTimeout(() => api.saveProject({ ...project, updated: Date.now() }).catch((e) => setError(e.message)), 600);
-    return () => clearTimeout(t);
+    const tr = setTimeout(() => api.saveProject({ ...project, updated: Date.now() }).catch((e) => setError(e.message)), 600);
+    return () => clearTimeout(tr);
   }, [project]);
 
   useEffect(() => {
@@ -180,16 +190,16 @@ export function App() {
     return (
       <div className="home">
         <h1>Edit</h1>
-        {error && <div className="error">{error}</div>}
+        {error && <div className="error">{engineErr(error)}</div>}
         {job && (
           <div className="job">
-            <span>{job.label}</span>
+            <span>{engineLabel(job.label)}</span>
             <progress value={job.progress} max={1} />
           </div>
         )}
         <p>
           <button className="ghost" onClick={() => back(new URLSearchParams(location.search).get("song") ?? undefined)}>
-            ← Volver
+            ← {t("Volver")}
           </button>
         </p>
       </div>
@@ -205,28 +215,28 @@ export function App() {
   return (
     <div className="app">
       <header>
-        <button className="ghost" onClick={() => back(project.key)} title="Volver a la canción">
-          ← {song?.title ?? "Canción"}
+        <button className="ghost" onClick={() => back(project.key)} title={t("Volver a la canción")}>
+          ← {song?.title ?? t("Canción")}
         </button>
         <input className="name" value={project.name} onChange={(e) => set((p) => ({ ...p, name: e.target.value }), "name")} />
-        <span className="muted">{song ? `${song.artist} — ${song.title}` : "Cargando…"}</span>
-        {note && <span className="note" title={note}>IA: {note}</span>}
+        <span className="muted">{song ? `${song.artist} — ${song.title}` : t("Cargando…")}</span>
+        {note && <span className="note" title={note}>{t("IA")}: {note}</span>}
         <div className="grow" />
         <button
           disabled={!song || !!job}
-          title="Otra plantilla, colores y destacados para el mismo clip"
+          title={t("Otra plantilla, colores y destacados para el mismo clip")}
           onClick={() => {
             seed.current++;
             set((p) => ({ ...p, ...autoEdit(song!, { seed: seed.current, range: p }), lineTpl: {} }));
             setNote("");
           }}
         >
-          🎲 Otra versión
+          🎲 {t("Otra versión")}
         </button>
         {ai && (
           <button
             disabled={!song || !!job}
-            title="Claude elige plantilla, colores, palabras destacadas y cortes para este clip"
+            title={t("Claude elige plantilla, colores, palabras destacadas y cortes para este clip")}
             onClick={async () => {
               setError("");
               setJob({ id: "", label: "La IA está dirigiendo el edit", progress: 0.5, status: "running" });
@@ -241,26 +251,26 @@ export function App() {
               }
             }}
           >
-            ✨ Dirigir con IA
+            ✨ {t("Dirigir con IA")}
           </button>
         )}
-        <button className="ghost" disabled={!hist.canUndo} onClick={hist.undo} title="Deshacer (Ctrl+Z)">↶</button>
-        <button className="ghost" disabled={!hist.canRedo} onClick={hist.redo} title="Rehacer (Ctrl+Shift+Z)">↷</button>
+        <button className="ghost" disabled={!hist.canUndo} onClick={hist.undo} title={t("Deshacer (Ctrl+Z)")}>↶</button>
+        <button className="ghost" disabled={!hist.canRedo} onClick={hist.redo} title={t("Rehacer (Ctrl+Shift+Z)")}>↷</button>
         {job ? (
           <div className="job">
-            <span>{job.label}</span>
+            <span>{engineLabel(job.label)}</span>
             <progress value={job.progress} max={1} />
           </div>
         ) : rendered ? (
           <button className="done" onClick={() => openPath(rendered.path)} title={rendered.path}>
-            Ver MP4 ↗
+            {t("Ver MP4")} ↗
           </button>
         ) : null}
         <button className="primary" disabled={!props || !!job} onClick={doRender}>
-          Exportar MP4
+          {t("Exportar MP4")}
         </button>
       </header>
-      {error && <div className="error" onClick={() => setError("")}>{error}</div>}
+      {error && <div className="error" onClick={() => setError("")}>{engineErr(error)}</div>}
       <aside className="left">
         <Panels
           project={project}
@@ -292,7 +302,7 @@ export function App() {
             style={{ height: "100%", aspectRatio: "9 / 16", maxWidth: "100%", borderRadius: 14, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}
           />
         ) : (
-          <div className="muted">Cargando audio…</div>
+          <div className="muted">{t("Cargando audio…")}</div>
         )}
       </main>
       <aside className="right">{song && <Lyrics project={project} song={song} set={set} player={player} />}</aside>

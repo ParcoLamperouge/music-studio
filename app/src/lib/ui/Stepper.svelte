@@ -1,5 +1,6 @@
 <script lang="ts">
   import IconButton from "./IconButton.svelte";
+  import { t } from "../i18n.svelte";
 
   // Número con − y + (y rueda o flechas encima): tempo, latencia, semitonos. `format` pinta el valor («+2», «90 bpm»).
   let { value = $bindable(0), min = -Infinity, max = Infinity, step = 1, label, format = String, onchange }: {
@@ -34,9 +35,9 @@
   onkeydown={key}
   onwheel={(e) => (e.preventDefault(), set(value - Math.sign(e.deltaY) * step))}
 >
-  <IconButton icon="minus" size="sm" label="Menos" disabled={value <= min} onclick={() => set(value - step)} tabindex={-1} />
+  <IconButton icon="minus" size="sm" label={t("Menos")} disabled={value <= min} onclick={() => set(value - step)} tabindex={-1} />
   <span class="v num">{format(value)}</span>
-  <IconButton icon="plus" size="sm" label="Más" disabled={value >= max} onclick={() => set(value + step)} tabindex={-1} />
+  <IconButton icon="plus" size="sm" label={t("Más")} disabled={value >= max} onclick={() => set(value + step)} tabindex={-1} />
 </span>
 
 <style>

@@ -1,5 +1,6 @@
 import type { PlayerRef } from "@remotion/player";
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { t } from "../../lib/i18n.svelte";
 import { has, songTime } from "../remotion/timing.ts";
 import { segments } from "../remotion/mix.ts";
 import { PRESETS } from "../remotion/presets.ts";
@@ -29,7 +30,7 @@ export function Lyrics({ project, song, set, player }: { project: Project; song:
   const auto = new Map<string, string>();
   for (const s of segments(lines, project.style)) {
     const prev = auto.get(s.line.id);
-    const label = PRESETS[s.tpl]?.label ?? s.tpl;
+    const label = t(PRESETS[s.tpl]?.label ?? s.tpl);
     auto.set(s.line.id, prev ? `${prev} → ${label}` : label);
   }
   const word = (id: string) => song.lines.flatMap((l) => l.words).find((w) => w.id === id);
@@ -94,24 +95,24 @@ export function Lyrics({ project, song, set, player }: { project: Project; song:
 
   return (
     <div className="lyrics">
-      <h3>Letra del clip</h3>
+      <h3>{t("Letra del clip")}</h3>
       <div className="toolbar">
         {MARKS.map((m) => (
-          <button key={m.k} disabled={!sel.length} className={sel.length && sel.every((id) => has(project.edits[id], m.k)) ? "on" : ""} onClick={() => toggle(m.k)} title={m.title}>
-            {m.label}
+          <button key={m.k} disabled={!sel.length} className={sel.length && sel.every((id) => has(project.edits[id], m.k)) ? "on" : ""} onClick={() => toggle(m.k)} title={t(m.title)}>
+            {t(m.label)}
           </button>
         ))}
-        <button disabled={!sel.length} className={sel.length && sel.every((id) => project.edits[id]?.br) ? "on" : ""} onClick={toggleBreak} title="Empieza un grupo nuevo en esta palabra (/)">
-          Corte
+        <button disabled={!sel.length} className={sel.length && sel.every((id) => project.edits[id]?.br) ? "on" : ""} onClick={toggleBreak} title={t("Empieza un grupo nuevo en esta palabra (/)")}>
+          {t("Corte")}
         </button>
-        <button disabled={sel.length !== 1} onClick={() => setEditing(sel[0])} title="Cambiar el texto (Enter)">
-          Texto
+        <button disabled={sel.length !== 1} onClick={() => setEditing(sel[0])} title={t("Cambiar el texto (Enter)")}>
+          {t("Texto")}
         </button>
-        <button disabled={!sel.length} onClick={clear} title="Quitar todo (Supr)">
-          Limpiar
+        <button disabled={!sel.length} onClick={clear} title={t("Quitar todo (Supr)")}>
+          {t("Limpiar")}
         </button>
       </div>
-      <p className="muted small">Clic: elegir y saltar ahí · ⇧ clic: tramo · Ctrl clic: sueltas</p>
+      <p className="muted small">{t("Clic: elegir y saltar ahí · ⇧ clic: tramo · Ctrl clic: sueltas")}</p>
       <div className="lines" ref={box}>
         {lines.map((l, i) => (
           <div key={l.words[0]?.id ?? i} data-line={i} className={`line ${i === activeLine ? "active" : ""}`}>
@@ -120,7 +121,7 @@ export function Lyrics({ project, song, set, player }: { project: Project; song:
               <select
                 className="line-tpl"
                 value={project.lineTpl?.[l.id] ?? ""}
-                title="Plantilla de este verso"
+                title={t("Plantilla de este verso")}
                 onChange={(e) =>
                   set((p) => {
                     const lineTpl = { ...p.lineTpl };
@@ -133,7 +134,7 @@ export function Lyrics({ project, song, set, player }: { project: Project; song:
                 <option value="">{auto.get(l.id)}</option>
                 {(Object.keys(PRESETS) as TemplateId[]).map((id) => (
                   <option key={id} value={id}>
-                    📌 {PRESETS[id].label}
+                    📌 {t(PRESETS[id].label)}
                   </option>
                 ))}
               </select>
@@ -172,7 +173,7 @@ export function Lyrics({ project, song, set, player }: { project: Project; song:
             </div>
           </div>
         ))}
-        {!lines.length && <p className="muted">No hay letra en este tramo.</p>}
+        {!lines.length && <p className="muted">{t("No hay letra en este tramo.")}</p>}
       </div>
     </div>
   );

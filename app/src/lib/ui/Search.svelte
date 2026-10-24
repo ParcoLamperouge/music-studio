@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { HTMLInputAttributes } from "svelte/elements";
   import Icon from "./Icon.svelte";
+  import { t } from "../i18n.svelte";
 
   // El buscador de toda la app: lupa, campo, borrar y el atajo (`kbd`) a la derecha.
   let {
@@ -16,7 +17,7 @@
   <Icon name="search" size={size === "lg" ? 18 : 14} />
   <input class="search-input" type="search" bind:this={ref} bind:value {...rest} />
   {#if value}
-    <button type="button" class="clear" aria-label="Borrar" onclick={() => ((value = ""), ref?.focus())}><Icon name="close" size={12} /></button>
+    <button type="button" class="clear" aria-label={t("Borrar")} onclick={() => ((value = ""), ref?.focus())}><Icon name="close" size={12} /></button>
   {:else if kbd}<kbd>{kbd}</kbd>{/if}
 </label>
 

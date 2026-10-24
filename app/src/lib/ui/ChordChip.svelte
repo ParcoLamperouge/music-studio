@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Key } from "../harmony";
   import { chordFn, FN_LABEL } from "./music";
+  import { t } from "../i18n.svelte";
 
   // Un acorde coloreado por su función en la tonalidad: macizo si es mayor, hueco si es menor, gris con borde
   // discontinuo si es prestado. El grado (V7, vi…) va al lado: el color nunca va solo.
@@ -25,7 +26,7 @@
   class:borrowed={f.borrowed}
   class:active
   style:--c={f.color}
-  title="{name} · {f.label} · {FN_LABEL[f.fn]}"
+  title="{name} · {f.label} · {t(FN_LABEL[f.fn])}"
   aria-label="{name}, {f.label}"
   {onclick}
 >
