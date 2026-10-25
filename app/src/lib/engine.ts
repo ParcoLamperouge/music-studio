@@ -14,9 +14,23 @@ export type Stem = {
   roll?: string;
   notes?: number;
   version?: number;
+  beauty?: string; // partitura de piano legible (beautify.py): dos manos cuadradas a los pulsos
+  beautyRoll?: string;
+  beautyVersion?: number;
+};
+/** Pista midi derivada (meta.json «tracks»): una versión optimizada del roll de un stem. */
+export type MidiTrack = {
+  name: string; // p. ej. «piano.opt2»
+  kind: string; // "midi"
+  of: string; // el stem del que sale
+  from?: string; // de qué pista (stem o otra midi) parte esta versión
+  range?: [number, number] | null; // compases (0-based) que rehace; null: toda la pista
+  roll: string;
+  score?: string | null;
+  version?: number;
 };
 /** Canción separada de StemLab (meta.json + dir). */
-export type Song = { id: string; title: string; dir: string; mix: string; bpm?: number; beats?: string; stems: Stem[] };
+export type Song = { id: string; title: string; dir: string; mix: string; bpm?: number; beats?: string; stems: Stem[]; tracks?: MidiTrack[] };
 
 export type Word = { t: number; end?: number; w: string; p?: number };
 export type Line = { t: number | null; end?: number; text: string; words?: Word[] };
@@ -200,6 +214,8 @@ export const ACTION_LABEL: Record<string, string> = {
   sync: "Sincronizar letra",
   separate: "Separar pistas",
   notes: "Notas",
+  midi_optimize: "Optimizar MIDI",
+  midi_patch: "Parche del LLM",
   beats: "Pulsos",
   audio: "Audio",
   import: "Importar",

@@ -16,6 +16,7 @@ export const settings = $state({
   latencyMs: 0, // retraso teclado→oído que se resta al juzgar el tiempo (Aprender)
   remote: "", // servidor de Estudio (server/server.py): lo procesado, compartido entre ordenadores
   remoteToken: "",
+  ai: { url: "", model: "", key: "" }, // LLM con API compatible con OpenAI (DeepSeek, Kimi, GLM, Ollama…): reseñas
 });
 
 let loaded = false;

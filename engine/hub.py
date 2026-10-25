@@ -40,6 +40,7 @@ XDG = Path(os.environ.get("XDG_DATA_HOME") or HOME / ".local/share")
 
 import letras as L  # noqa: E402  (fija HSA_OVERRIDE_GFX_VERSION antes de que nada importe torch)
 import stemlab as S  # noqa: E402
+import beautify as B  # noqa: E402
 DATA = Path(os.environ.get("ESTUDIO_DATA") or XDG / "estudio")
 EDITS = Path(os.environ.get("LYRIC_EDITS_DATA") or XDG / "lyric-edits")  # proyectos de Lyric Edits, tal cual
 REG = DATA / "songs.json"  # canciones sin letra todavía (añadidas o importadas) y enlaces clave -> id de StemLab
@@ -681,12 +682,30 @@ def align(key, mode=""):
 
 
 def scores_from_disk(d, meta):
-    """Las partituras de cada pista según los ficheros: así meta.json no depende de quién escribió el último."""
+    """Las partituras de cada pista según los ficheros: así meta.json no depende de quién escribió el último.
+    También mantiene las pistas midi (versiones optimizadas) y migra las «beauty» de la primera versión."""
     for st in meta["stems"]:
         n, f = st["name"], d / "scores" / f"{st['name']}.notes.json"
         if (d / "scores" / f"{n}.musicxml").exists() and f.exists():
             st.update(score=f"scores/{n}.musicxml", midi=f"scores/{n}.mid", roll=f"scores/{n}.notes.json",
                       notes=len(read_json(f, [])), version=int(f.stat().st_mtime))
+    tracks = []
+    for tr in meta.get("tracks", []):
+        f = d / tr["roll"] if tr.get("roll") else None
+        if not f or not f.exists():
+            continue  # sus ficheros ya no están: pista fuera
+        tr = {**tr, "version": int(f.stat().st_mtime)}
+        if tr.get("score") and not (d / tr["score"]).exists():
+            tr["score"] = None
+        tracks.append(tr)
+    for st in meta["stems"]:  # migración: la «beauty» de la primera versión era una pista midi implícita
+        b = st.get("beautyRoll")
+        if b and (d / b).exists() and not any(t.get("roll") == b for t in tracks):
+            tracks.append({"name": f"{st['name']}.opt1", "kind": "midi", "of": st["name"], "from": st["name"],
+                           "range": None, "roll": b, "score": st.get("beauty"),
+                           "version": int((d / b).stat().st_mtime)})
+    if tracks or meta.get("tracks"):
+        meta["tracks"] = tracks
     return meta
 
 
@@ -916,6 +935,279 @@ def notes(key, stem, quality=""):
                 st["model"] = "muscriptor" if quality == "precise" else "basic-pitch"
         write_json(d / "meta.json", meta)
     emit("done", song=S.with_dir(meta))
+
+
+def _timeline(sid, until):
+    """La rejilla de la canción (beats.json, pulsos reales de Beat This!) hasta `until` segundos."""
+    d = S.SONGS / sid
+    bi = read_json(d / "beats.json", {}) or {}
+    raw = bi.get("beats") or []
+    if len(raw) < 2:
+        raise RuntimeError("no hay pulsos: primero sácalos (Pulsos)")
+    return B.Timeline.from_beats(B.extend_tail(B.clean_beats(raw), until), bi.get("downbeats") or [], bi.get("meter") or 4)
+
+
+def _rows_of(d, meta, src):
+    """Roll de un stem o de una pista midi: [inicio, fin, nota, fuerza, (compás, mano)]."""
+    st = next((st for st in meta["stems"] if st["name"] == src), None)
+    if st:
+        if not st.get("roll"):
+            raise RuntimeError("la pista no tiene notas: primero sácalas")
+        return read_json(d / st["roll"], []), st["name"]
+    tr = next((tr for tr in meta.get("tracks", []) if tr["name"] == src), None)
+    if tr:
+        return read_json(d / tr["roll"], []), tr["of"]
+    raise ValueError(f"no hay una pista llamada {src}")
+
+
+def _plain(rows):
+    """Roll con o sin compás/mano -> [inicio, fin, nota, fuerza] para el limpiador."""
+    return [[r[0], r[1], r[2], r[3]] for r in rows]
+
+
+def _new_version(sid, of, src, rows, rng):
+    """Escribe el roll de una pista midi nueva (piano.optN) y la mete en meta.json, con candado."""
+    d = S.SONGS / sid
+    with meta_lock(sid):
+        meta = scores_from_disk(d, read_json(d / "meta.json"))
+        taken = {tr["name"] for tr in meta.get("tracks", [])}
+        n = 1
+        while f"{of}.opt{n}" in taken:
+            n += 1
+        name = f"{of}.opt{n}"
+        rel = f"scores/{name}.notes.json"
+        write_json(d / rel, rows)
+        meta.setdefault("tracks", []).append({
+            "name": name, "kind": "midi", "of": of, "from": src, "range": rng,
+            "roll": rel, "score": None, "version": int((d / rel).stat().st_mtime)})
+        write_json(d / "meta.json", meta)
+    return name, meta
+
+
+def midi_optimize(key, src, bar_from="", bar_to=""):
+    """MIDI optimizado de una pista (stem o pista midi): limpia la transcripción (fantasmas,
+    solapes, semitonos) y la cuadra a los pulsos reales. Con compases (bar_from, bar_to) solo
+    rehace ese tramo y el resto lo copia de la pista de origen. Sale una pista nueva."""
+    s = resolve(key)
+    sid = s["stem"]
+    if stem_state(sid) != "complete":
+        raise RuntimeError("primero hay que separar las pistas")
+    d = S.SONGS / sid
+    rows_raw, of = _rows_of(d, read_json(d / "meta.json"), src)
+    emit("progress", step=1, total=1, label=f"Optimizando MIDI · {src}")
+    until = max([r[1] for r in rows_raw], default=60) + 2
+    tl = _timeline(sid, until)
+    with redirect_stdout(sys.stderr):
+        rows = B.groups_rows(B.quantize_groups(_plain(rows_raw), tl), tl)
+    lo = int(bar_from) if str(bar_from).strip() else None
+    hi = int(bar_to) if str(bar_to).strip() else None
+    if (lo is None) != (hi is None):
+        raise ValueError("faltan compases del tramo")
+    if lo is not None:
+        if lo > hi:
+            lo, hi = hi, lo
+        inside = [r for r in rows if lo <= B.bar_of_row(r, tl) <= hi]
+        outside = [r for r in rows_raw if not (lo <= B.bar_of_row(r, tl) <= hi)]
+        rows = sorted(outside + inside, key=lambda r: (r[0], r[2]))
+    name, meta = _new_version(sid, of, src, rows, [lo, hi] if lo is not None else None)
+    emit("done", song=S.with_dir(meta), track=name,
+         stats=f"{len(rows)} notas · " + (f"compases {lo + 1}-{hi + 1}" if lo is not None else "toda la pista"))
+
+
+def score_of(key, track):
+    """Partitura de piano (MusicXML + meta) de una pista midi, o de un stem con notas."""
+    s = resolve(key)
+    sid = s["stem"]
+    d = S.SONGS / sid
+    meta = read_json(d / "meta.json")
+    rows, of = _rows_of(d, meta, track)
+    emit("progress", step=1, total=1, label=f"Grabando la partitura · {track}")
+    until = max([r[1] for r in rows], default=60) + 2
+    tl = _timeline(sid, until)
+    with redirect_stdout(sys.stderr):
+        xml, bmeta = B.engrave(B.rows_groups(rows, tl), tl,
+                               meta["title"].split(" — ")[-1],
+                               re.sub(r"^\d{4}\.\d{2}\.\d{2}\s*", "", meta.get("artist", "")))
+    rel = f"scores/{track}.score.musicxml"
+    (d / rel).write_text(xml, encoding="utf-8")
+    write_json(d / f"scores/{track}.score.meta.json", bmeta)
+    with meta_lock(sid):
+        meta = read_json(d / "meta.json")
+        for tr in meta.get("tracks", []):
+            if tr["name"] == track:
+                tr["score"] = rel
+                tr["version"] = int(Path(d / tr["roll"]).stat().st_mtime)
+        write_json(d / "meta.json", meta)
+    emit("done", song=S.with_dir(meta), path=str(d / rel), stats=bmeta)
+
+
+def track_delete(key, name):
+    """Borra una pista midi: sus ficheros y su entrada en meta.json (los stems no se tocan)."""
+    s = resolve(key)
+    sid = s["stem"]
+    d = S.SONGS / sid
+    with meta_lock(sid):
+        meta = read_json(d / "meta.json")
+        tracks = meta.get("tracks", [])
+        tr = next((tr for tr in tracks if tr["name"] == name), None)
+        if not tr:
+            raise ValueError(f"no hay una pista midi llamada {name}")
+        for f in (tr.get("roll"), tr.get("score")):
+            if f and (d / f).exists():
+                (d / f).unlink()
+        meta["tracks"] = [t for t in tracks if t["name"] != name]
+        write_json(d / "meta.json", meta)
+    emit("done", song=S.with_dir(meta))
+
+
+def ai_test():
+    """Prueba de la API del LLM de Ajustes → IA: una respuesta de una palabra."""
+    import llm
+    out = llm.chat([{"role": "user", "content": "Responde únicamente: ok"}], max_tokens=8, temperature=0)
+    emit("done", reply=out or "(sin contenido)")
+
+
+REVIEW_LANG = {
+    "es": "Escribe el informe en español.",
+    "en": "Write the report in English.",
+    "zh": "用简体中文写报告。",
+}
+
+
+def _segment_summary(rows, lo, hi):
+    by_bar = {}
+    for r in rows:
+        by_bar.setdefault(r[4], []).append(r)
+    out = []
+    for bar in range(lo, hi + 1):
+        ns = by_bar.get(bar, [])
+        ps = sorted(set(n[2] for n in ns))
+        out.append({"bar": bar + 1, "notes": len(ns), "pitches": ps,
+                    "clusters": sum(1 for a, b in zip(ps, ps[1:]) if b - a == 1),
+                    "short": sum(1 for n in ns if n[1] - n[0] < 0.12)})
+    return out
+
+
+def midi_patch(key, src, bar_from, bar_to):
+    """El LLM (Ajustes → IA) revisa un tramo de una pista y propone un parche: quitar notas
+    sobrantes, ajustar fuerzas o mover media rejilla. Se valida contra una lista blanca y sale
+    una pista nueva; la de origen no se toca."""
+    import llm
+    lo, hi = int(bar_from), int(bar_to)
+    if lo > hi:
+        lo, hi = hi, lo
+    s = resolve(key)
+    sid = s["stem"]
+    d = S.SONGS / sid
+    rows_raw, of = _rows_of(d, read_json(d / "meta.json"), src)
+    until = max([r[1] for r in rows_raw], default=60) + 2
+    tl = _timeline(sid, until)
+    with redirect_stdout(sys.stderr):  # el parche trabaja sobre el tramo ya cuadrado
+        rows = B.groups_rows(B.quantize_groups(_plain(rows_raw), tl), tl)
+    inside = [r for r in rows if lo <= B.bar_of_row(r, tl) <= hi]
+    if not inside:
+        raise RuntimeError("el tramo no tiene notas")
+    prompt = (
+        f"Transcribí piano desde audio y lo cuadré a la rejilla; este tramo (compases {lo + 1}-{hi + 1}) suena mal. "
+        f"Notas [inicio_s, fin_s, midi, fuerza, compás]: {json.dumps([[round(n[0], 2), round(n[1], 2), n[2], round(n[3], 2), n[4]] for n in inside])}\n"
+        f"Resumen por compás: {json.dumps(_segment_summary(inside, lo, hi))}\n"
+        'Responde SOLO un array JSON de operaciones (máximo 40): {"op":"drop","at":inicio_s,"pitch":midi} para quitar '
+        'una nota sobrante (fantasma, eco), {"op":"vel","at":...,"pitch":...,"vel":0..1} para su fuerza, '
+        '{"op":"shift","at":...,"pitch":...,"to":inicio_s} para moverla media rejilla como mucho. Nada fuera del array.'
+    )
+    emit("progress", step=1, total=1, label="Parche del LLM")
+    text = llm.chat([{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.2)
+    m = re.search(r"\[.*\]", text, re.S)
+    if not m:
+        raise RuntimeError("el LLM no devolvió un parche válido")
+    try:
+        ops = json.loads(m.group())
+    except Exception as e:
+        raise RuntimeError(f"el parche del LLM no es JSON válido: {e}")
+    if not isinstance(ops, list) or len(ops) > 200:
+        raise RuntimeError("el parche del LLM no es una lista razonable")
+    grid = max(0.12, (tl.beats[1] - tl.beats[0]) / 4)  # media rejilla, aprox
+    inside_new = [list(n) for n in inside]
+    applied = 0
+    for op in ops:
+        if not isinstance(op, dict) or op.get("op") not in ("drop", "vel", "shift"):
+            continue
+        at, pitch = op.get("at"), op.get("pitch")
+        if not isinstance(at, (int, float)) or not isinstance(pitch, int):
+            continue
+        cand = min(inside_new, key=lambda n: abs(n[0] - at) * 10 + abs(n[2] - pitch), default=None)
+        if cand is None or abs(cand[0] - at) > 0.08 or cand[2] != pitch:
+            continue
+        if op["op"] == "drop":
+            inside_new.remove(cand)
+            applied += 1
+        elif op["op"] == "vel" and isinstance(op.get("vel"), (int, float)) and 0.05 <= op["vel"] <= 1:
+            cand[3] = round(op["vel"], 2)
+            applied += 1
+        elif op["op"] == "shift" and isinstance(op.get("to"), (int, float)) and abs(op["to"] - cand[0]) <= grid:
+            cand[0] = round(op["to"], 3)
+            applied += 1
+    if not applied:
+        raise RuntimeError("el LLM no propuso ningún cambio aplicable")
+    inside_new.sort(key=lambda r: (r[0], r[2]))
+    outside = [r for r in rows_raw if not (lo <= B.bar_of_row(r, tl) <= hi)]
+    name, meta = _new_version(sid, of, src, sorted(outside + inside_new, key=lambda r: (r[0], r[2])), [lo, hi])
+    emit("done", song=S.with_dir(meta), track=name, stats=f"parche: {applied} cambios en compases {lo + 1}-{hi + 1}")
+
+
+def beautify_review(key, track):
+    """Reseña del LLM (Ajustes → IA) sobre la partitura de una pista midi: resúmenes por tramos
+    de 4 compases y el informe markdown en scores/<pista>.review.md."""
+    import llm
+    s = resolve(key)
+    d = S.SONGS / s["stem"]
+    meta = read_json(d / "meta.json")
+    tr = next((tr for tr in meta.get("tracks", []) if tr["name"] == track), None)
+    if not tr:
+        raise ValueError(f"no hay una pista midi llamada {track}")
+    roll = read_json(d / tr["roll"], [])
+    if not roll or len(roll[0]) < 5:
+        raise RuntimeError("esa pista no está cuadrada todavía: optimízala primero")
+    smeta = read_json(d / f"scores/{track}.score.meta.json", {}) or {}
+    meter = smeta.get("meter") or 3
+    bars = smeta.get("measures") or (max(r[4] for r in roll) + 1)
+    key_name = (smeta.get("key") or {}).get("tonic", "?")
+    win = 4  # compases por tramo
+    lines = []
+    for w0 in range(0, bars, win):
+        ns = [n for n in roll if w0 <= n[4] < w0 + win]
+        if not ns:
+            continue
+        rh = [n for n in ns if len(n) > 5 and n[5] == "rh"]
+        lh = [n for n in ns if len(n) > 5 and n[5] == "lh"]
+        clusters = 0  # semitonos contiguos al mismo golpe: rastro típico de la transcripción
+        by_on: dict = {}
+        for n in ns:
+            by_on.setdefault(round(n[0], 2), []).append(n[2])
+        for ps in by_on.values():
+            ps = sorted(set(ps))
+            clusters += sum(1 for a, b in zip(ps, ps[1:]) if b - a == 1)
+        short = sum(1 for n in ns if n[1] - n[0] < 0.12)
+        dense = sum(1 for ps in by_on.values() if len(ps) >= 5)
+        lines.append(f"- compases {w0 + 1}-{min(w0 + win, bars)}: {len(ns)} notas "
+                     f"(derecha {len(rh)} {min((n[2] for n in rh), default=0)}–{max((n[2] for n in rh), default=0)}, "
+                     f"izquierda {len(lh)} {min((n[2] for n in lh), default=0)}–{max((n[2] for n in lh), default=0)} MIDI), "
+                     f"acordes ≥5 notas: {dense}, clusters de semitono: {clusters}, notas <120 ms: {short}")
+    prompt = (
+        f"Transcribí al piano la pista «{track}» de «{meta['title']}» desde audio y la cuadré a los pulsos "
+        f"detectados ({meter}/4, tonalidad {key_name}, {bars} compases). Antes de editarla a mano quiero saber "
+        f"dónde es probable que la transcripción esté mal. Por tramos (notas, tesituras MIDI, densidad, semitonos "
+        f"simultáneos, notas cortas):\n" + "\n".join(lines) +
+        "\n\nRevisa y responde SOLO un informe markdown: 1) dos o tres frases de valoración global; 2) «Tramos "
+        "sospechosos»: máximo 8, cada uno con sus compases, qué puede pasar (nota fantasma, octava errónea, "
+        "acorde turbio, ritmo imposible) y cómo comprobarlo al oído; 3) una línea final con qué revisar antes "
+        f"de tocarlo. Sé concreto y breve. {REVIEW_LANG[llm.lang()]}"
+    )
+    emit("progress", step=1, total=1, label="Reseña del LLM")
+    report = llm.chat([{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.3)
+    out = d / "scores" / f"{track}.review.md"
+    out.write_text(f"<!-- {track} · {meta['title']} -->\n{report}\n")
+    emit("done", path=str(out))
 
 
 def refresh_lyrics(s):
@@ -1399,6 +1691,17 @@ def plan(action, key, *args):
         model = "muscriptor" if precise else "whisper" if turbo else None
         steps.append(step("notes", "gpu" if model else "cpu", f"Notas{' precisas' if precise else ''} · {stem}", key, stem, *args[1:2],
                           **({"model": model} if model else {})))
+    elif action == "midi_optimize":  # pista midi nueva: la transcripción limpia y cuadrada
+        src = args[0] if args else "piano"
+        steps = separate_steps(s)
+        sm = read_json(S.SONGS / s["stem"] / "meta.json", {"stems": []}) if stem_state(s["stem"]) == "complete" else {"stems": [], "tracks": []}
+        has = next((tr for tr in sm.get("tracks", []) if tr["name"] == src), None) is not None \
+            or next((st for st in sm.get("stems", []) if st["name"] == src), {}).get("roll", "")
+        if not has:
+            steps.append(step("notes", "cpu", f"Notas · {src}", key, src))
+        steps.append(step("midi_optimize", "cpu", f"Optimizar MIDI · {src}", key, src, *args[1:]))
+    elif action == "midi_patch":  # el LLM repara un tramo
+        steps = [step("midi_patch", "cpu", f"Parche del LLM · {args[0]}", key, *args)]
     elif action == "autosync":  # lo que suena en Spotify: como Letras, la IA solo si la letra no trae tiempos
         need_letras(s)
         doc = s["doc"] or {}
@@ -1421,7 +1724,8 @@ COMMANDS = {
     "catalog": catalog, "song": song, "plan": plan, "paths": paths, "search": search, "add": add, "assign": assign, "import": import_,
     "restore": restore, "delete": delete, "ensemble": ensemble, "beats": beats, "audio": audio, "vocals": vocals, "whisper": whisper,
     "ctc": ctc, "find": find, "align": align, "separate": separate, "notes": notes, "chords": chords, "prefetch": prefetch, "unfail": unfail, "rebalance": rebalance, "audio_align": audio_align,
-    "remote_list": remote_list, "remote_sync": remote_sync,
+    "remote_list": remote_list, "remote_sync": remote_sync, "ai_test": ai_test, "beautify_review": beautify_review,
+    "midi_optimize": midi_optimize, "midi_patch": midi_patch, "score_of": score_of, "track_delete": track_delete,
 }
 
 

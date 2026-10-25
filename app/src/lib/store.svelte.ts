@@ -40,7 +40,7 @@ export async function connect() {
 
 /** Etapa de la canción que toca cada acción (para los pilotos y los botones). */
 export const STAGE: Record<string, Stage> = {
-  audio: "audio", import: "audio", letra: "letra", find: "letra", sync: "letra", autosync: "letra", separate: "pistas", notes: "notas", beats: "pistas", chords: "notas", render: "edits",
+  audio: "audio", import: "audio", letra: "letra", find: "letra", sync: "letra", autosync: "letra", separate: "pistas", notes: "notas", midi_optimize: "notas", midi_patch: "notas", beats: "pistas", chords: "notas", render: "edits",
 };
 export type Stage = "audio" | "letra" | "pistas" | "notas" | "edits";
 

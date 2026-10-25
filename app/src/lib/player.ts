@@ -60,6 +60,11 @@ export class Player {
     if (this.playing) this.reschedule();
   }
 
+  /** Nombres de las pistas de notas activas (la guía de Aprender, las versiones embellecidas…). */
+  notesNames(): string[] {
+    return [...this.live.keys()];
+  }
+
   private reschedule() {
     this.silence();
     this.scheduled = this.time();

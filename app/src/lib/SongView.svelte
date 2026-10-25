@@ -4,7 +4,8 @@
   import ChordsTab, { loadNotation } from "./ChordsTab.svelte";
   import { attachDeck, deck } from "./deck.svelte";
   import EditsTab from "./EditsTab.svelte";
-  import { enqueue, fmtClock, log, PITCHED, readJson, run, songDetail, SOURCE_LABEL, STEM_INFO, viewPath, writeJson, type Detail, type Job, type Track } from "./engine";
+  import { enqueue, fmtClock, log, PITCHED, readBytes, readJson, run, songDetail, SOURCE_LABEL, STEM_INFO, viewPath, writeJson, type Detail, type Job, type MidiTrack, type Track } from "./engine";
+import { toBeat } from "./arrange";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
   import { engineErr, t } from "./i18n.svelte";
   import { ledOf, type Led } from "./Leds.svelte";
@@ -77,6 +78,13 @@
   let tab = $state<Tab>(tabOf(initialTab) ?? "mix");
   let scoreHidden = $state<Record<string, boolean>>({});
   let roll = $state<Record<string, boolean>>({}); // piano roll encendido en esa pista
+  let review = $state(""); // la reseña del LLM (markdown), si la hay
+  let reviewBusy = $state(false);
+  let scoreTrack = $state<string | null>(null); // pista midi cuya partitura se mira en la Partitura
+  let scoreMeta = $state<{ startBeat?: number; meter?: number } | null>(null);
+  let midiNotes = $state.raw<Record<string, Note[]>>({}); // roll de cada pista midi (y su densidad, para la onda)
+  let midiSig = "";
+  let detailTick = $state(0); // refresco manual de la ficha (pista borrada, partitura grabada)
   let scorePath = $state<string | null>(null);
   let scoreError = $state("");
   let editing = $state(false);
@@ -95,6 +103,7 @@
   const rev = $derived(store.rev[key] ?? 0);
   $effect(() => {
     void rev;
+    void detailTick;
     const k = key;
     songDetail(k).then(
       (d) => k === key && ((detail = d), (detailError = "")),
@@ -203,6 +212,8 @@
   $effect(() => {
     if (loading) return;
     for (const tr of tracks) player.setGain(tr.name, audible(tr.name) ? (volume[tr.name] ?? 1) : 0);
+    // cada pista midi suena por su nombre: su M/S y su volumen, los del mezclador
+    for (const tr of midiLanes) player.setGain(`__midi:${tr.name}`, audible(tr.name) && roll[tr.name] ? (volume[tr.name] ?? 1) : 0);
     player.setGain(CLICK, metro.on && beatData ? metro.volume : 0);
   });
   $effect(() => {
@@ -278,22 +289,157 @@
     const shown = untrack(() => scoreShown.map((s) => s.name));
     scorePath = null;
     scoreError = "";
-    if (!shown.length || tab !== "score") return;
+    if (!shown.length || tab !== "score" || untrack(() => !!scoreTrack)) return;
     run<{ path: string }>("ensemble", [untrack(() => key), ...shown])
       .then((r) => k === scoreKey && (scorePath = r.path))
       .catch((e) => (scoreError = String(e)));
   });
 
-  // ---- piano roll: el de las pistas con notas que tengas encendidas
+  // ---- piano roll: el de las pistas con notas que tengas encendidas (más las midi encendidas)
+  const midiLanes = $derived(stemlab?.tracks ?? []);
+  const midiLabel = (tr: MidiTrack) =>
+    `${t(STEM_INFO[tr.of]?.label ?? tr.of)} · ${t("optimizada")} ${(tr.name.split(".opt")[1] ?? "").trim()}`.trim();
   const rollTracks = $derived(
     stems
       .filter((s) => s.roll && audible(s.name))
-      .map((s) => ({ stem: s.name, name: STEM_INFO[s.name].label, color: STEM_INFO[s.name].color, path: `${stemlab!.dir}/${s.roll}`, hidden: !roll[s.name] })),
+      .map((s) => ({ stem: s.name, name: STEM_INFO[s.name].label, color: STEM_INFO[s.name].color, path: `${stemlab!.dir}/${s.roll}`, hidden: !roll[s.name] }))
+      .concat(
+        midiLanes.map((tr) => ({ stem: tr.name, name: midiLabel(tr), color: "#ffd27f", path: `${stemlab!.dir}/${tr.roll}`, hidden: !roll[tr.name] })),
+      ),
   );
   const rollShown = $derived(tab === "mix" && rollTracks.some((tr) => !tr.hidden));
   function toggleAllRolls() {
     const on = !stems.some((s) => s.roll && roll[s.name]);
-    for (const s of stems) if (s.roll) roll[s.name] = on;
+    for (const s of stems) if (s.roll) toggleRoll(s.name, on);
+  }
+  /** El roll de una pista (stem o midi): encendido/apagado, con persistencia por canción. */
+  function toggleRoll(name: string, force?: boolean) {
+    roll[name] = force ?? !roll[name];
+  }
+
+  // ---- pistas midi (las versiones optimizadas): notas, onda de densidad, audición y bucle A–B
+  const midiSigWant = $derived(midiLanes.map((t) => `${t.name}@${t.version ?? 0}`).join(","));
+  $effect(() => {
+    const sig = midiSigWant;
+    const dir = stemlab?.dir;
+    if (sig === midiSig || !dir) return;
+    midiSig = sig;
+    untrack(async () => {
+      const out: Record<string, Note[]> = {};
+      for (const tr of midiLanes) out[tr.name] = await readJson<Note[]>(`${dir}/${tr.roll}`, []);
+      if (sig === midiSig) midiNotes = out;
+    });
+  });
+  const midiPeaks = $derived.by(() => {
+    const out: Record<string, number[]> = {};
+    const bars = 180;
+    for (const [name, notes] of Object.entries(midiNotes)) {
+      const p = new Array(bars).fill(0);
+      for (const n of notes) {
+        const i = Math.min(bars - 1, Math.max(0, Math.floor((n[0] / (duration || 1)) * bars)));
+        p[i] = Math.max(p[i], Math.min(1, n[3] ?? 0.6));
+      }
+      out[name] = p;
+    }
+    return out;
+  });
+  // las pistas midi pueden aparecer (o crecer) sin recargar el audio: su M/S y volumen
+  // necesitan valor ANTES de pintar la lane (bind:muted={undefined} rompe el montaje)
+  $effect(() => {
+    for (const tr of midiLanes) {
+      if (volume[tr.name] == null) volume[tr.name] = 1;
+      if (muted[tr.name] == null) muted[tr.name] = false;
+      if (solo[tr.name] == null) solo[tr.name] = false;
+    }
+  });
+  // la pista midi suena con el piano de muestras mientras su roll esté encendido
+  $effect(() => {
+    const on = midiLanes.filter((tr) => roll[tr.name]);
+    const dir = stemlab?.dir;
+    untrack(async () => {
+      const keep = new Set<string>();
+      for (const tr of on) {
+        keep.add(`__midi:${tr.name}`);
+        player.setNotes(`__midi:${tr.name}`, midiNotes[tr.name] ?? (dir ? await readJson<Note[]>(`${dir}/${tr.roll}`, []) : []));
+      }
+      for (const name of player.notesNames()) if (name.startsWith("__midi:") && !keep.has(name)) player.setNotes(name, []);
+    });
+  });
+  const midiJob = (name: string) => jobOf(key, ["midi_optimize", "midi_patch"], name);
+  /** El bucle A–B, en compases (0-based) — para «optimizar solo este tramo». */
+  const loopBars = $derived.by(() => {
+    const bd = beatData;
+    if (!loop || !bd?.beats?.length) return null;
+    const startBeat = bd.downbeats?.length ? bd.beats.findIndex((b) => Math.abs(b - (bd.downbeats as number[])[0]) < 0.25) : 0;
+    const meter = bd.meter ?? 4;
+    const bar = (t: number) => Math.max(0, Math.floor((toBeat(bd.beats, t) - startBeat) / meter));
+    const lo = bar(loop.a), hi = bar(Math.max(loop.a, loop.b - 0.01));
+    return [lo, hi] as [number, number];
+  });
+  const aiReady = $derived(!!settings.ai.url && !!settings.ai.model);
+  async function engrave(tr: MidiTrack) {
+    try {
+      await run("score_of", [key, tr.name]);
+      detailTick++;
+      scoreTrack = tr.name;
+      tab = "score";
+    } catch (e) {
+      log(engineErr(String(e)));
+    }
+  }
+  async function delTrack(tr: MidiTrack) {
+    if (!confirm(t("Se borra la pista {name} y sus ficheros. Las pistas separadas no se tocan.", { name: tr.name }))) return;
+    try {
+      if (scoreTrack === tr.name) scoreTrack = null;
+      await run("track_delete", [key, tr.name]);
+      detailTick++;
+    } catch (e) {
+      log(engineErr(String(e)));
+    }
+  }
+
+  // ---- la partitura de una pista midi: métrica (para seguir la música) y reseña del LLM
+  $effect(() => {
+    if (tab !== "score") return;
+    const tr = midiLanes.find((t) => t.name === scoreTrack);
+    if (!tr?.score) {
+      scoreMeta = null;
+      return;
+    }
+    untrack(() => readJson(`${stemlab!.dir}/scores/${tr.name}.score.meta.json`, null).then((m) => (scoreMeta = m)));
+    untrack(() => void loadReview());
+  });
+  const reviewSections = $derived.by(() => {
+    const out: { title: string; blocks: { li: boolean; text: string }[] }[] = [{ title: "", blocks: [] }];
+    for (const l of review.split("\n")) {
+      const text = l.replace(/\*\*|`/g, "").trim();
+      if (!text || /^-{3,}$/.test(text)) continue;
+      if (/^#{1,4}\s/.test(text)) out.push({ title: text.replace(/^#+\s*/, ""), blocks: [] });
+      else out[out.length - 1].blocks.push({ li: /^[-*]\s/.test(text), text: text.replace(/^[-*]\s*/, "") });
+    }
+    return out.filter((x) => x.blocks.length);
+  });
+  async function loadReview() {
+    const name = scoreTrack;
+    if (!name) return;
+    try {
+      review = new TextDecoder().decode(await readBytes(`${stemlab!.dir}/scores/${name}.review.md`));
+    } catch {
+      review = "";
+    }
+  }
+  async function askReview() {
+    const name = scoreTrack;
+    if (!name || reviewBusy) return;
+    reviewBusy = true;
+    try {
+      await run("beautify_review", [key, name]);
+      await loadReview();
+    } catch (e) {
+      log(engineErr(String(e)));
+    } finally {
+      reviewBusy = false;
+    }
   }
 
   // ---- acordes y tonalidad: de las notas ya sacadas (sin IA, milisegundos); solo si se miran
@@ -643,7 +789,7 @@
                     <div class="vol"><Slider bind:value={volume[st.name]} max={1.5} label={t("Volumen {stem}", { stem: t(STEM_INFO[st.name]?.label ?? st.name) })} color={stemColor(st.name)} /></div>
                     <div class="lane-acts">
                       {#if meta?.roll}
-                        <IconButton icon="roll" label={t("Piano roll")} kbd="R" size="sm" active={!!roll[st.name]} onclick={() => (roll[st.name] = !roll[st.name])} />
+                        <IconButton icon="roll" label={t("Piano roll")} kbd="R" size="sm" active={!!roll[st.name]} onclick={() => toggleRoll(st.name)} />
                       {/if}
                       {#if meta && PITCHED.includes(st.name) && st.present}
                         {#if working(nj)}
@@ -656,6 +802,7 @@
                           <IconButton icon="sparkle" label={t("Notas precisas (MuScriptor, GPU)")} size="sm" onclick={() => act("notes", [st.name, "precise"])} />
                         {/if}
                       {/if}
+
                     </div>
                   </div>
                   <div class="wave" role="presentation" onpointerdown={seekIn}>
@@ -665,10 +812,43 @@
                   </div>
                 </div>
               {/each}
+              {#each midiLanes as tr (tr.name)}
+                {@const j = midiJob(tr.name)}
+                <div class="lane midi" class:off={!audible(tr.name)} style:--c="#ffd27f">
+                  <div class="lane-head">
+                    <span class="midi-badge"><Icon name="midi" size={14} /> {midiLabel(tr)}</span>
+                    <small class="num">{midiNotes[tr.name]?.length ?? ""}</small>
+                    <span class="msw"><MuteSolo bind:muted={muted[tr.name]} bind:solo={solo[tr.name]} label={midiLabel(tr)} /></span>
+                    <div class="vol"><Slider bind:value={volume[tr.name]} max={1.5} label={t("Volumen {stem}", { stem: midiLabel(tr) })} color="#ffd27f" /></div>
+                    <div class="lane-acts">
+                      {#if working(j)}
+                        <span class="lane-job" title={jobText(j!)}><ProgressRing value={j!.pct != null && j!.status === "running" ? j!.pct / 100 : null} size={18} /></span>
+                      {:else if j?.status === "error"}
+                        <IconButton icon="retry" label={t("Reintentar: {e}", { e: engineErr(j.error) })} size="sm" onclick={() => act(tr.range ? "midi_patch" : "midi_optimize", [tr.from ?? tr.of, ...((tr.range ?? []).map(String))])} />
+                      {/if}
+                      <IconButton icon="roll" label={t("Piano roll de la versión optimizada (suena con el piano de muestras)")} size="sm" active={!!roll[tr.name]} onclick={() => toggleRoll(tr.name)} />
+                      {#if loopBars}
+                        <IconButton icon="loop" label={t("Optimizar solo este tramo (compases {a}-{b}); sale una pista nueva", { a: loopBars[0] + 1, b: loopBars[1] + 1 })} size="sm" onclick={() => act("midi_optimize", [tr.name, String(loopBars[0]), String(loopBars[1])])} />
+                        {#if aiReady}
+                          <IconButton icon="sparkle" label={t("Este tramo al LLM: parche con notas sobrantes, fuerzas y media rejilla (pista nueva)")} size="sm" onclick={() => act("midi_patch", [tr.name, String(loopBars[0]), String(loopBars[1])])} />
+                        {/if}
+                      {/if}
+                      <IconButton icon="midi" label={t("Optimizar MIDI otra vez (toda la pista; sale una pista nueva)")} size="sm" onclick={() => act("midi_optimize", [tr.name])} />
+                      <IconButton icon="score" label={t("Grabar la partitura (dos manos, para leerla o imprimirla)")} size="sm" onclick={() => void engrave(tr)} />
+                      <IconButton icon="trash" label={t("Borrar esta pista optimizada")} size="sm" onclick={() => void delTrack(tr)} />
+                    </div>
+                  </div>
+                  <div class="wave" role="presentation" onpointerdown={seekIn}>
+                    <WaveThumb peaks={midiPeaks[tr.name] ?? []} bars={180} color="#ffd27f" progress={duration ? time / duration : 0} height={rollShown ? 26 : 44} />
+                    {#if loop}<i class="lane-loop" style:left="{(loop.a / (duration || 1)) * 100}%" style:width="{((loop.b - loop.a) / (duration || 1)) * 100}%"></i>{/if}
+                    <i class="playhead" style:left="{(time / (duration || 1)) * 100}%"></i>
+                  </div>
+                </div>
+              {/each}
             </div>
             {#if rollShown}
               <div class="roll">
-                <Roll {player} tracks={rollTracks} {controls} bind:windowSec={settings.rollSpeed} ontoggle={(s) => (roll[s] = !roll[s])} chords={namedChords} {keyLabel} tonality={shownHarmony?.key} />
+                <Roll {player} tracks={rollTracks} {controls} bind:windowSec={settings.rollSpeed} ontoggle={(s) => toggleRoll(s)} chords={namedChords} {keyLabel} tonality={shownHarmony?.key} />
               </div>
             {/if}
           </div>
@@ -695,11 +875,48 @@
                 <Chip icon="plus" title={t("Sacar sus notas")} onclick={() => act("notes", [st.name, ...quality()])}>{t(STEM_INFO[st.name].label)}</Chip>
               {/if}
             {/each}
+            {#each midiLanes as tr (tr.name)}
+              {@const j = midiJob(tr.name)}
+              {#if tr.score}
+                <Chip color="#ffd27f" active={scoreTrack === tr.name} title={t("Partitura de la versión optimizada: dos manos, cuadrada a los pulsos reales")} onclick={() => (scoreTrack = scoreTrack === tr.name ? null : tr.name)}>{midiLabel(tr)}</Chip>
+              {:else if working(j)}
+                <Chip color="#ffd27f" title={jobText(j!)}>{midiLabel(tr)} · {Math.round(j!.pct ?? 0)}%</Chip>
+              {:else}
+                <Chip icon="score" color="#ffd27f" title={t("Grabar la partitura (dos manos, para leerla o imprimirla)")} onclick={() => void engrave(tr)}>{midiLabel(tr)}</Chip>
+              {/if}
+            {/each}
             <span class="spacer"></span>
             <Tabs size="sm" label={t("Cómo se sacan las notas a partir de ahora")} bind:value={settings.notes}
               options={[{ value: "fast", label: t("Rápidas"), title: t("basic-pitch: CPU, segundos") }, { value: "precise", label: t("Precisas"), title: t("MuScriptor: GPU, minutos por pista, mucho más preciso") }]} />
           </div>
-          {#if !scoreShown.length}
+          {#if scoreTrack && midiLanes.some((t) => t.name === scoreTrack && t.score)}
+            {@const tr = midiLanes.find((t) => t.name === scoreTrack)!}
+            {#key `${tr.score}:${tr.version ?? 0}`}
+              {#await import("./Score.svelte") then { default: Score }}
+                <Score song={stemlab} stems={[]} path={`${stemlab.dir}/${tr.score}`} {player} {controls} bind:follow={settings.scoreFollow}
+                  title={midiLabel(tr)} pdfName={tr.name}
+                  beatAt={(at) => toBeat(beatData?.beats ?? [], at) - (scoreMeta?.startBeat ?? 0)} />
+              {/await}
+            {/key}
+            <div class="review">
+              {#if reviewBusy}
+                <span class="review-busy"><ProgressRing value={null} size={18} /><small>{t("El LLM está revisando la partitura…")}</small></span>
+              {:else}
+                <Button variant="ghost" size="sm" icon="sparkle" title={t("Pide al LLM de Ajustes → IA que marque los tramos donde la transcripción puede estar mal")} onclick={askReview}>{review ? t("Reseñar otra vez con el LLM") : t("Reseñar con el LLM")}</Button>
+              {/if}
+              {#if review}
+                <details class="review-md" open>
+                  <summary>{t("Reseña del LLM")}</summary>
+                  {#each reviewSections as sec}
+                    {#if sec.title}<h4>{sec.title}</h4>{/if}
+                    {#each sec.blocks as b}
+                      <p class:li={b.li}>{b.text}</p>
+                    {/each}
+                  {/each}
+                </details>
+              {/if}
+            </div>
+          {:else if !scoreShown.length}
             <EmptyState icon="hidden" title={t("Todo oculto")}>{t("Enciende algún instrumento arriba.")}</EmptyState>
           {:else if scoreError}
             <EmptyState icon="alert" title={t("No se pudo montar")}>{engineErr(scoreError)}</EmptyState>
@@ -797,6 +1014,7 @@
   .lane.off { opacity: 0.55; }
   .lane-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-items: center; gap: 2px var(--s2); padding: var(--s2) var(--s3) var(--s2) var(--s4); }
   .lane-head small { color: var(--text-3); font-size: var(--fs-xs); }
+  .midi-badge { display: inline-flex; align-items: center; gap: 6px; color: #ffd27f; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .vol { grid-column: 1 / 3; }
   .lane-acts { display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-width: 52px; }
   .lane-job { display: grid; place-items: center; width: 24px; height: 24px; }
@@ -817,4 +1035,13 @@
     .head { flex-wrap: wrap; }
     .lane { grid-template-columns: 240px minmax(0, 1fr); }
   }
+
+  .review { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+  .review-busy { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); }
+  .review-md { display: flex; flex-direction: column; gap: var(--s1); color: var(--text-2); font-size: var(--fs-md); }
+  .review-md summary { cursor: pointer; color: var(--text); font-weight: 600; }
+  .review-md h4 { margin: var(--s2) 0 0; color: var(--text); }
+  .review-md p { line-height: 1.7; }
+  .review-md p.li { position: relative; padding-left: var(--s4); }
+  .review-md p.li::before { content: ""; position: absolute; left: 4px; top: 0.7em; width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
 </style>

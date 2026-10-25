@@ -72,6 +72,17 @@
     await run("unfail", keys);
     refresh(true);
   }
+
+  let aiMsg = $state("");
+  async function aiTest() {
+    aiMsg = t("Probando…");
+    try {
+      const r = await run<{ reply: string }>("ai_test", []);
+      aiMsg = t("Responde: {reply}", { reply: r.reply });
+    } catch (e) {
+      aiMsg = engineErr(String(e));
+    }
+  }
 </script>
 
 <Dialog bind:open title={t("Ajustes")} width={600}>
@@ -135,6 +146,18 @@
         {#if remoteMsg}<span class="note">{remoteMsg}</span>{/if}
       </div>
       <p class="note">{t("Lo procesado se guarda allí y otro ordenador lo baja en vez de rehacerlo.")} <code>python3 server/server.py</code></p>
+    </section>
+
+    <section>
+      <h3>{t("IA · LLM")}</h3>
+      <Field label={t("Dirección de la API")} type="url" placeholder="https://api.deepseek.com/v1" spellcheck="false" bind:value={settings.ai.url} />
+      <Field label={t("Modelo")} placeholder="deepseek-chat" spellcheck="false" bind:value={settings.ai.model} />
+      <Field label={t("API key")} type="password" placeholder={t("si la API la pide")} bind:value={settings.ai.key} />
+      <div class="acts">
+        <Button size="sm" icon="sparkle" disabled={!settings.ai.url || !settings.ai.model} onclick={aiTest}>{t("Probar")}</Button>
+        {#if aiMsg}<span class="note">{aiMsg}</span>{/if}
+      </div>
+      <p class="note">{t("Cualquier API compatible con OpenAI (DeepSeek, Kimi, GLM, OpenRouter, Ollama en local…). La usa la reseña de la partitura embellecida.")}</p>
     </section>
 
     <section>

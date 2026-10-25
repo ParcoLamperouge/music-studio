@@ -35,6 +35,11 @@ export function engineLabel(s: string): string {
   if ((m = s.match(/^Buscando en (.+)$/))) return t("Buscando en {src}", { src: m[1] });
   if ((m = s.match(/^Notas( precisas)? · (\w+)$/)))
     return t(m[1] ? "Notas precisas · {stem}" : "Notas · {stem}", { stem: t(STEM_INFO[m[2]]?.label ?? m[2]) });
+  if ((m = s.match(/^(?:Optimizando MIDI|Optimizar MIDI|Grabando la partitura|Parche del LLM) · (.+)$/))) {
+    const [base, n] = m[1].split(/\.opt(?=\d)/); // «piano.opt2» → pista base + versión
+    const label = t(STEM_INFO[base]?.label ?? base) + (n ? ` ${t("optimizada")} ${n}` : "");
+    return t(`${s.split(" · ")[0]} · {stem}`, { stem: label });
+  }
   return s;
 }
 
