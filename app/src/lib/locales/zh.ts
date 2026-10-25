@@ -10,6 +10,8 @@ export const zh: Record<string, string> = {
   "Progresiones": "和弦进行",
   "Buscar o ir a…": "搜索或跳转…",
   "Ajustes": "设置",
+  "General": "通用",
+  "Música": "音乐",
   "Secciones": "分区",
 
   // paleta (Ctrl+K) y armazón
@@ -1133,7 +1135,8 @@ export const zh: Record<string, string> = {
   "Piano roll de la versión optimizada (suena con el piano de muestras)": "优化版本的钢琴卷帘（用采样钢琴发声）",
   "Optimizar solo este tramo (compases {a}-{b}); sale una pista nueva": "仅优化此选段（第 {a}–{b} 小节）；会生成一条新音轨",
   "Este tramo al LLM: parche con notas sobrantes, fuerzas y media rejilla (pista nueva)": "把此选段交给大模型：修补多余音符、力度和半格移动（生成新音轨）",
-  "Optimizar MIDI otra vez (toda la pista; sale una pista nueva)": "重新优化 MIDI（整条音轨；会生成新音轨）",
+  "Más acciones de la pista optimizada": "这条优化轨的更多操作",
+  "Optimizar MIDI otra vez (toda la pista)": "重新优化整条音轨（生成新音轨）",
   "Grabar la partitura (dos manos, para leerla o imprimirla)": "生成乐谱（双手分谱，可阅读或打印）",
   "Borrar esta pista optimizada": "删除这条优化音轨",
   "Partitura de la versión optimizada: dos manos, cuadrada a los pulsos reales": "优化版本的乐谱：双手分谱，按真实节拍对齐",

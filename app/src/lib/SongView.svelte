@@ -780,29 +780,42 @@ import { toBeat } from "./arrange";
               {#each tracks as st (st.name)}
                 {@const meta = stems.find((s) => s.name === st.name)}
                 {@const nj = notesJob(st.name)}
+                {@const oj = midiJob(st.name)}
                 {@const off = !st.present || !audible(st.name)}
                 <div class="lane" class:off style:--c={stemColor(st.name)}>
                   <div class="lane-head">
-                    <StemBadge stem={st.name} muted={!audible(st.name)} />
-                    <small class="num">{meta ? (st.present ? `${meta.level} dB` : t("en silencio")) : ""}</small>
-                    <span class="msw"><MuteSolo bind:muted={muted[st.name]} bind:solo={solo[st.name]} label={STEM_INFO[st.name] ? t(STEM_INFO[st.name].label) : undefined} /></span>
-                    <div class="vol"><Slider bind:value={volume[st.name]} max={1.5} label={t("Volumen {stem}", { stem: t(STEM_INFO[st.name]?.label ?? st.name) })} color={stemColor(st.name)} /></div>
-                    <div class="lane-acts">
+                    <div class="lane-top">
+                      <StemBadge stem={st.name} muted={!audible(st.name)} />
+                      <small class="num">{meta ? (st.present ? `${meta.level} dB` : t("en silencio")) : ""}</small>
+                      <div class="lane-acts">
+                        {#if meta?.roll}
+                          <IconButton icon="roll" label={t("Piano roll")} kbd="R" size="sm" active={!!roll[st.name]} onclick={() => toggleRoll(st.name)} />
+                        {/if}
+                        {#if meta && PITCHED.includes(st.name) && st.present}
+                          {#if working(nj)}
+                            <span class="lane-job" title={jobText(nj!)}><ProgressRing value={nj!.pct != null && nj!.status === "running" ? nj!.pct / 100 : null} size={18} /></span>
+                          {:else if nj?.status === "error"}
+                            <IconButton icon="retry" label={t("Reintentar notas: {e}", { e: engineErr(nj.error) })} size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
+                          {:else if !meta.score}
+                            <IconButton icon="notes" label={st.name === "vocals" ? t("Sacar notas y letra") : t("Sacar notas")} size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
+                          {:else if (meta as { model?: string }).model !== "muscriptor"}
+                            <IconButton icon="sparkle" label={t("Notas precisas (MuScriptor, GPU)")} size="sm" onclick={() => act("notes", [st.name, "precise"])} />
+                          {/if}
+                        {/if}
                       {#if meta?.roll}
-                        <IconButton icon="roll" label={t("Piano roll")} kbd="R" size="sm" active={!!roll[st.name]} onclick={() => toggleRoll(st.name)} />
-                      {/if}
-                      {#if meta && PITCHED.includes(st.name) && st.present}
-                        {#if working(nj)}
-                          <span class="lane-job" title={jobText(nj!)}><ProgressRing value={nj!.pct != null && nj!.status === "running" ? nj!.pct / 100 : null} size={18} /></span>
-                        {:else if nj?.status === "error"}
-                          <IconButton icon="retry" label={t("Reintentar notas: {e}", { e: engineErr(nj.error) })} size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
-                        {:else if !meta.score}
-                          <IconButton icon="notes" label={st.name === "vocals" ? t("Sacar notas y letra") : t("Sacar notas")} size="sm" onclick={() => act("notes", [st.name, ...quality()])} />
-                        {:else if (meta as { model?: string }).model !== "muscriptor"}
-                          <IconButton icon="sparkle" label={t("Notas precisas (MuScriptor, GPU)")} size="sm" onclick={() => act("notes", [st.name, "precise"])} />
+                        {#if working(oj)}
+                          <span class="lane-job" title={jobText(oj!)}><ProgressRing value={oj!.pct != null && oj!.status === "running" ? oj!.pct / 100 : null} size={18} /></span>
+                        {:else if oj?.status === "error"}
+                          <IconButton icon="retry" label={t("Reintentar: {e}", { e: engineErr(oj.error) })} size="sm" onclick={() => act("midi_optimize", [st.name])} />
+                        {:else}
+                          <IconButton icon="midi" label={t("Optimizar MIDI · {stem}", { stem: t(STEM_INFO[st.name]?.label ?? st.name) })} size="sm" onclick={() => act("midi_optimize", [st.name])} />
                         {/if}
                       {/if}
-
+                      </div>
+                    </div>
+                    <div class="lane-bot">
+                      <span class="msw"><MuteSolo bind:muted={muted[st.name]} bind:solo={solo[st.name]} label={STEM_INFO[st.name] ? t(STEM_INFO[st.name].label) : undefined} /></span>
+                      <div class="vol"><Slider bind:value={volume[st.name]} max={1.5} label={t("Volumen {stem}", { stem: t(STEM_INFO[st.name]?.label ?? st.name) })} color={stemColor(st.name)} /></div>
                     </div>
                   </div>
                   <div class="wave" role="presentation" onpointerdown={seekIn}>
@@ -816,11 +829,10 @@ import { toBeat } from "./arrange";
                 {@const j = midiJob(tr.name)}
                 <div class="lane midi" class:off={!audible(tr.name)} style:--c="#ffd27f">
                   <div class="lane-head">
-                    <span class="midi-badge"><Icon name="midi" size={14} /> {midiLabel(tr)}</span>
-                    <small class="num">{midiNotes[tr.name]?.length ?? ""}</small>
-                    <span class="msw"><MuteSolo bind:muted={muted[tr.name]} bind:solo={solo[tr.name]} label={midiLabel(tr)} /></span>
-                    <div class="vol"><Slider bind:value={volume[tr.name]} max={1.5} label={t("Volumen {stem}", { stem: midiLabel(tr) })} color="#ffd27f" /></div>
-                    <div class="lane-acts">
+                    <div class="lane-top">
+                      <span class="midi-badge"><Icon name="midi" size={14} /> {midiLabel(tr)}</span>
+                      <small class="num">{midiNotes[tr.name]?.length ?? ""}</small>
+                      <div class="lane-acts">
                       {#if working(j)}
                         <span class="lane-job" title={jobText(j!)}><ProgressRing value={j!.pct != null && j!.status === "running" ? j!.pct / 100 : null} size={18} /></span>
                       {:else if j?.status === "error"}
@@ -833,9 +845,21 @@ import { toBeat } from "./arrange";
                           <IconButton icon="sparkle" label={t("Este tramo al LLM: parche con notas sobrantes, fuerzas y media rejilla (pista nueva)")} size="sm" onclick={() => act("midi_patch", [tr.name, String(loopBars[0]), String(loopBars[1])])} />
                         {/if}
                       {/if}
-                      <IconButton icon="midi" label={t("Optimizar MIDI otra vez (toda la pista; sale una pista nueva)")} size="sm" onclick={() => act("midi_optimize", [tr.name])} />
                       <IconButton icon="score" label={t("Grabar la partitura (dos manos, para leerla o imprimirla)")} size="sm" onclick={() => void engrave(tr)} />
-                      <IconButton icon="trash" label={t("Borrar esta pista optimizada")} size="sm" onclick={() => void delTrack(tr)} />
+                      <Popover side="bottom" align="end" width={250} label={t("Más acciones de la pista optimizada")}>
+                        {#snippet trigger({ toggle })}
+                          <IconButton icon="more" label={t("Más acciones de la pista optimizada")} size="sm" onclick={toggle} />
+                        {/snippet}
+                        <div class="pane menu">
+                          <Button variant="ghost" size="sm" icon="midi" onclick={() => act("midi_optimize", [tr.name])}>{t("Optimizar MIDI otra vez (toda la pista)")}</Button>
+                          <Button variant="ghost" size="sm" icon="trash" onclick={() => void delTrack(tr)}>{t("Borrar esta pista optimizada")}</Button>
+                        </div>
+                      </Popover>
+                      </div>
+                    </div>
+                    <div class="lane-bot">
+                      <span class="msw"><MuteSolo bind:muted={muted[tr.name]} bind:solo={solo[tr.name]} label={midiLabel(tr)} /></span>
+                      <div class="vol"><Slider bind:value={volume[tr.name]} max={1.5} label={t("Volumen {stem}", { stem: midiLabel(tr) })} color="#ffd27f" /></div>
                     </div>
                   </div>
                   <div class="wave" role="presentation" onpointerdown={seekIn}>
@@ -1007,33 +1031,35 @@ import { toBeat } from "./arrange";
   .badges { display: flex; gap: var(--s2); }
   .lanes { display: flex; flex-direction: column; gap: var(--s1); }
   .lane {
-    flex-shrink: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: stretch; min-height: 0;
+    flex-shrink: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); align-items: stretch; min-height: 0;
     border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); overflow: hidden;
     box-shadow: inset 3px 0 0 var(--c); transition: opacity var(--t);
   }
   .lane.off { opacity: 0.55; }
-  .lane-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-items: center; gap: 2px var(--s2); padding: var(--s2) var(--s3) var(--s2) var(--s4); }
-  .lane-head small { color: var(--text-3); font-size: var(--fs-xs); }
-  .midi-badge { display: inline-flex; align-items: center; gap: 6px; color: #ffd27f; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .vol { grid-column: 1 / 3; }
-  .lane-acts { display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-width: 52px; }
+  .lane-head { display: flex; flex-direction: column; gap: 2px; padding: var(--s2) var(--s3) var(--s2) var(--s4); }
+  .lane-top { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+  .lane-top > :global(.stem), .lane-top .midi-badge { flex: 1; min-width: 0; }
+  .lane-top small { color: var(--text-3); font-size: var(--fs-xs); }
+  .midi-badge { display: inline-flex; align-items: center; gap: 6px; color: #ffd27f; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lane-bot { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: var(--s2); align-items: center; }
+  .vol { min-width: 0; }
+  .lane-acts { display: flex; align-items: center; justify-content: flex-end; align-content: center; flex-wrap: wrap; gap: 2px; margin-left: auto; }
   .lane-job { display: grid; place-items: center; width: 24px; height: 24px; }
   .wave { position: relative; display: flex; align-items: center; padding: var(--s1) 0; cursor: pointer; border-left: 1px solid var(--line); }
   .playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); pointer-events: none; }
   .lane-loop { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); pointer-events: none; }
-  .with-roll .lane-head { grid-template-columns: 96px minmax(0, 1fr) auto auto; grid-template-rows: auto; padding: 2px var(--s2) 2px var(--s4); }
+  .with-roll .lane-head { padding: 2px var(--s2) 2px var(--s4); }
   .with-roll .lane-head small { display: none; }
-  .with-roll .vol { grid-column: 2; grid-row: 1; }
-  .with-roll .msw { grid-column: 3; grid-row: 1; }
-  .with-roll .lane-acts { grid-column: 4; grid-row: 1; }
   .msw { display: flex; }
+  .menu { gap: 2px; }
+  .menu :global(.btn) { justify-content: flex-start; width: 100%; }
   .roll { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
 
   .picker { display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center; margin-bottom: var(--s2); flex-shrink: 0; }
 
   @media (max-width: 1100px) {
     .head { flex-wrap: wrap; }
-    .lane { grid-template-columns: 240px minmax(0, 1fr); }
+    .lane { grid-template-columns: 280px minmax(0, 1fr); }
   }
 
   .review { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }

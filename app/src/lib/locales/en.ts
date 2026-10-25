@@ -10,6 +10,8 @@ export const en: Record<string, string> = {
   "Progresiones": "Progressions",
   "Buscar o ir a…": "Search or go to…",
   "Ajustes": "Settings",
+  "General": "General",
+  "Música": "Music",
   "Secciones": "Sections",
 
   // paleta (Ctrl+K) y armazón
@@ -1133,7 +1135,8 @@ export const en: Record<string, string> = {
   "Piano roll de la versión optimizada (suena con el piano de muestras)": "Piano roll of the optimized version (plays with the sample piano)",
   "Optimizar solo este tramo (compases {a}-{b}); sale una pista nueva": "Optimize only this section (bars {a}-{b}); a new track is created",
   "Este tramo al LLM: parche con notas sobrantes, fuerzas y media rejilla (pista nueva)": "Send this section to the LLM: patch of stray notes, velocities and half-grid shifts (new track)",
-  "Optimizar MIDI otra vez (toda la pista; sale una pista nueva)": "Optimize the MIDI again (whole track; a new track is created)",
+  "Más acciones de la pista optimizada": "More actions for this optimized track",
+  "Optimizar MIDI otra vez (toda la pista)": "Re-optimize the whole track (creates a new track)",
   "Grabar la partitura (dos manos, para leerla o imprimirla)": "Engrave the score (two hands, to read or print)",
   "Borrar esta pista optimizada": "Delete this optimized track",
   "Partitura de la versión optimizada: dos manos, cuadrada a los pulsos reales": "Score of the optimized version: two hands, squared to the real beats",

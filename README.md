@@ -1,141 +1,149 @@
 # Estudio
 
-La app de música: cada canción entera en un sitio. Letra palabra a palabra (y lo que suena en Spotify, sola), pistas
-separadas, partitura con la letra debajo, acordes, piano roll y edits para vídeo, con una cola de trabajos común.
-Tauri v2 (Rust) + Svelte; el editor de edits es el de Lyric Edits (React + Remotion).
+[English](README.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md)
 
-Sustituye a **Letras**, **StemLab** y **Lyric Edits** (deprecadas): sus motores están dentro (`engine/letras.py` y
-`engine/stemlab.py`, copiados de sus repos en 816a154 y f5262dc) y `engine/hub.py` los une. Usa sus mismas carpetas
-de datos (letras, canciones separadas, modelos, edits), así que no hubo que migrar nada, y el panel de letras del
-escritorio (`eww/scripts/lyrics.sh`) sigue leyendo las letras de donde siempre.
+The music app: every whole song in one place. Word-by-word lyrics (and whatever is playing on Spotify, on its own), separated stems, sheet music with the lyrics underneath, chords, piano roll and video edits, all sharing a common job queue.
+Tauri v2 (Rust) + Svelte; the edits editor is Lyric Edits' (React + Remotion).
 
-## Lo de más calidad manda
+It replaces **Letras**, **StemLab** and **Lyric Edits** (deprecated): their engines live inside (`engine/letras.py` and
+`engine/stemlab.py`, copied from their repos at 816a154 and f5262dc) and `engine/hub.py` ties them together. It uses their
+same data folders (lyrics, separated songs, models, edits), so nothing needed migrating, and the desktop lyrics panel
+(`eww/scripts/lyrics.sh`) still reads the lyrics from where it always did.
 
-- **Un audio por canción**: `audio/<clave>.wav` de Letras. StemLab separa ese mismo fichero (enlace duro, sin copia)
-  con la clave de Letras como id, así que las pistas y la letra van siempre sobre el mismo audio.
-- **Voz**: la de StemLab (BS-RoFormer a calidad completa) > la rápida de Letras (2 pasadas, fp16). Si la canción ya
-  está separada, sincronizar la letra no separa nada; si se separa después, su voz sustituye a la rápida.
-- **Letra de la partitura**: la de Letras (Whisper large-v3 + alineado forzado, texto de Genius o corregido a mano,
-  con sus desfases) en vez de Whisper turbo. Corregir la letra corrige la partitura (se reparte otra vez al montarla,
-  sin IA). Sacar las notas de la voz busca y sincroniza la letra si falta.
-- **Pulsos**: Beat This! (CPJKU, ISMIR 2024) sobre la mezcla, sin separar: pulsos y primeros tiempos de compás
-  (el metrónomo acentúa el 1 real y detecta 6/8; librosa se equivocaba de tempo y no sabía de compases). CPU, ~5 s.
-- **Acordes**: lv-chordia (Jiang et al., ISMIR 2019; ~170 acordes con inversiones, ~81 % en Billboard) sobre el audio:
-  GPU, ~15 s, sin necesitar pistas ni notas. Mientras no están, unos provisionales a partir de las notas.
-- **Notas**: rápidas con basic-pitch (CPU, segundos) o precisas con MuScriptor (Kyutai, 2026; GPU, minutos por pista;
-  en su prueba F1 multi-instrumento 48 frente a 22 de YourMT3+), cada pista con su instrumento. Lo elige el ajuste
-  «Notas por defecto» o el botón «Precisas» de cada pista. MuScriptor necesita aceptar su licencia (no comercial) en
-  Hugging Face y `engine/.venv/bin/hf auth login` una vez.
-- **Audio y letra en la misma versión**: los tiempos de la letra son los de Spotify (LRCLIB…) y el audio sale de YouTube,
-  que puede ser otra versión (un videoclip con intro). La primera vez que se sincroniza, Whisper mide el desfase y se
-  mueve el audio (recorta la intro o pone silencio), con todo lo sacado de él (voz, pulsos, acordes, notas, pistas,
-  recortes de los edits): la letra no se toca, así que Spotify y el escritorio siguen igual. Para las ya hechas:
-  «comprobar» en la pestaña Letra o «Comprobar la versión del audio» en bloque.
-- **Pistas que suman la canción**: sin la normalización por pista de audio-separator, y lo que ninguno de los dos
-  modelos pone en una pista (coros, voces procesadas, efectos) va a «Otros».
-- **Nada a medias**: la separación se monta en una carpeta aparte y se mueve al acabar; si una vieja se quedó a medias
-  se rehace de cero (pistas enteras sin `meta.json`: se rehace el `meta.json` sin GPU). Las cachés de Letras se
-  escriben de forma atómica y las rotas se tiran. Las canciones separadas a mano en StemLab («dna») se enlazan
-  solas con la de Letras si título y duración coinciden.
+## The higher-quality source wins
 
-## Cola
+- **One audio per song**: `audio/<key>.wav` from Letras. StemLab separates that same file (hard link, no copy) using the
+  Letras key as id, so the stems and the lyrics always work on the same audio.
+- **Vocals**: StemLab's (BS-RoFormer at full quality) > Letras' fast one (2 passes, fp16). If the song is already
+  separated, syncing lyrics doesn't separate anything; if separation happens later, its vocals replace the fast ones.
+- **Sheet-music lyrics**: Letras' (Whisper large-v3 + forced alignment, Genius text or hand-corrected, with its offsets)
+  instead of Whisper turbo. Fixing the lyrics fixes the sheet music (redistributed again when the score is built, no AI).
+  Extracting notes from vocals searches for and syncs the lyrics if missing.
+- **Beats**: Beat This! (CPJKU, ISMIR 2024) on the mix, without separating: beats and downbeats (the metronome accents
+  the real 1 and detects 6/8; librosa got the tempo wrong and knew nothing about meters). CPU, ~5 s.
+- **Chords**: lv-chordia (Jiang et al., ISMIR 2019; ~170 chords with inversions, ~81 % on Billboard) on the audio:
+  GPU, ~15 s, no stems or notes needed. Until they're ready, provisional ones from the notes.
+- **Notes**: fast with basic-pitch (CPU, seconds) or precise with MuScriptor (Kyutai, 2026; GPU, minutes per stem;
+  in its benchmark, multi-instrument F1 of 48 vs YourMT3+'s 22), each stem with its instrument. Chosen by the
+  "Default notes" setting or each stem's "Precise" button. MuScriptor requires accepting its (non-commercial) license
+  on Hugging Face and `engine/.venv/bin/hf auth login` once.
+- **Audio and lyrics from the same version**: lyric timings are Spotify's (LRCLIB…) and the audio comes from YouTube,
+  which may be a different version (a music video with an intro). The first time lyrics are synced, Whisper measures the
+  offset and the audio is shifted (trims the intro or adds silence), along with everything derived from it (vocals,
+  beats, chords, notes, stems, edit trims): the lyrics aren't touched, so Spotify and the desktop stay as they were.
+  For songs already done: "check" in the Lyrics tab or "Check audio version" in bulk.
+- **Stems that add up to the song**: no per-stem normalization from audio-separator, and whatever neither model puts on
+  a stem (backing vocals, processed voices, effects) goes to "Other".
+- **Nothing half-done**: separation is built in a separate folder and moved into place when finished; if an old one was
+  left half-done it's redone from scratch (whole stems without `meta.json`: the `meta.json` is rebuilt without GPU).
+  Letras' caches are written atomically and broken ones are discarded. Songs separated by hand in StemLab ("dna") link
+  themselves to the Letras one if title and duration match.
 
-- **GPU, una cosa a la vez** (8 GB de una RX 6600 no dan para dos modelos; una 7700 XT, gfx1101, va sin ajustes),
-  en un único proceso (`hub.py worker`) que deja el último modelo cargado entre canciones: Whisper, el separador
-  compilado y MuScriptor no se recargan. Entre los pasos listos gana el que usa el modelo ya cargado: en una tanda
-  van todas las separaciones, luego todo Whisper… Toma el mismo candado de GPU que Letras y StemLab (su prefetch
-  espera, o espera él), y lo suelta con la VRAM a los 15 s sin trabajo de GPU.
-- **CPU** (notas con basic-pitch, pulsos, alineado; `ESTUDIO_CPU_JOBS`, por defecto núcleos/4), **red** (búsquedas,
-  descargas; 4) y **render** (1) en paralelo con la GPU.
-- **Dependencias**: «Todo» = separar → (buscar la letra mientras) → sincronizar con la voz buena → notas de cada
-  instrumento (CPU, mientras la GPU hace Whisper) → notas de la voz con la letra hecha. Una letra pedida suelta
-  espera a la separación de esa canción si hay una en cola.
-- Cancelar (mata el grupo de procesos: ffmpeg, yt-dlp…), pasar al principio, reintentar, en bloque. La cola se guarda
-  en disco (`queue.json`) y sigue al abrir la app; cada paso mira lo que ya hay y no repite trabajo.
+## Queue
 
-## Uso
+- **GPU, one thing at a time** (8 GB of an RX 6600 won't fit two models; a 7700 XT, gfx1101, runs without tweaks),
+  in a single process (`hub.py worker`) that keeps the last model loaded between songs: Whisper, the compiled separator
+  and MuScriptor aren't reloaded. Among ready steps, the one that uses the already-loaded model wins: in a batch, all
+  separations first, then all Whisper… It takes the same GPU lock as Letras and StemLab (their prefetch waits, or it
+  waits), and releases it when VRAM has been idle for 15 s.
+- **CPU** (basic-pitch notes, beats, alignment; `ESTUDIO_CPU_JOBS`, default cores/4), **network** (searches, downloads;
+  4) and **render** (1) run in parallel with the GPU.
+- **Dependencies**: "All" = separate → (fetch lyrics meanwhile) → sync with the good vocals → notes per instrument
+  (CPU, while the GPU does Whisper) → vocal notes once lyrics are done. A pending lyric request waits for that song's
+  separation if one is queued.
+- Cancel (kills the process group: ffmpeg, yt-dlp…), move to front, retry, in bulk. The queue is saved to disk
+  (`queue.json`) and resumes when the app opens; each step checks what's already there and doesn't repeat work.
 
-- **Menú** al abrir: «Analizar canciones» (todo lo de abajo), «Tocar», «Sesiones» o «Aprender» (`1`…`4`; la casita de
-  arriba vuelve).
-- **Aprender**: una canción separada como arreglo para piano (`arrange.ts`), niveles 1 (principiante: melodía en negras,
-  la fundamental en la izquierda) a 5 (lo que suena). Derecha: la melodía de la pista que elijas (la voz, por defecto),
-  limpia y cuadrada a los pulsos de Beat This!; o, sin melodía, los acordes. Izquierda: generada de los acordes (raíz,
-  raíz + quinta, tríadas con buen enlace, bajo + acorde). Transporte opcional a una tonalidad fácil (entonces de la
-  canción solo suena la batería). Suena sobre sus pistas sin la parte que tocas, con guía sintetizada de la otra mano,
-  modo espera, bucle A–B y aciertos; en piano roll o en partitura (MusicXML de piano, con PDF).
-- **Mis piezas** (en Aprender): canciones escritas a mano o importadas (MIDI; MusicXML `.musicxml`/`.xml`/`.mxl`), en
-  `piezas/<id>.json`, con los mismos niveles (el 5 es la pieza tal cual). **Editor** en piano roll: paso a paso con el
-  piano o el teclado (cada nota en el cursor con lo que la mantienes, y el cursor avanza) o grabando en tiempo real con
-  metrónomo (el pedal sostiene lo soltado); fuerza de cada nota (carril de abajo, control «Fuerza», Alt+↑↓); ratón (clic
-  pone, arrastrar mueve o alarga, clic derecho borra) y teclado (flechas, Mayús+flechas, Ctrl+↑↓
-  octava, Tab cambia de mano, Supr, Ctrl+Z/Y/A/C/X/V/Q, Espacio); partitura en vivo; exporta a MIDI y MusicXML; pasa a
-  sesión. MusicXML con repeticiones, 1.ª/2.ª casilla, D.C., D.S., Fine y Coda desarrollados. Practicar a tempo reducido
-  (50-100 %): las pistas de la canción se estiran sin cambiar el tono (FFmpeg con rubberband; una vez por canción y
-  velocidad, en `$ESTUDIO_DATA/lento/`, ~6 s por pista). Con teclado MIDI, la práctica mira también la fuerza: tecla en
-  amarillo si la nota es buena pero muy fuerte o floja, y de media cuánto más fuerte o flojo se toca. En Sesiones: importar MIDI/MusicXML como sesión y «Practicar en Aprender» (la sesión como pieza). La guía, las sesiones y
-  el teclado del ordenador suenan con muestras del Salamander Grand Piano (`app/public/piano`, CC BY, 2 MB).
-- **Sesiones**: dos listas. Canciones: las de la biblioteca con pistas separadas que añadas («＋ Añadir canción»; la lista va en
-  `sesiones/canciones.json`), por instrumentos (volumen y M/S, piano roll de cada uno, acordes y progresión). Sesiones: las guardadas en Tocar, con el piano roll y el transporte de las canciones (suenan con un piano
-  sintetizado), tonalidad, acordes que más suenan y la progresión (clic = ir ahí). «Analizar con Claude» (Opus 5.5, esfuerzo medio: por tramos con su emoción, progresiones con notas y grados, fallos) usa Claude Code
-  (`claude -p`, la suscripción; sin herramientas ni tus hooks) y deja `<sesión>.analisis.md` al lado (~1 min). A las canciones de la lista también, con los instrumentos que elijas
-  (sus notas, acordes y letra; `sesiones/canciones/<canción>__<pistas>.analisis.md`). Claude recibe TOON (`toon.ts`: las
-  listas de notas y acordes en tabla), no el JSON.
-- **Tocar**: teclado MIDI por USB (`midir`, ALSA; se conecta solo al enchufarlo, el último usado o el único). Piano roll
-  al revés (la barra sale de la tecla al tocarla y sube), pedal de resonancia, el acorde que suena con su grado y la
-  tonalidad de lo tocado (sin IA, `live.ts` con las plantillas de `harmony.ts`), volumen del teclado por CC7. Para probar sin piano, el teclado del ordenador: fila A–Ñ blancas, W E T Y U O P negras,
-  Z/X octava, Espacio pedal (si hay piano conectado, suena en él). La sesión
-  se guarda sola cada 15 s en `$ESTUDIO_DATA/sesiones/<fecha>.mid` (se reproduce en cualquier sitio) y `.json` (notas,
-  nombres, acordes y pedal, para pasárselo a una IA).
+## Usage
 
-- **Biblioteca**: todas las canciones de las tres apps. Filtros, búsqueda (`/`), orden; selección con casillas,
-  Ctrl/Mayús+clic o Ctrl+A, y acciones en bloque (Todo, Letra, Pistas, Notas, pulsos, borrar).
-- **Añadir** (`N`): por artista y título (como Letras), de YouTube y cualquier web de yt-dlp, o ficheros (también
-  arrastrándolos a la ventana), con qué hacer después.
-- **Canción**: tarjetas de cada etapa (audio, letra, pistas, notas, edits) con su trabajo en vivo y «Hacer todo».
-  Pestañas Letra (karaoke palabra a palabra, editor de Letras `E`, buscar otra vez, volver a la anterior, desfases;
-  «Dentro de cada línea» no toca el inicio de ninguna línea y el audio coloca cada palabra hasta la línea siguiente;
-  «Desde el audio» no usa los tiempos por línea: Whisper sobre tu texto y alineado letra a letra; al añadir, en cambio, mandan los tiempos de internet como en Letras), Pistas (mezclador, M/S, metrónomo `M`), Piano roll (con el acorde que suena, el siguiente y la tonalidad),
-  Partitura (de conjunto, sigue la reproducción, PDF), Acordes (cancionero sin ritmo: «Mim7» encima de la palabra en
-  la que entra, intro e instrumentales en compases; tonalidad y escala escritas; Do/C, simplificar, grados; sale de las
-  notas transcritas cada dos pulsos, sin IA) y Edits (crear con reglas, con Claude o con tus presets; abre el editor de Lyric Edits).
-- `Espacio` reproduce, `←/→` 5 s, `1-5` pestañas, `Q` la cola.
+- **Menu** on open: "Analyze songs" (everything below), "Play", "Sessions" or "Learn" (`1`…`4`; the little house at the
+  top goes back).
+- **Learn**: a separated song as a piano arrangement (`arrange.ts`), levels 1 (beginner: melody in quarter notes, the
+  root in the left hand) to 5 (what it sounds like). Right hand: the melody of the stem you choose (vocals by default),
+  clean and quantized to the beats of Beat This!; or, without melody, the chords. Left hand: generated from the chords
+  (root, root + fifth, well-voiced triads, bass + chord). Optional transposition to an easy key (then only the drums of
+  the song play). It plays over its stems without the part you're playing, with a synthesized guide for the other hand,
+  wait mode, A–B loop and hit tracking; in piano roll or sheet music (piano MusicXML, with PDF).
+- **My pieces** (in Learn): songs written by hand or imported (MIDI; MusicXML `.musicxml`/`.xml`/`.mxl`), in
+  `piezas/<id>.json`, with the same levels (5 is the piece as-is). **Editor** in piano roll: step by step with the piano
+  or the keyboard (each note stays at the cursor while you hold it, and the cursor advances) or recording in real time
+  with a metronome (the pedal sustains what you release); per-note velocity (bottom lane, "Velocity" control, Alt+↑↓);
+  mouse (click places, drag moves or extends, right-click deletes) and keyboard (arrows, Shift+arrows, Ctrl+↑↓ octave,
+  Tab switches hands, Delete, Ctrl+Z/Y/A/C/X/V/Q, Space); live sheet music; exports to MIDI and MusicXML; becomes a
+  session. MusicXML with repeats, 1st/2nd endings, D.C., D.S., Fine and Coda expanded. Practice at reduced tempo
+  (50-100 %): the song's stems are time-stretched without changing pitch (FFmpeg with rubberband; once per song and
+  speed, in `$ESTUDIO_DATA/lento/`, ~6 s per stem). With a MIDI keyboard, practice also watches velocity: the key turns
+  yellow if the note is right but too loud or too soft, and it tracks on average how much louder or softer you play.
+  In Sessions: import MIDI/MusicXML as a session and "Practice in Learn" (the session as a piece). The guide, sessions
+  and the computer keyboard sound with Salamander Grand Piano samples (`app/public/piano`, CC BY, 2 MB).
+- **Sessions**: two lists. Songs: library songs with separated stems that you add ("＋ Add song"; the list lives in
+  `sesiones/canciones.json`), by instruments (volume and M/S, a piano roll for each, chords and progression). Sessions:
+  those saved in Play, with the piano roll and transport of the songs (they sound with a synthesized piano), key,
+  most-played chords and the progression (click = go there). "Analyze with Claude" (Opus 5.5, medium effort: sections
+  with their emotion, progressions with notes and degrees, mistakes) uses Claude Code
+  (`claude -p`, the subscription; no tools or your hooks) and leaves `<session>.analisis.md` next to it (~1 min). Also
+  for songs on the list, with the instruments you choose (their notes, chords and lyrics;
+  `sesiones/canciones/<song>__<stems>.analisis.md`). Claude receives TOON (`toon.ts`: note and chord lists as a table),
+  not the JSON.
+- **Play**: USB MIDI keyboard (`midir`, ALSA; connects by itself when plugged in — the last one used, or the only one).
+  Upside-down piano roll (the bar leaves the key as you play it and rises), sustain pedal, the sounding chord with its
+  degree and the key of what you're playing (no AI, `live.ts` with the templates from `harmony.ts`), keyboard volume
+  via CC7. To try without a piano, the computer keyboard: A–Ñ row whites, W E T Y U O P blacks, Z/X octave, Space pedal
+  (if a piano is connected, it sounds on it). The session autosaves every 15 s to
+  `$ESTUDIO_DATA/sesiones/<date>.mid` (plays anywhere) and `.json` (notes, names, chords and pedal, to hand to an AI).
 
-- **Spotify** (lo que hacía Letras): lo que suena se busca y, si su letra no trae tiempos, se sincroniza solo, el
-  primero de la cola. Arriba sale qué suena; en su pestaña Letra, sin reproducir aquí, la letra va con el reloj de
-  Spotify y saltar a una línea la mueve allí. Se apaga en Ajustes.
-- **Playlists** (Ajustes): las canciones de tus playlists públicas se sincronizan cada 6 h en segundo plano
-  (`estudio-prefetch.timer`, con un juego abierto espera); «Procesar ahora» y reintentar las fallidas.
-- **Escritorio**: oculta en el escritorio, instrumental y nota, en la pestaña Letra.
-- **Servidor** (Ajustes → Servidor; en bloque, «Sincronizar con el servidor»): lo ya procesado de cada canción (audio,
-  voz, pistas, Whisper, alineado, pulsos, acordes, notas, letra con su historial y edits con sus fondos) se guarda en
-  `server/server.py`, y otro ordenador lo baja en vez de volver a sacarlo. Sincronizar es en los dos sentidos: lo que
-  falta en un lado sale del otro, y si los dos cambiaron un fichero gana el más nuevo. El audio y las pistas van en
-  bloque con todo lo que sale de ellos: si un lado tiene otro audio (otra versión, o recortado al alinearlo), gana
-  entero el bloque más nuevo y no se mezcla, por ejemplo, Whisper de un audio con el otro. Una separación a medias no
-  se sube. Los ficheros van por contenido (sha256): un audio enlazado en dos sitios se sube una vez, y al bajar se
-  vuelve a enlazar.
+- **Library**: all songs from the three apps. Filters, search (`/`), sorting; selection with checkboxes,
+  Ctrl/Shift+click or Ctrl+A, and bulk actions (All, Lyrics, Stems, Notes, beats, delete).
+- **Add** (`N`): by artist and title (like Letras), from YouTube and any yt-dlp site, or files (also by dragging them
+  onto the window), with what to do afterwards.
+- **Song**: cards for each stage (audio, lyrics, stems, notes, edits) with their live job and "Do all". Tabs: Lyrics
+  (word-by-word karaoke, Letras editor `E`, search again, back to the previous one, offsets; "Within each line" doesn't
+  touch any line's start and the audio places each word up to the next line; "From the audio" doesn't use per-line
+  timings: Whisper on your text with letter-by-letter alignment; when adding, on the other hand, internet timings rule
+  as in Letras), Stems (mixer, M/S, metronome `M`), Piano roll (with the sounding chord, the next one and the key),
+  Sheet music (ensemble, follows playback, PDF), Chords (songbook without rhythm: "Em7" over the word it enters on,
+  intro and instrumentals in bars; key and scale written out; C/Do, simplify, degrees; derived from the transcribed
+  notes every two beats, no AI) and Edits (create with rules, with Claude or your presets; opens the Lyric Edits
+  editor).
+- `Space` plays, `←/→` 5 s, `1-5` tabs, `Q` the queue.
+
+- **Spotify** (what Letras did): whatever is playing is searched and, if its lyrics come without timings, it syncs by
+  itself, first in the queue. What's playing shows at the top; in its Lyrics tab, without playing here, the lyrics
+  follow Spotify's clock and jumping to a line moves it there. Turned off in Settings.
+- **Playlists** (Settings): the songs of your public playlists sync every 6 h in the background
+  (`estudio-prefetch.timer`, waits if a game is open); "Process now" and retry the failed ones.
+- **Desktop**: hidden on the desktop, instrumental and note, in the Lyrics tab.
+- **Server** (Settings → Server; in bulk, "Sync with server"): each song's already-processed data (audio, vocals,
+  stems, Whisper, alignment, beats, chords, notes, lyrics with their history and edits with their backgrounds) is
+  stored in `server/server.py`, and another computer downloads it instead of extracting it again. Sync is
+  bidirectional: what's missing on one side comes from the other, and if both sides changed a file the newest wins.
+  Audio and stems travel as a block with everything derived from them: if one side has a different audio (another
+  version, or trimmed when aligning), the newer block wins whole — Whisper of one audio is never mixed with the other.
+  A half-done separation isn't uploaded. Files go by content (sha256): an audio hard-linked in two places is uploaded
+  once, and on download it's hard-linked again.
 
   ```sh
-  python3 server/server.py                       # localhost:8765, datos en ./store (PORT, HOST, STORE)
+  python3 server/server.py                       # localhost:8765, data in ./store (PORT, HOST, STORE)
   ```
 
-  Fuera de localhost pide `ESTUDIO_TOKEN` (en la app: Ajustes → Servidor → Token). No lleva TLS: en la nube, detrás
-  de un proxy con HTTPS (Caddy, Traefik…). Sin la app: `ESTUDIO_REMOTE=host:puerto engine/.venv/bin/python
-  engine/hub.py remote_sync <clave>`.
+  Beyond localhost it requires `ESTUDIO_TOKEN` (in the app: Settings → Server → Token). No TLS: in the cloud, put it
+  behind a proxy with HTTPS (Caddy, Traefik…). Without the app: `ESTUDIO_REMOTE=host:port engine/.venv/bin/python
+  engine/hub.py remote_sync <key>`.
 
-De StemLab no se trajeron las carpetas de la biblioteca (hay filtros y búsqueda).
+From StemLab, the library folders weren't brought over (there are filters and search).
 
-Datos: los de las apps de antes (`LETRAS_DATA`, `STEMLAB_DATA`, `LYRIC_EDITS_DATA`, con su mismo criterio) y lo
-propio en `$ESTUDIO_DATA` o `~/.local/share/estudio` (`songs.json`: canciones sin letra y enlaces con las pistas;
-`queue.json`; `settings.json`; vistas). Python: `engine/.venv` (o `ESTUDIO_PYTHON`).
+Data: those of the previous apps (`LETRAS_DATA`, `STEMLAB_DATA`, `LYRIC_EDITS_DATA`, same criteria) and its own in
+`$ESTUDIO_DATA` or `~/.local/share/estudio` (`songs.json`: songs without lyrics and links with their stems;
+`queue.json`; `settings.json`; views). Python: `engine/.venv` (or `ESTUDIO_PYTHON`).
 
-## Desarrollo
+## Development
 
 ```sh
 cd engine && uv sync
-cd ../app && npm install && npm run tauri dev     # puerto 1440
+cd ../app && npm install && npm run tauri dev     # port 1440
 ```
 
-Tests: `cd engine && .venv/bin/python test_hub.py` (y `test_letras.py`, `test_stemlab.py`, `test_remote.py`), `cd app && npm test && npm run check`,
-`cd app/src-tauri && cargo test`. Con datos reales: `ESTUDIO_TEST="todo <clave>" cargo test real_job -- --ignored --nocapture`.
-Instalar en el lanzador: `./install.sh`.
+Tests: `cd engine && .venv/bin/python test_hub.py` (and `test_letras.py`, `test_stemlab.py`, `test_remote.py`),
+`cd app && npm test && npm run check`,
+`cd app/src-tauri && cargo test`. With real data: `ESTUDIO_TEST="todo <key>" cargo test real_job -- --ignored --nocapture`.
+Install into the launcher: `./install.sh`.
