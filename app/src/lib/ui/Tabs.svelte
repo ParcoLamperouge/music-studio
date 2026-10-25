@@ -1,7 +1,9 @@
 <script lang="ts" generics="T extends string">
   import Icon, { type IconName } from "./Icon.svelte";
+  import type { Snippet } from "svelte";
 
   // Elegir una de pocas opciones. segmented: pastilla con fondo (modos, filtros cortos); underline: pestañas de una vista.
+  // `right`: contenido extra dentro del botón (p. ej. un menú), con clics que no cambian de pestaña.
   let {
     options,
     value = $bindable(),
@@ -10,7 +12,7 @@
     label,
     onchange,
   }: {
-    options: { value: T; label?: string; icon?: IconName; count?: number; title?: string }[];
+    options: { value: T; label?: string; icon?: IconName; count?: number; title?: string; right?: Snippet }[];
     value: T;
     variant?: "segmented" | "underline";
     size?: "sm" | "md";
@@ -42,11 +44,14 @@
       tabindex={o.value === value ? 0 : -1}
       title={o.title}
       aria-label={o.label ? undefined : o.title}
-      onclick={() => pick(o.value)}
+      onclick={(e) => {
+        if (!(e.target as HTMLElement).closest(".right")) pick(o.value); // lo de «right» (menús) no cambia de pestaña
+      }}
     >
       {#if o.icon}<Icon name={o.icon} size={14} />{/if}
       {#if o.label}<span>{o.label}</span>{/if}
       {#if o.count != null}<small class="num">{o.count}</small>{/if}
+      {#if o.right}<span class="right">{@render o.right()}</span>{/if}
     </button>
   {/each}
 </div>
@@ -64,7 +69,8 @@
   .segmented.s-sm button { height: 22px; padding: 0 8px; font-size: var(--fs-sm); }
   .segmented button[aria-selected="true"] { background: var(--panel-hi); color: var(--text); box-shadow: 0 0 0 1px var(--line-hi); }
   .underline { gap: var(--s4); border-bottom: 1px solid var(--line); align-self: stretch; }
-  .underline button { height: 36px; padding: 0 2px; margin-bottom: -1px; box-shadow: inset 0 -2px 0 transparent; }
+  .underline button { height: 36px; padding: 0 12px; margin-bottom: -1px; box-shadow: inset 0 -2px 0 transparent; }
   .underline.s-sm button { height: 30px; font-size: var(--fs-sm); }
   .underline button[aria-selected="true"] { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  .right { display: inline-flex; align-items: center; }
 </style>

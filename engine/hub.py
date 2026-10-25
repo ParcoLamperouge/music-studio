@@ -120,12 +120,15 @@ def register(artist, title, **extra):
 
 def stem_state(sid):
     """None (sin separar), "complete", "repair" (pistas enteras, falta meta.json: se rehace sin GPU) o "partial"
-    (separación cortada: se tira y se repite; antes las apps la reutilizaban y fallaban)."""
+    (separación cortada: se tira y se repite; antes las apps la reutilizaban y fallaban). Las pistas borradas a mano
+    (present: false en meta.json) no la marcan como partial: la canción sigue siendo operable sin ellas."""
     d = S.SONGS / sid if sid else None
     if not d or not d.is_dir():
         return None
-    if (d / "mix.wav").exists() and all((d / "stems" / f"{s}.wav").exists() for s in S.STEMS):
-        return "complete" if (read_json(d / "meta.json") or {}).get("stems") else "repair"
+    meta = read_json(d / "meta.json") or {}
+    gone = {st.get("name") for st in meta.get("stems", []) if not st.get("present", True)}
+    if (d / "mix.wav").exists() and all((d / "stems" / f"{s}.wav").exists() or s in gone for s in S.STEMS):
+        return "complete" if meta.get("stems") else "repair"
     return "partial"
 
 
@@ -784,7 +787,8 @@ def separate(key):
     clave de Letras como id. Se arma en una carpeta aparte y se mueve al acabar: nunca queda a medias."""
     s = resolve(key)
     sid = s["stem"] or key
-    if stem_state(sid) == "complete":
+    gone = lambda m: any(not st.get("present", True) for st in (m or {}).get("stems", []))
+    if stem_state(sid) == "complete" and not gone(read_json(S.SONGS / sid / "meta.json")):
         return emit("done", skipped=True)
     wav = audio_of(s)
     if not wav:
@@ -793,7 +797,7 @@ def separate(key):
     with S.gpu_lock():
         # mirado otra vez con el candado: otra app (o otra ventana) pudo separarla mientras esperábamos
         state = stem_state(sid)
-        if state == "complete":
+        if state == "complete" and not gone(read_json(out / "meta.json")):
             return emit("done", skipped=True)
         if state == "repair":
             repair_meta(sid, s)
@@ -1006,9 +1010,10 @@ def midi_optimize(key, src, bar_from="", bar_to=""):
     if lo is not None:
         if lo > hi:
             lo, hi = hi, lo
-        inside = [r for r in rows if lo <= B.bar_of_row(r, tl) <= hi]
-        outside = [r for r in rows_raw if not (lo <= B.bar_of_row(r, tl) <= hi)]
+        inside = [r for r in rows if lo <= tl.bar_of_unit(tl.to_unit(r[0])) <= hi]
+        outside = [r for r in rows_raw if not (lo <= tl.bar_of_unit(tl.to_unit(r[0])) <= hi)]
         rows = sorted(outside + inside, key=lambda r: (r[0], r[2]))
+    rows = B.refresh_bars(rows, tl)
     name, meta = _new_version(sid, of, src, rows, [lo, hi] if lo is not None else None)
     emit("done", song=S.with_dir(meta), track=name,
          stats=f"{len(rows)} notas · " + (f"compases {lo + 1}-{hi + 1}" if lo is not None else "toda la pista"))
@@ -1060,6 +1065,33 @@ def track_delete(key, name):
     emit("done", song=S.with_dir(meta))
 
 
+def stem_delete(key, name):
+    """Borra una pista separada: su wav, su transcripción y partitura, y las pistas midi que de ella derivan.
+    Queda marcada present: false en meta.json (la canción sigue operable); separar de nuevo la restaura."""
+    s = resolve(key)
+    sid = s["stem"]
+    if name not in S.STEMS:
+        raise ValueError(f"pista desconocida: {name}")
+    d = S.SONGS / sid
+    with meta_lock(sid):
+        meta = read_json(d / "meta.json")
+        st = next((st for st in meta.get("stems", []) if st["name"] == name), None)
+        if not st:
+            raise ValueError(f"no hay una pista llamada {name}")
+        (d / st["file"]).unlink(missing_ok=True)
+        for f in (st.get("roll"), st.get("score"), st.get("beauty"), st.get("beautyRoll")):
+            if f and (d / f).exists():
+                (d / f).unlink()
+        st.update({"roll": None, "score": None, "beauty": None, "beautyRoll": None, "midi": None, "present": False})
+        for tr in [t for t in meta.get("tracks", []) if t.get("of") == name]:
+            for f in (tr.get("roll"), tr.get("score")):
+                if f and (d / f).exists():
+                    (d / f).unlink()
+        meta["tracks"] = [t for t in meta.get("tracks", []) if t.get("of") != name]
+        write_json(d / "meta.json", meta)
+    emit("done", song=S.with_dir(meta))
+
+
 def ai_test():
     """Prueba de la API del LLM de Ajustes → IA: una respuesta de una palabra."""
     import llm
@@ -1104,7 +1136,7 @@ def midi_patch(key, src, bar_from, bar_to):
     tl = _timeline(sid, until)
     with redirect_stdout(sys.stderr):  # el parche trabaja sobre el tramo ya cuadrado
         rows = B.groups_rows(B.quantize_groups(_plain(rows_raw), tl), tl)
-    inside = [r for r in rows if lo <= B.bar_of_row(r, tl) <= hi]
+    inside = [r for r in rows if lo <= tl.bar_of_unit(tl.to_unit(r[0])) <= hi]
     if not inside:
         raise RuntimeError("el tramo no tiene notas")
     prompt = (
@@ -1150,8 +1182,9 @@ def midi_patch(key, src, bar_from, bar_to):
     if not applied:
         raise RuntimeError("el LLM no propuso ningún cambio aplicable")
     inside_new.sort(key=lambda r: (r[0], r[2]))
-    outside = [r for r in rows_raw if not (lo <= B.bar_of_row(r, tl) <= hi)]
-    name, meta = _new_version(sid, of, src, sorted(outside + inside_new, key=lambda r: (r[0], r[2])), [lo, hi])
+    outside = [r for r in rows_raw if not (lo <= tl.bar_of_unit(tl.to_unit(r[0])) <= hi)]
+    rows = B.refresh_bars(sorted(outside + inside_new, key=lambda r: (r[0], r[2])), tl)
+    name, meta = _new_version(sid, of, src, rows, [lo, hi])
     emit("done", song=S.with_dir(meta), track=name, stats=f"parche: {applied} cambios en compases {lo + 1}-{hi + 1}")
 
 
@@ -1170,12 +1203,17 @@ def beautify_review(key, track):
         raise RuntimeError("esa pista no está cuadrada todavía: optimízala primero")
     smeta = read_json(d / f"scores/{track}.score.meta.json", {}) or {}
     meter = smeta.get("meter") or 3
-    bars = smeta.get("measures") or (max(r[4] for r in roll) + 1)
+    tl = _timeline(s["stem"], max(n[1] for n in roll) + 2)
+
+    def bar_of(n):  # recalculado: el compás guardado caduca si se corrigió a mano
+        return tl.bar_of_unit(tl.to_unit(n[0]))
+
+    bars = max(bar_of(n) for n in roll) + 1
     key_name = (smeta.get("key") or {}).get("tonic", "?")
     win = 4  # compases por tramo
     lines = []
     for w0 in range(0, bars, win):
-        ns = [n for n in roll if w0 <= n[4] < w0 + win]
+        ns = [n for n in roll if w0 <= bar_of(n) < w0 + win]
         if not ns:
             continue
         rh = [n for n in ns if len(n) > 5 and n[5] == "rh"]
@@ -1265,6 +1303,34 @@ def beats(key):
     else:
         write_json(L.AUDIO / f"{key}.beats.json", data)
     emit("done", bpm=data["bpm"], meter=data["meter"], beats=len(data["beats"]))
+
+
+def meter_set(key, meter="", shift=""):
+    """Compás corregido a mano (las rayas no caen en el fuerte): reescribe los downbeats con
+    la métrica nueva (o movidos un pulso) en beats.json — la única fuente, motor y app leen lo
+    mismo. Un «Pulsos» posterior lo rehace de cero (se pierde la corrección)."""
+    s = resolve(key)
+    sid = s["stem"]
+    beats_f = S.SONGS / sid / "beats.json" if sid and (S.SONGS / sid / "beats.json").exists() else L.AUDIO / f"{key}.beats.json"
+    data = read_json(beats_f) or {}
+    raw = data.get("beats") or []
+    if len(raw) < 2:
+        raise RuntimeError("no hay pulsos: primero sácalos (Pulsos)")
+    m_new = int(meter) if str(meter).strip() else (data.get("meter") or 4)
+    if not 2 <= m_new <= 32:
+        raise ValueError(f"compás {m_new} fuera de rango (2-32)")
+    beats = B.clean_beats(raw)
+    sh = int(shift) if str(shift).strip() else 0
+    _, downs = B.manual_grid(beats, data.get("downbeats") or [], data.get("meter") or 4, m_new, sh)
+    data["downbeats"] = [round(t, 3) for t in downs]
+    data["meter"] = m_new
+    data["meterFrom"] = "manual"
+    if sid and beats_f == S.SONGS / sid / "beats.json":
+        with meta_lock(sid):
+            write_json(beats_f, data)
+    else:
+        write_json(beats_f, data)
+    emit("done", meter=m_new, downbeats=len(downs))
 
 
 QUALITY = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7", "dim": "dim", "aug": "aug", "hdim7": "m7b5", "dim7": "dim7",
@@ -1725,7 +1791,8 @@ COMMANDS = {
     "restore": restore, "delete": delete, "ensemble": ensemble, "beats": beats, "audio": audio, "vocals": vocals, "whisper": whisper,
     "ctc": ctc, "find": find, "align": align, "separate": separate, "notes": notes, "chords": chords, "prefetch": prefetch, "unfail": unfail, "rebalance": rebalance, "audio_align": audio_align,
     "remote_list": remote_list, "remote_sync": remote_sync, "ai_test": ai_test, "beautify_review": beautify_review,
-    "midi_optimize": midi_optimize, "midi_patch": midi_patch, "score_of": score_of, "track_delete": track_delete,
+    "midi_optimize": midi_optimize, "midi_patch": midi_patch, "score_of": score_of, "track_delete": track_delete, "stem_delete": stem_delete,
+    "meter_set": meter_set,
 }
 
 

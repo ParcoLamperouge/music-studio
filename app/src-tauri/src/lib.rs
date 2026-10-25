@@ -836,7 +836,7 @@ async fn song(key: String) -> Result<Value, String> {
 /// Órdenes inmediatas (no van a la cola): rápidas o que la vista espera.
 #[tauri::command]
 async fn run_cmd(cmd: String, args: Vec<String>) -> Result<Value, String> {
-    const OK: [&str; 13] = ["ensemble", "restore", "delete", "search", "add", "assign", "plan", "unfail", "remote_list", "ai_test", "beautify_review", "score_of", "track_delete"];
+    const OK: [&str; 15] = ["ensemble", "restore", "delete", "search", "add", "assign", "plan", "unfail", "remote_list", "ai_test", "beautify_review", "score_of", "track_delete", "stem_delete", "meter_set"];
     if !OK.contains(&cmd.as_str()) {
         return Err(format!("orden no permitida: {cmd}"));
     }

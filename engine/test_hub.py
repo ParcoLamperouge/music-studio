@@ -41,6 +41,22 @@ assert hub.stem_state(key) == "repair"
 hub.write_json(d / "meta.json", {"id": key, "title": "DNA", "stems": [{"name": s, "file": f"stems/{s}.wav", "present": True} for s in S.STEMS]})
 assert hub.stem_state(key) == "complete"
 
+# borrar una pista separada: wav fuera, las pistas midi derivadas caen con ella, y la canción sigue «complete»
+hub.write_json(d / "meta.json", {"id": key, "title": "DNA", "stems": [{"name": s, "file": f"stems/{s}.wav", "present": True} for s in S.STEMS],
+                                "tracks": [{"name": "piano.opt1", "kind": "midi", "of": "piano", "roll": "rolls/piano.opt1.roll", "score": None}]})
+(d / "rolls").mkdir()
+(d / "rolls" / "piano.opt1.roll").write_text("[]")
+hub.stem_delete(key, "piano")
+assert not (d / "stems" / "piano.wav").exists() and not (d / "rolls" / "piano.opt1.roll").exists()
+meta = hub.read_json(d / "meta.json")
+assert meta["tracks"] == [] and next(st for st in meta["stems"] if st["name"] == "piano")["present"] is False
+assert hub.stem_state(key) == "complete"  # las pistas present:false no la marcan como partial
+try:
+    hub.stem_delete(key, "trombone")
+    assert False
+except ValueError:
+    pass
+
 # la voz de StemLab manda (mismo audio) y el plan de la letra no separa ni carga la GPU para ella
 s = hub.resolve(key)
 assert s["stem"] == key and hub.stem_vocals(s) == d / "stems" / "vocals.wav"
@@ -90,5 +106,20 @@ assert abs(sf.info(str(f)).duration - 2.0) < 0.01 and sf.info(str(f)).subtype ==
 hub.shift_audio_file(f, -0.5)
 x, _ = sf.read(str(f))
 assert abs(len(x) / 44100 - 2.5) < 0.01 and x[:100].max() == 0 and x[-1].max() > 0.4
+
+# compás a mano: reescribe los downbeats en beats.json (la única fuente, motor y app leen igual)
+hub.write_json(d / "beats.json", {"bpm": 120, "beats": [1 + i * 0.5 for i in range(24)], "downbeats": [1 + i * 2 for i in range(6)], "meter": 4, "from": "beat_this"})
+hub.meter_set(f"stem:{key}", "3", "1")
+bi = hub.read_json(d / "beats.json")
+assert bi["meter"] == 3 and bi["meterFrom"] == "manual"
+assert bi["downbeats"][:3] == [1.5, 3.0, 4.5], bi["downbeats"]  # fase un pulso adelante, cada 3
+hub.meter_set(f"stem:{key}", "", "-1")  # y de vuelta: la rejilla reescrita vota estable
+bi = hub.read_json(d / "beats.json")
+assert bi["meter"] == 3 and bi["downbeats"][:3] == [1.0, 2.5, 4.0], bi["downbeats"]
+
+# el roll sale con el compás (y la mano) al día, venga de un stem de 4 columnas o de un cambio de compás
+tl = hub.B.Timeline.from_beats([1 + i * 0.5 for i in range(24)], [1.0, 2.5], 3)
+rows = hub.B.refresh_bars([[1.2, 1.4, 60, 0.5, 99, "lh"], [1.5, 2.0, 64, 0.6]], tl)
+assert rows[0][4] == 0 and rows[0][5] == "lh" and rows[1][4] == 0 and rows[1][5] == "rh", rows
 
 print("hub ok")

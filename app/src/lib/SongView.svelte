@@ -6,6 +6,7 @@
   import EditsTab from "./EditsTab.svelte";
   import { enqueue, fmtClock, log, PITCHED, readBytes, readJson, run, songDetail, SOURCE_LABEL, STEM_INFO, viewPath, writeJson, type Detail, type Job, type MidiTrack, type Track } from "./engine";
 import { toBeat } from "./arrange";
+import { barStarts, firstDownbeat, meterLabel } from "./beats";
   import { analyze, degree, fromModel, keyName, named, type Harmony, type Note } from "./harmony";
   import { engineErr, t } from "./i18n.svelte";
   import { ledOf, type Led } from "./Leds.svelte";
@@ -15,7 +16,7 @@ import { toBeat } from "./arrange";
   import { CLICK, peaks, Player } from "./player";
   import { takeSeek } from "./progindex";
   import Roll from "./Roll.svelte";
-  import { settings } from "./settings.svelte";
+  import { settings, saveSettings } from "./settings.svelte";
   import { jobOf, jobText, live, store, type Stage } from "./store.svelte";
   import Transport from "./Transport.svelte";
   import Button from "./ui/Button.svelte";
@@ -77,6 +78,7 @@ import { toBeat } from "./arrange";
   // svelte-ignore state_referenced_locally
   let tab = $state<Tab>(tabOf(initialTab) ?? "mix");
   let scoreHidden = $state<Record<string, boolean>>({});
+  let hidden = $state<Record<string, boolean>>({}); // pistas apartadas de la vista de Pistas (siguen sonando)
   let roll = $state<Record<string, boolean>>({}); // piano roll encendido en esa pista
   let review = $state(""); // la reseña del LLM (markdown), si la hay
   let reviewBusy = $state(false);
@@ -97,7 +99,7 @@ import { toBeat } from "./arrange";
   const tracks = $derived(
     stemlab ? stemlab.stems.map((s) => ({ name: s.name, path: `${stemlab.dir}/${s.file}`, present: s.present })) : detail?.audioPath ? [{ name: "mix", path: detail.audioPath, present: true }] : [],
   );
-  const sig = $derived(tracks.map((tr) => tr.path).join("|"));
+  const sig = $derived(tracks.map((tr) => `${tr.path}:${tr.present ? 1 : 0}`).join("|"));
 
   // ---- ficha: al abrir y cada vez que la cola cambia algo de esta canción
   const rev = $derived(store.rev[key] ?? 0);
@@ -139,7 +141,7 @@ import { toBeat } from "./arrange";
         if (muted[tr.name] == null) muted[tr.name] = !tr.present;
         if (solo[tr.name] == null) solo[tr.name] = false;
       }
-      await player.load(tracks);
+      await player.load(tracks.filter((tr) => tr.present));
       duration = player.duration;
       // onda de cada pista (0-1), para su carril
       const lp: Record<string, number[]> = {};
@@ -171,13 +173,14 @@ import { toBeat } from "./arrange";
   let stored = {}; // lo guardado por otras vistas (Aprender: lhOff) se conserva al guardar
   $effect(() => {
     untrack(async () => {
-      const view = await readJson(viewPath(key), { volume: {}, muted: {}, solo: {}, roll: {}, scoreHidden: {}, tab: "", metro: $state.snapshot(metro) });
+      const view = await readJson(viewPath(key), { volume: {}, muted: {}, solo: {}, roll: {}, scoreHidden: {}, hidden: {}, tab: "", metro: $state.snapshot(metro) });
       stored = view;
       Object.assign(volume, view.volume);
       Object.assign(muted, view.muted);
       Object.assign(solo, view.solo);
       Object.assign(roll, view.roll);
       Object.assign(scoreHidden, view.scoreHidden);
+      Object.assign(hidden, view.hidden);
       if (!initialTab && tabOf(view.tab)) tab = tabOf(view.tab)!;
       if (initialTab === "roll" || (!initialTab && view.tab === "roll")) for (const s of stems) roll[s.name] = !!s.roll;
       Object.assign(metro, view.metro, { on: false });
@@ -187,7 +190,7 @@ import { toBeat } from "./arrange";
   let flush: (() => void) | null = null;
   $effect(() => {
     if (!restored) return;
-    const view = $state.snapshot({ volume, muted, solo, roll, scoreHidden, tab, metro });
+    const view = $state.snapshot({ volume, muted, solo, roll, scoreHidden, hidden, tab, metro });
     const k = untrack(() => key);
     flush = () => {
       flush = null;
@@ -277,6 +280,31 @@ import { toBeat } from "./arrange";
       : (i: number) => (((i - shift) % meter) + meter) % meter === 0;
     untrack(() => player.setClicks(beats, accent));
   });
+  // compases de la canción (la regla del motor, en beats.ts): rayas en el roll y en la tira, y el compás a la vista
+  const barSecs = $derived(beatData && total > 0 ? barStarts(beatData, total) : []);
+  const meterTxt = $derived(beatData?.meter ? meterLabel(beatData.meter) : "");
+  // compás a mano: Tabs + mover un pulso — reescribe beats.json (meter_set), la única fuente
+  const meterOptions = $derived.by(() => {
+    const cur = beatData?.meter ?? 4;
+    const base = [2, 3, 4, 6].map((m) => ({ value: String(m), label: meterLabel(m) }));
+    return base.some((o) => +o.value === cur) ? base : [{ value: String(cur), label: meterLabel(cur) }, ...base];
+  });
+  async function setMeter(m: number) {
+    try {
+      await run("meter_set", [key, String(m)]);
+      detailTick++;
+    } catch (e) {
+      log(engineErr(String(e)));
+    }
+  }
+  async function shiftBar(d: number) {
+    try {
+      await run("meter_set", [key, "", String(d)]);
+      detailTick++;
+    } catch (e) {
+      log(engineErr(String(e)));
+    }
+  }
 
   // ---- partitura de conjunto (sin IA; la letra de la voz sale de Letras)
   const scored = $derived(stems.filter((s) => s.score));
@@ -370,8 +398,8 @@ import { toBeat } from "./arrange";
   const loopBars = $derived.by(() => {
     const bd = beatData;
     if (!loop || !bd?.beats?.length) return null;
-    const startBeat = bd.downbeats?.length ? bd.beats.findIndex((b) => Math.abs(b - (bd.downbeats as number[])[0]) < 0.25) : 0;
     const meter = bd.meter ?? 4;
+    const startBeat = firstDownbeat(bd.beats, bd.downbeats, meter); // la misma fase con la que cuadrará el motor
     const bar = (t: number) => Math.max(0, Math.floor((toBeat(bd.beats, t) - startBeat) / meter));
     const lo = bar(loop.a), hi = bar(Math.max(loop.a, loop.b - 0.01));
     return [lo, hi] as [number, number];
@@ -396,6 +424,41 @@ import { toBeat } from "./arrange";
     } catch (e) {
       log(engineErr(String(e)));
     }
+  }
+  async function delStem(name: string) {
+    if (!confirm(t("Se borra la pista {name}, su transcripción y las pistas midi que de ella derivan. Separar de nuevo la restaura.", { name: t(STEM_INFO[name]?.label ?? name) }))) return;
+    try {
+      await run("stem_delete", [key, name]);
+      detailTick++;
+    } catch (e) {
+      log(engineErr(String(e)));
+    }
+  }
+
+  // ---- piano roll de altura arrastrable (settings.rollHeight; null: automática, el resto del sitio)
+  let mixEl: HTMLElement | undefined = $state();
+  function rollResize(e: PointerEvent) {
+    const wrap = mixEl;
+    if (!wrap) return;
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    const startY = e.clientY, startH = settings.rollHeight ?? (el.nextElementSibling as HTMLElement | null)?.offsetHeight ?? 320;
+    // el máximo deja sitio exacto al tirador y a los dos «gap» del mixwrap: si no, el roll se pasa y se recorta abajo
+    const gap = parseFloat(getComputedStyle(wrap).rowGap) || 0;
+    const maxH = Math.max(200, wrap.clientHeight - el.offsetHeight - gap);
+    el.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      settings.rollHeight = Math.round(Math.min(maxH, Math.max(140, startH + startY - ev.clientY)));
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      saveSettings();
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
   }
 
   // ---- la partitura de una pista midi: métrica (para seguir la música) y reseña del LLM
@@ -617,6 +680,32 @@ import { toBeat } from "./arrange";
 
 <svelte:window onkeydown={onkey} />
 
+{#snippet pistasMenu()}
+  {@const n = Object.values(hidden).filter(Boolean).length}
+  {@const m = stems.filter((s) => !s.present && !hidden[s.name]).length}
+  <Popover side="bottom" align="start" width={220} label={t("Mostrar todas las pistas")}>
+    {#snippet trigger({ toggle })}
+      <span
+        class="tab-more"
+        class:dim={!n && !m}
+        role="button"
+        tabindex="-1"
+        aria-label={t("Mostrar todas las pistas")}
+        title={t("Mostrar todas las pistas")}
+        onclick={toggle}
+        onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}
+      >
+        <Icon name="more" size={12} />
+        {#if n}<small class="num">{n}</small>{/if}
+      </span>
+    {/snippet}
+    <div class="pane menu">
+      <Button variant="ghost" size="sm" icon="hidden" disabled={!m} onclick={() => (hidden = { ...hidden, ...Object.fromEntries(stems.filter((s) => !s.present).map((s) => [s.name, true])) })}>{t("Apartar las pistas sin contenido")}</Button>
+      <Button variant="ghost" size="sm" icon="eye" disabled={!n} onclick={() => (hidden = {})}>{t("Mostrar todas las pistas")}</Button>
+    </div>
+  </Popover>
+{/snippet}
+
 {#snippet controls()}
   {#if settings.showMini && !loading && stemlab}<MiniMixer {stems} bind:volume bind:muted bind:solo />{/if}
   <Transport {playing} {time} {duration} bind:volume={settings.masterVolume} disabled={loading || !tracks.length} ontoggle={toggle} onseek={seek} />
@@ -668,6 +757,7 @@ import { toBeat } from "./arrange";
         <div class="chips">
           {#if keyLabel}<Chip icon="chords" title={t("Tonalidad")}>{keyLabel}</Chip>{/if}
           {#if beatData || track.bpm}<Chip icon="metronome" title={t("Tempo")}>{Math.round(beatData?.bpm ?? track.bpm ?? 0)} BPM</Chip>{/if}
+          {#if meterTxt}<Chip title={t("Compás")}>{meterTxt}</Chip>{/if}
           {#if total}<Chip icon="wait" title={t("Duración")}>{fmtClock(total)}</Chip>{/if}
           {#if busy.length}<Chip icon="queue" title={t("Trabajos de esta canción en la cola")} count={busy.length}>{t("En cola")}</Chip>{/if}
         </div>
@@ -694,7 +784,7 @@ import { toBeat } from "./arrange";
     <section class="deck" aria-label={t("Transporte")}>
       <PlayButton {playing} size={44} disabled={loading || !tracks.length} onclick={toggle} />
       <div class="strip">
-        <MasterStrip big duration={total} {time} {sections} chords={namedChords} tonality={shownHarmony?.key} energy={waves[key]} {loop} onloop={(l) => (loop = l)} onseek={seek} />
+        <MasterStrip big duration={total} {time} {sections} chords={namedChords} bars={barSecs} tonality={shownHarmony?.key} energy={waves[key]} {loop} onloop={(l) => (loop = l)} onseek={seek} />
       </div>
       <div class="side">
         <span class="clock num">{fmtClock(time)}<small>/{fmtClock(total)}</small></span>
@@ -711,7 +801,12 @@ import { toBeat } from "./arrange";
                 <Slider bind:value={metro.volume} max={1.5} label={t("Volumen del metrónomo")} />
                 <Tabs size="sm" options={[{ value: "0.5", label: "×½" }, { value: "1", label: "×1" }, { value: "2", label: "×2" }]} value={String(metro.factor)} onchange={(v) => (metro.factor = +v)} label={t("Velocidad")} />
                 {#if downbeats.length}
-                  <small class="note">{beatData.meter ?? 4} {t("pulsos por compás · acento en el 1")}</small>
+                  <div class="row">
+                    <Tabs size="sm" options={meterOptions} value={String(beatData.meter ?? 4)} onchange={(v) => void setMeter(+v)} label={t("Compás")} />
+                    <Button size="sm" variant="ghost" title={t("Mover el compás un pulso atrás")} onclick={() => void shiftBar(-1)}>‹</Button>
+                    <Button size="sm" variant="ghost" title={t("Mover el compás un pulso adelante")} onclick={() => void shiftBar(1)}>›</Button>
+                  </div>
+                  <small class="note">{t("Compás {label} · acento en el 1", { label: meterLabel(beatData.meter ?? 4) })}{beatData.meterFrom === "manual" ? ` · ${t("a mano")}` : ""}</small>
                 {:else}
                   <div class="row">
                     <Tabs size="sm" options={[{ value: "3", label: "3/4" }, { value: "4", label: "4/4" }]} value={String(metro.meter)} onchange={(v) => ((metro.meter = +v), (metro.shift %= +v))} label={t("Compás")} />
@@ -741,7 +836,7 @@ import { toBeat } from "./arrange";
     </section>
     {#if settings.showMini && stemlab && tab !== "mix" && !loading}<div class="mini"><MiniMixer {stems} bind:volume bind:muted bind:solo /></div>{/if}
 
-    <Tabs variant="underline" options={TABS.map((x, i) => ({ ...x, label: t(x.label), title: `${t(x.label)} (${i + 1})`, count: x.value === "edits" && track.edits ? track.edits : undefined }))} bind:value={tab} label={t("Vistas de la canción")} />
+    <Tabs variant="underline" options={TABS.map((x, i) => ({ ...x, label: t(x.label), title: `${t(x.label)} (${i + 1})`, count: x.value === "edits" && track.edits ? track.edits : undefined, right: x.value === "mix" ? pistasMenu : undefined }))} bind:value={tab} label={t("Vistas de la canción")} />
 
     <div class="body" class:fill={tab !== "edits"}>
       {#if tab === "letra"}
@@ -762,7 +857,7 @@ import { toBeat } from "./arrange";
         {:else if loading}
           <div class="center"><ProgressRing value={null} size={28} label={t("Cargando audio")} /></div>
         {:else}
-          <div class="mixwrap" class:with-roll={rollShown}>
+          <div class="mixwrap" class:with-roll={rollShown} class:roll-fixed={settings.rollHeight != null} bind:this={mixEl}>
             {#if !stemlab}
               {@const j = working(stage(["separate"]))}
               <div class="cta" class:warn={track.stems === "partial"}>
@@ -777,7 +872,7 @@ import { toBeat } from "./arrange";
               </div>
             {/if}
             <div class="lanes">
-              {#each tracks as st (st.name)}
+              {#each tracks.filter((st) => !hidden[st.name]) as st (st.name)}
                 {@const meta = stems.find((s) => s.name === st.name)}
                 {@const nj = notesJob(st.name)}
                 {@const oj = midiJob(st.name)}
@@ -811,6 +906,15 @@ import { toBeat } from "./arrange";
                           <IconButton icon="midi" label={t("Optimizar MIDI · {stem}", { stem: t(STEM_INFO[st.name]?.label ?? st.name) })} size="sm" onclick={() => act("midi_optimize", [st.name])} />
                         {/if}
                       {/if}
+                      <Popover side="bottom" align="end" width={280} label={t("Más acciones de la pista")}>
+                        {#snippet trigger({ toggle })}
+                          <IconButton icon="more" label={t("Más acciones de la pista")} size="sm" onclick={toggle} />
+                        {/snippet}
+                        <div class="pane menu">
+                          <Button variant="ghost" size="sm" icon="hidden" title={t("La pista se aparta de la vista pero sigue sonando; recupérala en el menú ⋯ de la pestaña Pistas")} onclick={() => (hidden[st.name] = true)}>{t("Apartar esta pista de la vista")}</Button>
+                          <Button variant="ghost" size="sm" icon="trash" onclick={() => void delStem(st.name)}>{t("Borrar esta pista separada")}</Button>
+                        </div>
+                      </Popover>
                       </div>
                     </div>
                     <div class="lane-bot">
@@ -871,8 +975,16 @@ import { toBeat } from "./arrange";
               {/each}
             </div>
             {#if rollShown}
-              <div class="roll">
-                <Roll {player} tracks={rollTracks} {controls} bind:windowSec={settings.rollSpeed} ontoggle={(s) => toggleRoll(s)} chords={namedChords} {keyLabel} tonality={shownHarmony?.key} />
+              <div
+                class="roll-handle"
+                role="separator"
+                aria-orientation="horizontal"
+                title={t("Arrastra para cambiar la altura del piano roll · doble clic: automática")}
+                onpointerdown={rollResize}
+                ondblclick={() => { settings.rollHeight = null; saveSettings(); }}
+              ><i></i></div>
+              <div class="roll" class:fixed={settings.rollHeight != null} style:height={settings.rollHeight != null ? `${settings.rollHeight}px` : null}>
+                <Roll {player} tracks={rollTracks} {controls} bind:windowSec={settings.rollSpeed} ontoggle={(s) => toggleRoll(s)} chords={namedChords} bars={barSecs} meter={meterTxt} {keyLabel} tonality={shownHarmony?.key} />
               </div>
             {/if}
           </div>
@@ -1030,6 +1142,7 @@ import { toBeat } from "./arrange";
   .cta-txt strong { font-weight: 600; }
   .badges { display: flex; gap: var(--s2); }
   .lanes { display: flex; flex-direction: column; gap: var(--s1); }
+  .lanes > .lane:has(:global(.popover)) { z-index: 5; } /* el menú «···» abierto no queda tapado por las pistas de abajo (la opacity de .off crea su propio contexto) */
   .lane {
     flex-shrink: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); align-items: stretch; min-height: 0;
     border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); overflow: hidden;
@@ -1053,7 +1166,15 @@ import { toBeat } from "./arrange";
   .msw { display: flex; }
   .menu { gap: 2px; }
   .menu :global(.btn) { justify-content: flex-start; width: 100%; }
+  .tab-more { display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px; margin-left: 2px; border-radius: var(--r-sm); color: inherit; cursor: pointer; transition: background var(--t-fast); }
+  .tab-more:hover { background: var(--panel-hi); }
+  .tab-more small { font-size: var(--fs-xs); color: inherit; }
   .roll { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
+  .roll.fixed { flex: none; min-height: 0; max-height: calc(100% - 10px - var(--s2) * 2); } /* 100% = el mixwrap: tirador + 2 gaps descontados, por si un valor guardado se pasa */
+  .roll-handle { flex-shrink: 0; display: grid; place-items: center; height: 10px; cursor: ns-resize; touch-action: none; user-select: none; }
+  .roll-handle i { width: 36px; height: 4px; border-radius: 2px; background: var(--line-hi); transition: background var(--t-fast); }
+  .roll-handle:hover i, .roll-handle:active i { background: var(--text-3); }
+  .mixwrap.roll-fixed .lanes { flex: 1 1 0; min-height: 0; max-height: none; }
 
   .picker { display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center; margin-bottom: var(--s2); flex-shrink: 0; }
 

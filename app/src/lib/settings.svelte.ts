@@ -9,6 +9,9 @@ export const settings = $state({
   masterVolume: 1,
   showMini: false,
   rollSpeed: 2.5,
+  rollHeight: null as number | null, // altura del piano roll arrastrada por el usuario; null: automática (el resto del sitio)
+  rollBars: true, // rayas de compás (con número) en el piano roll
+  rollChords: true, // raya naranja en cada cambio de acorde, con su nombre a la derecha
   rollStyle: { ...ROLL_DEFAULT }, // aspecto del piano roll de Aprender (rollfx.ts)
   scoreFollow: true,
   spotify: true, // sincronizar sola lo que suena en Spotify

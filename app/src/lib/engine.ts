@@ -94,7 +94,7 @@ export type Detail = Track & {
   stemlab: Song | null;
   audioPath: string | null;
   drumsPath: string | null;
-  beatData: { bpm: number; beats: number[]; downbeats?: number[]; meter?: number; from?: string } | null;
+  beatData: { bpm: number; beats: number[]; downbeats?: number[]; meter?: number; from?: string; meterFrom?: "manual" | "beat_this" | "llm" } | null;
   chordData: { chords: { t: number; end: number; root: number; kind: string; bass: number }[]; from: string } | null;
   duration: number;
 };

@@ -137,13 +137,15 @@
   type Note = [start: number, end: number, pitch: number, velocity: number];
   type Track = { stem: string; name: string; color: string; path: string; hidden: boolean; notes?: Note[] }; // notes: ya en memoria
 
-  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], keyLabel = "", tonality, lit, title = "Piano roll", fx = false, tools }: {
+  let { player, tracks, controls, ontoggle, windowSec = $bindable(2.5), chords = [], bars = [], meter = "", keyLabel = "", tonality, lit, title = "Piano roll", fx = false, tools }: {
     player: Player;
     tracks: Track[];
     controls: Snippet; // transporte, para la pantalla completa
     ontoggle: (stem: string) => void;
     windowSec?: number; // segundos visibles por encima del teclado: más = notas más lentas
     chords?: { t: number; end: number; name: string; deg?: string }[]; // cambios de acorde y su grado (de harmony.ts)
+    bars?: number[]; // segundo donde empieza cada compás (beats.ts): raya y número, para juzgar la cuadratura
+    meter?: string; // "4/4", a la vista junto al título
     keyLabel?: string; // tonalidad
     tonality?: Key; // para escribir las notas como en su tonalidad (Sib en Fa mayor, no La#)
     lit?: () => Map<number, string>; // teclas que se iluminan además de lo que suena (lo que toca quien practica)
@@ -233,9 +235,23 @@
         g.fillRect(0, 0, width, rollH);
       }
 
-      // guías en cada Do
+      // guías en cada Do: una por octava, para ubicar el registro (siempre, son casi invisibles)
       g.fillStyle = effects ? "#ffffff08" : "#ffffff0d";
       for (const [p, k] of keys) if (p % 12 === 0) g.fillRect(k.x, 0, 1, rollH);
+
+      // compases (beats.ts, la regla del motor): raya al caer cada uno y su número a la izquierda
+      if (settings.rollBars) {
+        g.font = "600 11px 'JetBrains Mono Variable', monospace";
+        for (let i = 0; i < bars.length; i++) {
+          const t0 = bars[i];
+          if (t0 < tr || t0 > tr + windowSec) continue;
+          const y = rollH * (1 - (t0 - tr) / windowSec);
+          g.fillStyle = "#ffffff2e";
+          g.fillRect(0, y, width, 1);
+          g.fillStyle = "#f3ead980";
+          g.fillText(String(i + 1), 8, y - 4);
+        }
+      }
 
       const active = new Map<number, string>();
       if (effects) {
@@ -283,30 +299,32 @@
       g.globalAlpha = 1;
       g.shadowBlur = 0;
 
-      // acordes: cada cambio cae con las notas, y el que suena va arriba a la izquierda
-      g.font = "600 13px 'JetBrains Mono Variable', monospace";
-      for (const c of chords) {
-        if (c.t < tr || c.t > tr + windowSec) continue;
-        const y = rollH * (1 - (c.t - tr) / windowSec);
-        g.fillStyle = "#f29d3840";
-        g.fillRect(0, y, width, 1);
-        const deg = c.deg ? ` ${c.deg}` : "";
+      // acordes: cada cambio cae con las notas (settings.rollChords), y el que suena va arriba a la izquierda
+      if (settings.rollChords) {
         g.font = "600 13px 'JetBrains Mono Variable', monospace";
-        const nw = g.measureText(c.name).width;
-        g.font = "500 11px 'JetBrains Mono Variable', monospace";
-        const dw = deg ? g.measureText(deg).width : 0;
-        const x = width - nw - dw - 26;
-        g.fillStyle = "#15110ee6";
-        g.beginPath();
-        g.roundRect(x - 8, y - 22, nw + dw + 16, 19, 6);
-        g.fill();
-        g.font = "600 13px 'JetBrains Mono Variable', monospace";
-        g.fillStyle = "#f6b24a";
-        g.fillText(c.name, x, y - 8);
-        if (deg) {
+        for (const c of chords) {
+          if (c.t < tr || c.t > tr + windowSec) continue;
+          const y = rollH * (1 - (c.t - tr) / windowSec);
+          g.fillStyle = "#f29d3840";
+          g.fillRect(0, y, width, 1);
+          const deg = c.deg ? ` ${c.deg}` : "";
+          g.font = "600 13px 'JetBrains Mono Variable', monospace";
+          const nw = g.measureText(c.name).width;
           g.font = "500 11px 'JetBrains Mono Variable', monospace";
-          g.fillStyle = "#b9ac98";
-          g.fillText(deg, x + nw, y - 8);
+          const dw = deg ? g.measureText(deg).width : 0;
+          const x = width - nw - dw - 26;
+          g.fillStyle = "#15110ee6";
+          g.beginPath();
+          g.roundRect(x - 8, y - 22, nw + dw + 16, 19, 6);
+          g.fill();
+          g.font = "600 13px 'JetBrains Mono Variable', monospace";
+          g.fillStyle = "#f6b24a";
+          g.fillText(c.name, x, y - 8);
+          if (deg) {
+            g.font = "500 11px 'JetBrains Mono Variable', monospace";
+            g.fillStyle = "#b9ac98";
+            g.fillText(deg, x + nw, y - 8);
+          }
         }
       }
       const cur = chords.find((c) => c.t <= tr && tr < c.end);
@@ -363,6 +381,7 @@
     {:else}
     <div class="legend">
       <strong>{title}</strong>
+      {#if meter}<span class="meter" title={t("Compás")}>{meter}</span>{/if}
       {#each tracks as tr (tr.stem)}
         <button class="chip" class:off={tr.hidden} onclick={() => ontoggle(tr.stem)} title={tr.hidden ? t("Mostrar") : t("Ocultar")}>
           <i style:background={fx ? fxColor(style(), tracks.indexOf(tr)) : tr.color}></i>{tr.name}
@@ -402,6 +421,12 @@
           {/if}
         </div>
       {/if}
+      <label class="check" title={t("Raya al caer cada compás, con su número a la izquierda")}>
+        <input type="checkbox" bind:checked={settings.rollBars} />{t("Raya de compás")}
+      </label>
+      <label class="check" title={t("Marca cada cambio de acorde, con su nombre a la derecha")}>
+        <input type="checkbox" bind:checked={settings.rollChords} />{t("Raya de acorde")}
+      </label>
       <label title={t("Velocidad a la que caen las notas: cuántos segundos se ven antes de sonar")}>
         {t("Caída")}
         <input type="range" min="1" max="6" step="0.5" value={7 - windowSec} oninput={(e) => (windowSec = 7 - +e.currentTarget.value)} />
@@ -424,9 +449,12 @@
   .legend strong { font-weight: 600; }
   .legend i { width: 8px; height: 8px; border-radius: 50%; }
   .legend small { color: var(--text-3); font-size: 11.5px; }
+  .legend .meter { color: var(--text-2); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .tools label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
   .tools label input { width: 70px; }
+  .tools label.check { gap: 4px; font-size: 11.5px; cursor: pointer; user-select: none; }
+  .tools label.check input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); cursor: pointer; }
   .hand { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .style-wrap { position: relative; }
   .style-pop { position: absolute; right: 0; top: calc(100% + 6px); width: 300px; }

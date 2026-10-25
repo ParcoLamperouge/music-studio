@@ -97,6 +97,16 @@ def first_downbeat_index(beats, downbeats, meter):
     return next(i for i in idx if i % meter == mod)
 
 
+def manual_grid(beats, downbeats, meter_old, meter_new, shift=0):
+    """Rejilla de downbeats puesta a mano: la fase actual (por votación) movida `shift` pulsos,
+    con la métrica nueva. Devuelve (pulso inicial, tiempos de downbeat). Sobre esta rejilla
+    reescrita, la votación siguiente devuelve exactamente la misma fase: se puede seguir
+    moviendo de uno en uno."""
+    start = first_downbeat_index(beats, downbeats or [], meter_old)
+    start = max(0, min(start + shift, len(beats) - 1))
+    return start, [beats[i] for i in range(start, len(beats), meter_new)]
+
+
 # ---------------------------------------------------------------- Timeline
 
 class Timeline:
@@ -224,9 +234,10 @@ def rows_groups(rows, timeline):
     return groups
 
 
-def bar_of_row(r, timeline):
-    """Compás de una fila de roll (con compás guardado o recalculado)."""
-    return r[4] if len(r) > 4 else timeline.bar_of_unit(timeline.to_unit(r[0]))
+def refresh_bars(rows, timeline):
+    """Roll con el compás (y la mano) al día en cada fila: el guardado caduca si el compás se
+    corrigió a mano, y los tramos copiados de un stem vienen sin esas columnas."""
+    return [[r[0], r[1], r[2], r[3], timeline.bar_of_unit(timeline.to_unit(r[0])), r[5] if len(r) > 5 else "rh"] for r in rows]
 
 
 # ---------------------------------------------------------------- manos

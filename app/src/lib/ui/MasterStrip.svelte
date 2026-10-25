@@ -7,11 +7,12 @@
   // La canción entera en una tira: secciones, acordes (color por función) y energía, con el cursor de reproducción.
   // Pulsar o arrastrar en cualquier sitio salta ahí; flechas ←/→ mueven 5 s. `compact`: la del mini-reproductor; `big`: la
   // de la página de la canción. Con `onloop`, Mayús+arrastrar marca un bucle (`loop`, franja de acento).
-  let { duration, time, sections = [], chords = [], tonality, energy, compact = false, big = false, loop = null, onloop, onseek }: {
+  let { duration, time, sections = [], chords = [], bars = [], tonality, energy, compact = false, big = false, loop = null, onloop, onseek }: {
     duration: number;
     time: number;
     sections?: Section[];
     chords?: { t: number; end: number; root: number; kind: string; name: string }[];
+    bars?: number[]; // dónde empieza cada compás (beats.ts): rayas, para arrastrar el bucle por compases
     tonality?: Key | null;
     energy?: number[] | null;
     compact?: boolean;
@@ -123,6 +124,7 @@
       <path d={area} class="e-played" clip-path="url(#played-{uid})" />
     </svg>
   {/if}
+  {#if bars.length}<div class="bars" aria-hidden="true">{#each bars as b, i (i)}<i style:left={pct(b)}></i>{/each}</div>{/if}
   {#if loop}<i class="loop" style:left={pct(loop.a)} style:width={span(loop.a, loop.b)}></i>{/if}
   {#if hover != null}
     <i class="hov" style:left={pct(hover)}><span class="num">{fmtClock(hover)}</span></i>
@@ -169,6 +171,8 @@
   .e-played { fill: var(--text-3); }
 
   .head, .hov { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; pointer-events: none; }
+  .bars { position: absolute; top: 0; bottom: 0; left: 0; right: 0; pointer-events: none; }
+  .bars i { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--text) 28%, transparent); }
   .head { background: var(--text); border-radius: 1px; box-shadow: 0 0 0 1px var(--bg); }
   .hov { background: var(--text-3); width: 1px; }
   .hov span {
